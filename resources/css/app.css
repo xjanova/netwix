@@ -1,0 +1,130 @@
+@import 'tailwindcss';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+@source '../**/*.blade.php';
+@source '../**/*.js';
+
+/* ============================================================
+   NetWix design tokens — mirrors the theme mockups
+   ============================================================ */
+@theme {
+    --font-sans: 'Kanit', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
+        'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+    --color-ink: #07050c;        /* page background            */
+    --color-ink-2: #0d0913;      /* sidebar / raised ink       */
+    --color-surface: #120e1a;    /* modal / card surface       */
+    --color-surface-2: #1c1826;  /* input background           */
+    --color-panel: #141020;      /* admin panel gradient top   */
+    --color-panel-2: #0e0a17;    /* admin panel gradient base  */
+    --color-cream: #f4f1f8;      /* primary text               */
+    --color-brand: #ff2d55;      /* NetWix pink                */
+    --color-brand-2: #b026ff;    /* NetWix purple              */
+    --color-brand-3: #8b2ff0;    /* purple accent              */
+    --color-success: #46d369;    /* match / positive           */
+    --color-gold: #f5c518;       /* rating / kids badge        */
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+@layer base {
+    html {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+    }
+
+    body {
+        margin: 0;
+        background: var(--color-ink);
+        color: var(--color-cream);
+        font-family: var(--font-sans);
+        -webkit-font-smoothing: antialiased;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: 'tnum' 1;
+    }
+
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 4px;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+        color: rgba(244, 241, 248, 0.32);
+    }
+}
+
+/* ============================================================
+   Utilities & components
+   ============================================================ */
+@utility no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    &::-webkit-scrollbar {
+        display: none;
+    }
+}
+
+@layer components {
+    .nx-gradient {
+        background-image: linear-gradient(135deg, var(--color-brand) 0%, var(--color-brand-2) 100%);
+    }
+    .nx-gradient-text {
+        background-image: linear-gradient(135deg, var(--color-brand) 0%, var(--color-brand-2) 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+    }
+
+    .btn-brand {
+        @apply inline-flex items-center justify-center gap-2 rounded-md px-6 py-3 font-bold text-white transition;
+        background-image: linear-gradient(135deg, var(--color-brand) 0%, var(--color-brand-2) 100%);
+        box-shadow: 0 10px 28px rgba(176, 38, 255, 0.38);
+    }
+    .btn-brand:hover {
+        filter: brightness(1.12);
+    }
+
+    .btn-ghost {
+        @apply inline-flex items-center justify-center gap-2 rounded-md px-6 py-3 font-bold transition;
+        border: 1.5px solid rgba(244, 241, 248, 0.4);
+        color: var(--color-cream);
+    }
+    .btn-ghost:hover {
+        border-color: var(--color-cream);
+    }
+
+    .nx-input {
+        @apply w-full rounded-md px-4 py-3.5 text-[15px] text-cream outline-none transition;
+        background: var(--color-surface-2);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .nx-input:focus {
+        border-color: var(--color-brand);
+        box-shadow: 0 0 0 2px rgba(255, 45, 85, 0.35);
+    }
+
+    .nx-card {
+        background-image: linear-gradient(160deg, var(--color-panel) 0%, var(--color-panel-2) 100%);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 14px;
+    }
+
+    /* horizontal content rail */
+    .nx-rail {
+        @apply flex gap-2 overflow-x-auto no-scrollbar scroll-smooth;
+        scroll-snap-type: x proximity;
+    }
+    .nx-rail > * {
+        scroll-snap-align: start;
+    }
+}

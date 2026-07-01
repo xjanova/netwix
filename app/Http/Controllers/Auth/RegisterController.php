@@ -1,0 +1,53 @@
+<?php
+
+namespace App\Http\Controllers\Auth;
+
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
+use Illuminate\View\View;
+
+class RegisterController extends Controller
+{
+    public function show(): View
+    {
+        return view('auth.register');
+    }
+
+    public function register(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+            'password' => ['required', 'confirmed', Password::min(8)],
+        ], [
+            'name.required' => 'กรุณากรอกชื่อ',
+            'email.required' => 'กรุณากรอกอีเมล',
+            'email.unique' => 'อีเมลนี้ถูกใช้งานแล้ว',
+            'password.required' => 'กรุณากรอกรหัสผ่าน',
+            'password.confirmed' => 'การยืนยันรหัสผ่านไม่ตรงกัน',
+            'password.min' => 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร',
+        ]);
+
+        $user = User::create([
+            'name' => $data['name'],
+            'email' => $data['email'],
+            'password' => Hash::make($data['password']),
+        ]);
+
+        // Give every new account a starter profile.
+        $user->profiles()->create([
+            'name' => $data['name'],
+            'avatar_color' => '#8b2ff0',
+        ]);
+
+        Auth::login($user);
+        $request->session()->regenerate();
+
+        return redirect()->route('profiles.index');
+    }
+}

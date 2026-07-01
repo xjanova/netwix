@@ -1,0 +1,31 @@
+# ============================================================================
+#  NetWix — root .htaccess for DirectAdmin
+#  Deployed to  /home/admin/domains/netwix.online/public_html/.htaccess
+#
+#  The whole Laravel app lives in public_html/. The web server's DocumentRoot
+#  is public_html, so every request is rewritten into the framework's public/
+#  front controller. Because every path is prefixed with public/, a request
+#  for /.env resolves to public_html/public/.env (which does not exist) → 404,
+#  keeping the app source, .env, storage, vendor, etc. unreachable over HTTP.
+# ============================================================================
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Never rewrite requests that already target the public/ front controller.
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+# Defense in depth: explicitly deny the sensitive project files even if the
+# rewrite above is ever disabled.
+<FilesMatch "^(\.env.*|composer\.(json|lock)|package(-lock)?\.json|artisan|.*\.sh|README\.md|phpunit\.xml|vite\.config\.js)$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_alias.c>
+    RedirectMatch 404 /\.git
+    RedirectMatch 404 /(app|bootstrap|config|database|resources|routes|storage|tests|vendor|node_modules)/
+</IfModule>
+
+Options -Indexes
