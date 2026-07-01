@@ -4,19 +4,15 @@ use App\Http\Controllers\Admin;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\BrowseController;
+use App\Http\Controllers\HomeController;
 use App\Http\Controllers\InteractionController;
 use App\Http\Controllers\ProfileSelectionController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\TitleController;
 use App\Http\Controllers\WatchController;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return Auth::check()
-        ? redirect()->route('profiles.index')
-        : view('frontend.landing');
-})->name('home');
+Route::get('/', [HomeController::class, 'index'])->name('home');
 
 // ---- Guest auth --------------------------------------------------------
 Route::middleware('guest')->group(function () {
