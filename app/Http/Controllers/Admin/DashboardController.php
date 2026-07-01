@@ -23,7 +23,8 @@ class DashboardController extends Controller
         $contentTotal = Content::count();
 
         $revenue = collect(self::PLAN_PRICE)
-            ->sum(fn ($price, $plan) => $price * User::where('plan', $plan)->count());
+            ->map(fn ($price, $plan) => $price * User::where('plan', $plan)->count())
+            ->sum();
 
         $stats = [
             ['label' => 'สมาชิกทั้งหมด', 'value' => number_format($usersTotal), 'delta' => '▲ สมาชิกใหม่ '.User::whereDate('created_at', today())->count().' วันนี้', 'positive' => true, 'glow' => '#ff2d55'],
