@@ -123,6 +123,10 @@
     .nx-rail {
         @apply flex gap-2 overflow-x-auto no-scrollbar scroll-smooth;
         scroll-snap-type: x proximity;
+        /* keep the snap origin inside the rail's px-[4vw] padding — without this
+           the initial snap drags scrollLeft to the padding width, gluing the
+           first card to the viewport edge */
+        scroll-padding-inline: 4vw;
     }
     .nx-rail > * {
         scroll-snap-align: start;
