@@ -32,6 +32,34 @@
     @endforeach
 </div>
 
+{{-- Customer download requests --}}
+@if ($requestsTotal > 0)
+    <div class="nx-card mt-6 overflow-hidden border-brand/30">
+        <div class="flex items-center justify-between border-b border-white/5 bg-brand/[0.06] px-5 py-4">
+            <h3 class="flex items-center gap-2 text-base font-semibold">🔔 คำขอจากลูกค้า (รอโหลด)
+                <span class="nx-gradient rounded-full px-2 py-0.5 text-xs font-bold">{{ number_format($requestsTotal) }}</span>
+            </h3>
+            <span class="text-xs text-cream/50">ลูกค้ากดดูแต่ยังไม่ได้มิเรอร์ — NetwixSync จะโหลดให้ก่อน</span>
+        </div>
+        <div class="divide-y divide-white/[0.04]">
+            @foreach ($requests as $ep)
+                <div class="flex items-center gap-3 px-5 py-3">
+                    <span class="flex h-7 min-w-7 items-center justify-center rounded-full bg-brand/20 px-2 text-xs font-bold text-brand" title="จำนวนคำขอ">{{ $ep->mirror_requests }}×</span>
+                    <div class="min-w-0 flex-1">
+                        <div class="truncate text-sm font-medium">{{ $ep->content->title }} <span class="text-cream/50">· ตอนที่ {{ $ep->number }}</span></div>
+                        <div class="text-xs text-cream/40">ขอครั้งแรก {{ $ep->mirror_requested_at?->diffForHumans() }}</div>
+                    </div>
+                    <span class="rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] text-cream/60">รอ NetwixSync</span>
+                    <a href="{{ route('admin.contents.edit', $ep->content) }}" class="rounded-md bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10">ดูเรื่อง</a>
+                </div>
+            @endforeach
+        </div>
+        @if ($customerMirrored > 0)
+            <div class="border-t border-white/5 px-5 py-2.5 text-xs text-cream/45">โหลดตามคำขอลูกค้าไปแล้วทั้งหมด {{ number_format($customerMirrored) }} ตอน</div>
+        @endif
+    </div>
+@endif
+
 <div class="mt-6 grid gap-4 lg:grid-cols-[1fr_1.4fr]">
     {{-- Usage donut --}}
     <div class="nx-card flex items-center gap-6 p-6">

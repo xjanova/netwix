@@ -7,6 +7,7 @@
         'title' => $e->title,
         'url' => $e->video_url,
         'resolve' => ($e->source && ! $e->video_url) ? route('episode.source', $e) : null,
+        'request' => ($e->source === 'rongyok' && ! $e->video_url) ? route('mirror.request', $e) : null,
     ])->values();
 @endphp
 
@@ -26,10 +27,18 @@
                @click="togglePlay()"
                class="h-full w-full bg-black object-contain"></video>
 
+        {{-- preparing overlay (rongyok episode not mirrored yet) --}}
+        <div x-show="preparing" x-cloak class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/85 px-8 text-center">
+            <div class="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-brand"></div>
+            <div class="text-lg font-semibold">กำลังเตรียมวิดีโอ…</div>
+            <div class="max-w-xs text-sm text-cream/60">ตอนนี้ยังไม่ได้ดาวน์โหลดมาเก็บ ระบบได้เพิ่มเข้าคิวโหลดให้แล้ว (โหลดโดยลูกค้า) — เมื่อพร้อมจะเล่นอัตโนมัติ</div>
+            <div x-show="requests > 1" class="text-xs text-cream/40">มีผู้ขอดูตอนนี้แล้ว <span x-text="requests"></span> ครั้ง</div>
+        </div>
+
         {{-- gradient + caption --}}
         <div class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-5">
             <div class="text-lg font-bold">{{ $content->title }}</div>
-            <div class="text-sm text-cream/70">ตอนที่ <span x-text="episodes[index].n"></span> / {{ $eps->count() }}</div>
+            <div class="text-sm text-cream/70">ตอนที่ <span x-text="episodes[index]?.n"></span> / {{ $eps->count() }}</div>
         </div>
 
         {{-- nav --}}
@@ -50,31 +59,62 @@
             index: Math.min(cfg.start, Math.max(0, cfg.episodes.length - 1)),
             lock: false,
             touchY: 0,
+            preparing: false,
+            requests: 0,
+            _poll: null,
+            _requested: new Set(),
+
             init() {
                 if (this.episodes.length) this.load();
             },
+
+            stopPoll() {
+                if (this._poll) { clearInterval(this._poll); this._poll = null; }
+            },
+
             async load() {
+                this.stopPoll();
+                this.preparing = false;
                 const ep = this.episodes[this.index];
-                let url = ep?.url;
-                if (!url && ep?.resolve) {
-                    try {
-                        const r = await fetch(ep.resolve, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                        if (r.ok) url = (await r.json()).url;
-                    } catch (e) { /* ignore */ }
+                if (!ep) return;
+
+                if (ep.url) { this.attach(ep.url); return; }
+
+                const data = await this.tryResolve(ep);
+                if (data && data.ready && data.url) { this.attach(data.url); return; }
+
+                // Not available — queue a customer request and poll until it's mirrored.
+                this.requests = (data && data.requests) || 0;
+                this.preparing = true;
+                if (ep.request && !this._requested.has(ep.n)) {
+                    this._requested.add(ep.n);
+                    try { const r = await window.nxPost(ep.request); if (r && r.requests) this.requests = r.requests; } catch (e) {}
                 }
-                if (url) window.nxAttachVideo(this.$refs.video, url);
+                const myIndex = this.index;
+                this._poll = setInterval(async () => {
+                    if (this.index !== myIndex) { this.stopPoll(); return; }
+                    const d = await this.tryResolve(ep);
+                    if (d && d.ready && d.url) { this.stopPoll(); this.preparing = false; this.attach(d.url); }
+                }, 8000);
+            },
+
+            async tryResolve(ep) {
+                if (!ep.resolve) return null;
+                try {
+                    const r = await fetch(ep.resolve, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                    return await r.json();
+                } catch (e) { return null; }
+            },
+
+            attach(url) {
+                this.preparing = false;
+                window.nxAttachVideo(this.$refs.video, url);
                 this.$refs.video.play?.().catch(() => {});
             },
-            next() {
-                if (this.index < this.episodes.length - 1) { this.index++; this.load(); }
-            },
-            prev() {
-                if (this.index > 0) { this.index--; this.load(); }
-            },
-            togglePlay() {
-                const v = this.$refs.video;
-                v.paused ? v.play() : v.pause();
-            },
+
+            next() { if (this.index < this.episodes.length - 1) { this.index++; this.load(); } },
+            prev() { if (this.index > 0) { this.index--; this.load(); } },
+            togglePlay() { const v = this.$refs.video; v.paused ? v.play() : v.pause(); },
             onWheel(e) {
                 if (this.lock) return;
                 if (e.deltaY > 25) this.next();

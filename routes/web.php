@@ -68,6 +68,7 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::post('/api/content/{content}/progress', [InteractionController::class, 'progress'])->name('content.progress');
 
     Route::get('/api/episode/{episode}/source', [EpisodeSourceController::class, 'resolve'])->name('episode.source');
+    Route::post('/api/episode/{episode}/request-mirror', [EpisodeSourceController::class, 'request'])->middleware('throttle:60,1')->name('mirror.request');
 
     // Streaming proxy for imported content (hides expiring URLs, strips fake segment headers).
     Route::get('/stream/{episode}/index.m3u8', [StreamController::class, 'manifest'])->name('stream.manifest');

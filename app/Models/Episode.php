@@ -11,14 +11,21 @@ class Episode extends Model
     protected $fillable = [
         'content_id', 'season_id', 'source', 'source_ref', 'number', 'title',
         'description', 'duration_minutes', 'video_url', 'thumbnail_path', 'sort',
-        'mirrored_at', 'file_size',
+        'mirrored_at', 'file_size', 'mirror_requested_at', 'mirror_requests', 'mirror_trigger',
     ];
 
     protected function casts(): array
     {
         return [
             'mirrored_at' => 'datetime',
+            'mirror_requested_at' => 'datetime',
         ];
+    }
+
+    /** rongyok episode a customer asked for that isn't mirrored yet (server can't fetch it directly). */
+    public function getIsPendingCustomerAttribute(): bool
+    {
+        return $this->mirror_requested_at !== null && $this->mirrored_at === null;
     }
 
     /** True once the video has been mirrored to our own storage (no longer depends on the source). */

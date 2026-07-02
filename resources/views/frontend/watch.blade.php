@@ -54,10 +54,12 @@
                 } else if (cfg.resolveUrl) {
                     try {
                         const r = await fetch(cfg.resolveUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                        if (!r.ok) throw new Error();
                         const d = await r.json();
-                        if (!d.url) throw new Error();
-                        window.nxAttachVideo(this.$refs.video, d.url);
+                        if (d && d.ready && d.url) {
+                            window.nxAttachVideo(this.$refs.video, d.url);
+                        } else {
+                            this.err = 'กำลังเตรียมวิดีโอ… ระบบได้เพิ่มเข้าคิวโหลดแล้ว ลองรีเฟรชอีกครั้งในสักครู่';
+                        }
                     } catch (e) {
                         this.err = 'ไม่สามารถโหลดวิดีโอจากแหล่งต้นทางได้ในขณะนี้';
                     }
