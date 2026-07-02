@@ -18,6 +18,9 @@ class IngestController extends Controller
 {
     private function assertToken(Request $request): void
     {
+        // Always answer this API in JSON (so validation errors don't redirect).
+        $request->headers->set('Accept', 'application/json');
+
         $expected = (string) config('services.ingest.token');
         $given = (string) $request->header('X-Ingest-Token', '');
         abort_if($expected === '' , 503, 'ingest token not configured');

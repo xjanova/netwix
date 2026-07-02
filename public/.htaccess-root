@@ -25,7 +25,9 @@
 
 <IfModule mod_alias.c>
     RedirectMatch 404 /\.git
-    RedirectMatch 404 /(app|bootstrap|config|database|resources|routes|storage|tests|vendor|node_modules)/
+    # NB: do NOT block /storage/ here — that path is the public symlink
+    # (public/storage → storage/app/public) used to serve uploaded media.
+    RedirectMatch 404 /(app|bootstrap|config|database|resources|routes|tests|vendor|node_modules)/
 </IfModule>
 
 Options -Indexes

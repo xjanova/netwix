@@ -36,6 +36,9 @@ php artisan migrate --force
 echo "▶ Storage symlink…"
 php artisan storage:link || true
 
+echo "▶ Root .htaccess (rewrite to public/)…"
+cp -f public/.htaccess-root .htaccess
+
 echo "▶ Rebuilding caches…"
 php artisan optimize:clear
 php artisan config:cache
