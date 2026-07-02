@@ -7,8 +7,10 @@
      class="relative flex min-h-screen flex-col items-center justify-center overflow-hidden p-10"
      style="background:radial-gradient(circle at 20% 20%, rgba(139,47,240,0.16), transparent 45%), #07050c;">
 
+    @include('partials.logo-bg', ['video' => 'logomedia2.mp4'])
+
     <img src="{{ asset('assets/netwix-wordmark.png') }}" alt="NetWix" class="relative z-10 mb-14 h-12 w-auto">
-    <h1 class="mb-11 text-center text-3xl font-semibold sm:text-4xl md:text-5xl">ใครกำลังดูอยู่?</h1>
+    <h1 class="relative z-10 mb-11 text-center text-3xl font-semibold sm:text-4xl md:text-5xl">ใครกำลังดูอยู่?</h1>
 
     <div class="flex max-w-4xl flex-wrap justify-center gap-7">
         @foreach ($profiles as $profile)
