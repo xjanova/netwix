@@ -28,6 +28,7 @@ Route::middleware('throttle:10,1')->group(function () {
 Route::prefix('api/ingest')->middleware('throttle:120,1')->group(function () {
     Route::get('pending', [IngestController::class, 'pending'])->name('ingest.pending');
     Route::post('episode', [IngestController::class, 'store'])->name('ingest.store');
+    Route::post('episode/{episode}/failed', [IngestController::class, 'failed'])->name('ingest.failed');
 });
 
 // ---- Guest auth --------------------------------------------------------

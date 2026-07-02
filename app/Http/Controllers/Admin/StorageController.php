@@ -32,6 +32,8 @@ class StorageController extends Controller
             ->count();
         $projectedBytes = $summary['avg'] * $mirrorableTotal;
 
+        $rongyok = fn ($q) => $q->where('source', 'rongyok');
+
         return view('admin.storage.index', [
             'summary' => $summary,
             'titles' => $titles,
@@ -39,7 +41,11 @@ class StorageController extends Controller
             'projectedBytes' => $projectedBytes,
             'agent' => \App\Support\IngestAgent::status(),
             'pendingCount' => Episode::whereNull('mirrored_at')->whereNotNull('source')
-                ->whereHas('content', fn ($q) => $q->where('source', 'rongyok'))->count(),
+                ->where('mirror_attempts', '<', Episode::MIRROR_MAX_ATTEMPTS)
+                ->whereHas('content', $rongyok)->count(),
+            'unavailableCount' => Episode::whereNull('mirrored_at')
+                ->where('mirror_attempts', '>=', Episode::MIRROR_MAX_ATTEMPTS)
+                ->whereHas('content', $rongyok)->count(),
         ]);
     }
 }

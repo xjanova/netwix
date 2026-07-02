@@ -61,6 +61,25 @@ class IngestTest extends TestCase
         $this->assertStringContainsString('/storage/media/rongyok/8207/1.mp4', $ep->video_url);
     }
 
+    public function test_failed_reports_quarantine_and_drop_out_of_pending(): void
+    {
+        $content = $this->importedEpisode();
+        $ep = $content->episodes()->first();
+        $h = ['X-Ingest-Token' => 'test-token-123'];
+
+        // First failure backs it off (recent) — pending should skip it immediately.
+        $this->withHeaders($h)->postJson("/api/ingest/episode/{$ep->id}/failed")
+            ->assertOk()->assertJson(['attempts' => 1, 'given_up' => false]);
+        $this->assertSame(0, $this->withHeaders($h)->getJson('/api/ingest/pending?source=rongyok')->json('count'));
+
+        // After MIRROR_MAX_ATTEMPTS it is given up for good.
+        for ($i = 2; $i <= 5; $i++) {
+            $this->withHeaders($h)->postJson("/api/ingest/episode/{$ep->id}/failed");
+        }
+        $this->assertSame(5, $ep->fresh()->mirror_attempts);
+        $this->assertTrue($ep->fresh()->is_unavailable);
+    }
+
     public function test_pending_lists_unmirrored_imported_episodes(): void
     {
         $this->importedEpisode();

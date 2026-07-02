@@ -41,6 +41,10 @@ class IngestController extends Controller
             ->whereNotNull('source')
             ->when($source, fn ($q) => $q->where('source', $source))
             ->whereHas('content', fn ($q) => $q->whereNotNull('source_key'))
+            // Skip episodes we've given up on, and back off ones that failed recently (30 min),
+            // so the agent never gets stuck retrying dead episodes at the front of the queue.
+            ->where('mirror_attempts', '<', Episode::MIRROR_MAX_ATTEMPTS)
+            ->where(fn ($q) => $q->whereNull('mirror_failed_at')->orWhere('mirror_failed_at', '<', now()->subMinutes(30)))
             ->with('content:id,source,source_key,title')
             ->orderBy('content_id')->orderBy('number')
             ->limit((int) $request->integer('limit', 500))
@@ -90,6 +94,8 @@ class IngestController extends Controller
             'mirrored_at' => now(),
             'file_size' => Storage::disk('public')->size($path),
             'mirror_trigger' => 'admin',
+            'mirror_attempts' => 0,
+            'mirror_failed_at' => null,
         ]);
 
         return response()->json([
@@ -98,6 +104,28 @@ class IngestController extends Controller
             'url' => $episode->video_url,
             'used_gb' => round(((int) Episode::sum('file_size')) / 1e9, 2),
             'cap_gb' => (float) config('services.ingest.max_gb'),
+        ]);
+    }
+
+    /**
+     * The agent couldn't mirror this episode (source likely returned a dead URL). Record the
+     * failure so we back it off and eventually stop handing it back.
+     */
+    public function failed(Request $request, Episode $episode): JsonResponse
+    {
+        $this->assertToken($request);
+
+        if ($episode->mirrored_at) {
+            return response()->json(['ok' => true, 'already_mirrored' => true]);
+        }
+
+        $episode->increment('mirror_attempts');
+        $episode->forceFill(['mirror_failed_at' => now()])->save();
+
+        return response()->json([
+            'ok' => true,
+            'attempts' => (int) $episode->mirror_attempts,
+            'given_up' => $episode->mirror_attempts >= Episode::MIRROR_MAX_ATTEMPTS,
         ]);
     }
 }

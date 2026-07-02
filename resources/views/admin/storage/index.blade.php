@@ -92,7 +92,8 @@
         <div class="mt-5 rounded-xl border border-white/5 bg-white/[0.03] p-4 text-sm">
             <div class="mb-1 font-semibold text-cream/80">📊 ประมาณการวางแผน (rongyok)</div>
             <div class="text-cream/60">
-                ยังไม่ได้มิเรอร์ <span class="font-semibold text-cream">{{ number_format($pendingCount) }}</span> ตอน ·
+                ยังไม่ได้มิเรอร์ <span class="font-semibold text-cream">{{ number_format($pendingCount) }}</span> ตอน
+                @if (($unavailableCount ?? 0) > 0)· <span class="text-[#ff6b81]">โหลดไม่ได้ (ต้นทางลบไฟล์) {{ number_format($unavailableCount) }} ตอน</span> @endif ·
                 ถ้ามิเรอร์ครบทั้งหมด <span class="font-semibold text-cream">{{ number_format($mirrorableTotal) }}</span> ตอน
                 @if ($s['mirrored'])
                     ≈ <span class="font-semibold {{ $projGb > $capGb ? 'text-[#ff6b81]' : 'text-success' }}">{{ number_format($projGb, 1) }} GB</span>
