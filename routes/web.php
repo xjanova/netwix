@@ -10,6 +10,7 @@ use App\Http\Controllers\HomeController;
 use App\Http\Controllers\InteractionController;
 use App\Http\Controllers\ProfileSelectionController;
 use App\Http\Controllers\SearchController;
+use App\Http\Controllers\StreamController;
 use App\Http\Controllers\TitleController;
 use App\Http\Controllers\WatchController;
 use Illuminate\Support\Facades\Route;
@@ -60,6 +61,11 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::post('/api/content/{content}/progress', [InteractionController::class, 'progress'])->name('content.progress');
 
     Route::get('/api/episode/{episode}/source', [EpisodeSourceController::class, 'resolve'])->name('episode.source');
+
+    // Streaming proxy for imported content (hides expiring URLs, strips fake segment headers).
+    Route::get('/stream/{episode}/index.m3u8', [StreamController::class, 'manifest'])->name('stream.manifest');
+    Route::get('/stream/{episode}/segment', [StreamController::class, 'segment'])->name('stream.segment');
+    Route::get('/stream/{episode}/video.mp4', [StreamController::class, 'mp4'])->name('stream.mp4');
 });
 
 // ---- Admin -------------------------------------------------------------

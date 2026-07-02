@@ -10,12 +10,13 @@ use Illuminate\Support\Facades\Cache;
 class EpisodeSourceController extends Controller
 {
     /**
-     * Resolve a fresh playable stream for an imported episode. Remote URLs (Discord CDN /
-     * getplay-cdn) are signed and expire, so we resolve on demand and cache briefly.
+     * Resolve a playable stream for an episode. Imported episodes are resolved live (remote URLs
+     * expire) and returned as URLs that go through our streaming proxy, so the browser plays them
+     * from our origin (no CORS / referer / fake-header problems).
      */
     public function resolve(Episode $episode, SourceRegistry $registry): JsonResponse
     {
-        // Non-imported episode: just hand back its stored URL.
+        // Manually-entered URL — hand it back directly.
         if (! $episode->source || ! $episode->source_ref) {
             return $episode->video_url
                 ? response()->json(['kind' => str_contains($episode->video_url, '.m3u8') ? 'hls' : 'mp4', 'url' => $episode->video_url])
@@ -27,20 +28,24 @@ class EpisodeSourceController extends Controller
             return response()->json(['error' => 'unknown_source'], 422);
         }
 
-        $sourceKey = $episode->content->source_key ?? '';
+        $key = $episode->content->source_key ?? '';
 
-        $data = Cache::remember("ep_stream:{$episode->id}", now()->addMinutes(10), function () use ($source, $sourceKey, $episode) {
-            $stream = $source->resolveByRef($sourceKey, $episode->source_ref);
+        $raw = Cache::remember("ep_raw:{$episode->id}", now()->addMinutes(10), function () use ($source, $key, $episode) {
+            $s = $source->resolveByRef($key, $episode->source_ref);
 
-            return $stream ? ['kind' => $stream->kind, 'url' => $stream->url, 'referer' => $stream->referer] : null;
+            return $s ? ['kind' => $s->kind, 'url' => $s->url, 'referer' => $s->referer] : null;
         });
 
-        if (! $data) {
-            Cache::forget("ep_stream:{$episode->id}");
+        if (! $raw) {
+            Cache::forget("ep_raw:{$episode->id}");
 
             return response()->json(['error' => 'resolve_failed'], 502);
         }
 
-        return response()->json($data);
+        $url = $raw['kind'] === 'hls'
+            ? route('stream.manifest', $episode)
+            : route('stream.mp4', $episode);
+
+        return response()->json(['kind' => $raw['kind'], 'url' => $url]);
     }
 }
