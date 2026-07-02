@@ -66,6 +66,8 @@ class DashboardController extends Controller
 
         $topContent = Content::orderByDesc('views')->with('genres')->take(5)->get();
 
-        return view('admin.dashboard', compact('stats', 'miniMetrics', 'chartBars', 'genreShares', 'topContent'));
+        $storage = \App\Support\MediaUsage::summary();
+
+        return view('admin.dashboard', compact('stats', 'miniMetrics', 'chartBars', 'genreShares', 'topContent', 'storage'));
     }
 }

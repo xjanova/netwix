@@ -83,6 +83,8 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('import/sync', [Admin\ImportController::class, 'sync'])->name('import.sync');
     Route::post('import', [Admin\ImportController::class, 'import'])->name('import.store');
 
+    Route::get('storage', [Admin\StorageController::class, 'index'])->name('storage.index');
+
     Route::resource('contents', Admin\ContentController::class)->except('show');
     Route::post('contents/{content}/episodes', [Admin\EpisodeController::class, 'store'])->name('contents.episodes.store');
     Route::delete('contents/{content}/episodes/{episode}', [Admin\EpisodeController::class, 'destroy'])->name('contents.episodes.destroy');

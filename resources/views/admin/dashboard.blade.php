@@ -63,6 +63,51 @@
     </div>
 </div>
 
+{{-- Storage usage --}}
+@php
+    $usedGb = $storage['used'] / 1e9;
+    $capGb = $storage['cap_bytes'] / 1e9;
+    $pct = $capGb > 0 ? min(100, round($usedGb / $capGb * 100, 1)) : 0;
+    $srcMax = collect($storage['per_source'])->max('bytes') ?: 1;
+    $srcColors = ['rongyok' => '#ff2d55', 'wowdrama' => '#b026ff'];
+@endphp
+<div class="nx-card mt-6 p-5">
+    <div class="mb-4 flex items-center justify-between">
+        <h3 class="text-base font-semibold">พื้นที่จัดเก็บสื่อ</h3>
+        <a href="{{ route('admin.storage.index') }}" class="text-[13px] text-brand hover:underline">ดูรายละเอียด →</a>
+    </div>
+    <div class="grid gap-6 md:grid-cols-[auto_1fr]">
+        <div class="flex items-center gap-4">
+            <div class="relative h-28 w-28 flex-shrink-0 rounded-full"
+                 style="background:conic-gradient(#ff2d55 0 {{ $pct }}%, #b026ff 0 {{ $pct }}%, rgba(255,255,255,0.08) {{ $pct }}% 100%)">
+                <div class="absolute inset-3 flex flex-col items-center justify-center rounded-full bg-panel-2">
+                    <span class="text-xl font-extrabold">{{ $pct }}%</span>
+                </div>
+            </div>
+            <div class="text-sm">
+                <div class="text-lg font-bold">{{ number_format($usedGb, 2) }} <span class="text-sm font-normal text-cream/50">/ {{ number_format($capGb, 0) }} GB</span></div>
+                <div class="text-xs text-cream/50">{{ number_format($storage['mirrored']) }} ตอน · เฉลี่ย {{ $storage['mirrored'] ? number_format($storage['avg'] / 1e6, 1) : 0 }} MB/ตอน</div>
+                <div class="mt-1 text-xs text-cream/40">ดิสก์ว่าง {{ number_format($storage['free'] / 1e9, 0) }} GB</div>
+            </div>
+        </div>
+        <div class="flex flex-col justify-center gap-3">
+            @forelse ($storage['per_source'] as $src)
+                <div>
+                    <div class="mb-1 flex justify-between text-[12.5px]">
+                        <span>{{ $src['source'] === 'rongyok' ? 'โรงหยก' : ($src['source'] === 'wowdrama' ? 'wow-drama' : $src['source']) }}</span>
+                        <span class="text-cream/50">{{ number_format($src['count']) }} ตอน · {{ number_format($src['bytes'] / 1e9, 2) }} GB</span>
+                    </div>
+                    <div class="h-2 overflow-hidden rounded-full bg-white/[0.07]">
+                        <div class="h-full rounded-full" style="width:{{ max(2, round($src['bytes'] / $srcMax * 100)) }}%;background:{{ $srcColors[$src['source']] ?? '#8b2ff0' }}"></div>
+                    </div>
+                </div>
+            @empty
+                <div class="text-sm text-cream/45">ยังไม่มีไฟล์ที่ดาวน์โหลดมาเก็บ — รัน NetwixSync บนเครื่องบ้าน</div>
+            @endforelse
+        </div>
+    </div>
+</div>
+
 {{-- Top content --}}
 <div class="nx-card mt-6 p-5">
     <div class="mb-4 flex items-center justify-between">

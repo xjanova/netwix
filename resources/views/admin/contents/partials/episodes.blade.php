@@ -14,6 +14,7 @@
                     </div>
                     @if ($ep->is_mirrored)
                         <span class="rounded-full bg-success/15 px-2 py-0.5 text-[11px] text-success" title="เก็บไฟล์ในเซิร์ฟเวอร์แล้ว">● มิเรอร์แล้ว</span>
+                        @if ($ep->file_size)<span class="text-[11px] text-cream/45">{{ number_format($ep->file_size / 1e6, 1) }} MB</span>@endif
                     @elseif ($ep->source)
                         <span class="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-cream/50" title="ยังไม่ได้ดาวน์โหลดมาเก็บ">○ ต้นทาง</span>
                     @endif
