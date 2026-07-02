@@ -11,7 +11,21 @@ class Episode extends Model
     protected $fillable = [
         'content_id', 'season_id', 'source', 'source_ref', 'number', 'title',
         'description', 'duration_minutes', 'video_url', 'thumbnail_path', 'sort',
+        'mirrored_at', 'file_size',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'mirrored_at' => 'datetime',
+        ];
+    }
+
+    /** True once the video has been mirrored to our own storage (no longer depends on the source). */
+    public function getIsMirroredAttribute(): bool
+    {
+        return $this->mirrored_at !== null;
+    }
 
     public function content(): BelongsTo
     {

@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    // Desktop ingest bridge (Hive Download → NetWix). The desktop app authenticates
+    // with this token to upload mirrored video files. Set NETWIX_INGEST_TOKEN in .env.
+    'ingest' => [
+        'token' => env('NETWIX_INGEST_TOKEN'),
+        'max_gb' => (float) env('NETWIX_MEDIA_MAX_GB', 55),
+    ],
+
 ];

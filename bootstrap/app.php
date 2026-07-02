@@ -15,6 +15,11 @@ return Application::configure(basePath: dirname(__DIR__))
             'profile' => \App\Http\Middleware\EnsureProfileSelected::class,
             'admin' => \App\Http\Middleware\EnsureAdmin::class,
         ]);
+
+        // Ingest bridge is token-authenticated, not session/CSRF based.
+        $middleware->validateCsrfTokens(except: [
+            'api/ingest/*',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

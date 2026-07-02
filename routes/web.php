@@ -7,6 +7,7 @@ use App\Http\Controllers\Auth\SetupController;
 use App\Http\Controllers\BrowseController;
 use App\Http\Controllers\EpisodeSourceController;
 use App\Http\Controllers\HomeController;
+use App\Http\Controllers\IngestController;
 use App\Http\Controllers\InteractionController;
 use App\Http\Controllers\ProfileSelectionController;
 use App\Http\Controllers\SearchController;
@@ -21,6 +22,12 @@ Route::get('/', [HomeController::class, 'index'])->name('home');
 Route::middleware('throttle:10,1')->group(function () {
     Route::get('/setup', [SetupController::class, 'show'])->name('setup');
     Route::post('/setup', [SetupController::class, 'store']);
+});
+
+// ---- Desktop ingest bridge (token-authed, no session) ------------------
+Route::prefix('api/ingest')->middleware('throttle:120,1')->group(function () {
+    Route::get('pending', [IngestController::class, 'pending'])->name('ingest.pending');
+    Route::post('episode', [IngestController::class, 'store'])->name('ingest.store');
 });
 
 // ---- Guest auth --------------------------------------------------------

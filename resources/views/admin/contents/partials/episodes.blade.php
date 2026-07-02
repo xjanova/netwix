@@ -12,6 +12,11 @@
                         <div class="truncate text-sm">{{ $ep->title }}</div>
                         <div class="truncate text-xs text-cream/40">{{ $ep->video_url ?: 'ยังไม่มีวิดีโอ' }}</div>
                     </div>
+                    @if ($ep->is_mirrored)
+                        <span class="rounded-full bg-success/15 px-2 py-0.5 text-[11px] text-success" title="เก็บไฟล์ในเซิร์ฟเวอร์แล้ว">● มิเรอร์แล้ว</span>
+                    @elseif ($ep->source)
+                        <span class="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-cream/50" title="ยังไม่ได้ดาวน์โหลดมาเก็บ">○ ต้นทาง</span>
+                    @endif
                     <span class="text-xs text-cream/45">{{ $ep->duration_label }}</span>
                     <form method="POST" action="{{ route('admin.contents.episodes.destroy', [$content, $ep]) }}" onsubmit="return confirm('ลบตอนนี้?')">
                         @csrf @method('DELETE')
