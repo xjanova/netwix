@@ -30,10 +30,6 @@
         <div class="mt-7 border-t border-white/10 pt-5 text-center text-sm text-cream/55">
             ยังไม่มีบัญชี? <a href="{{ route('register') }}" class="font-semibold text-cream underline">สมัครสมาชิกเลย</a>
         </div>
-
-        <div class="mt-5 rounded-lg bg-white/5 p-3 text-center text-xs text-cream/45">
-            ทดลองใช้งาน: <span class="text-cream/70">demo@netwix.online</span> / <span class="text-cream/70">netwix-demo-2026</span>
-        </div>
     </form>
 </div>
 @endsection

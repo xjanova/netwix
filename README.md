@@ -45,7 +45,7 @@ npm run dev                     # หรือ npm run build
 php artisan serve
 ```
 
-บัญชีทดลอง (จาก seeder): `demo@netwix.online` / `netwix-demo-2026`
+คอนเทนต์: นำเข้าจากระบบ import (rongyok / wowdrama) — seeder สร้างเฉพาะหมวดหมู่ (genres)
 ผู้ดูแลหลัก: สร้างครั้งแรกผ่านหน้า **`/setup`** (first-run — ปิดอัตโนมัติเมื่อมีแอดมินแล้ว)
 
 ## โครงสร้างคอนเทนต์

@@ -141,7 +141,6 @@
                 <input type="email" name="email" required placeholder="ที่อยู่อีเมล" class="nx-input flex-1 py-4 text-base">
                 <button type="submit" class="btn-brand whitespace-nowrap px-8 py-4 text-lg">เริ่มกันเลย ›</button>
             </form>
-            <p class="mt-5 text-xs text-cream/40">ทดลองใช้งาน: demo@netwix.online / netwix-demo-2026</p>
         </div>
     </section>
 
