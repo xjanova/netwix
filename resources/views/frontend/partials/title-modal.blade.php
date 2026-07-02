@@ -17,7 +17,9 @@
         {{-- gradient always underneath so the backdrop never shows a black void --}}
         <div class="absolute inset-0" style="background:{{ $content->gradient }}"></div>
         @if ($content->backdrop_url)
-            <img src="{{ $content->backdrop_url }}" alt="" aria-hidden="true" class="absolute inset-0 h-full w-full object-cover">
+            <img src="{{ $content->backdrop_url }}" alt="" aria-hidden="true"
+                 referrerpolicy="no-referrer" onerror="this.style.display='none'"
+                 class="absolute inset-0 h-full w-full object-cover">
         @endif
         @if ($heroYt)
             <iframe src="https://www.youtube.com/embed/{{ $heroYt }}?autoplay=1&mute=1&loop=1&playlist={{ $heroYt }}&controls=0&modestbranding=1&rel=0&playsinline=1"

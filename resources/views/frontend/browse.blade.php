@@ -10,7 +10,9 @@
              while the trailer loads (or if the embed fails) --}}
         <div class="absolute inset-0" style="background:{{ $hero->gradient }}"></div>
         @if ($hero->backdrop_url)
-            <img src="{{ $hero->backdrop_url }}" alt="" aria-hidden="true" class="absolute inset-0 h-full w-full object-cover">
+            <img src="{{ $hero->backdrop_url }}" alt="" aria-hidden="true"
+                 referrerpolicy="no-referrer" onerror="this.style.display='none'"
+                 class="absolute inset-0 h-full w-full object-cover">
         @endif
         @if ($heroYt)
             <iframe

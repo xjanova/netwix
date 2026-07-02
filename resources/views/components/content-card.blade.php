@@ -32,6 +32,7 @@
              style="background:{{ $content->backdrop_url ? '#0e0a17' : $content->gradient }}">
             @if ($content->backdrop_url)
                 <img src="{{ $content->backdrop_url }}" alt="{{ $content->title }}" loading="lazy"
+                     referrerpolicy="no-referrer" onerror="this.style.display='none'"
                      class="absolute inset-0 h-full w-full object-cover">
             @else
                 <div class="absolute inset-0 flex items-center justify-center px-4 text-center text-sm font-semibold text-cream/85">{{ $content->title }}</div>

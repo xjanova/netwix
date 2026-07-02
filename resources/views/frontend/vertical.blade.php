@@ -15,7 +15,9 @@
                     <div class="relative aspect-[9/16] overflow-hidden rounded-xl ring-1 ring-white/5 transition group-hover:ring-2 group-hover:ring-white/25"
                          style="background:{{ $content->gradient }}">
                         @if ($content->poster_url)
-                            <img src="{{ $content->poster_url }}" alt="{{ $content->title }}" loading="lazy" class="absolute inset-0 h-full w-full object-cover">
+                            <img src="{{ $content->poster_url }}" alt="{{ $content->title }}" loading="lazy"
+                                 referrerpolicy="no-referrer" onerror="this.style.display='none'"
+                                 class="absolute inset-0 h-full w-full object-cover">
                         @endif
                         <div class="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100" style="background:rgba(0,0,0,0.35)">
                             <span class="flex h-12 w-12 items-center justify-center rounded-full bg-cream/90 text-ink">
