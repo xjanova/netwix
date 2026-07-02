@@ -5,6 +5,32 @@
         inList: @js($inList),
         liked: false,
         busy: false,
+        hv: false,
+        hovering: false,
+        hoverT: null,
+        // only true-hover, fine-pointer, non-reduced-motion devices arm the clip
+        canHover: window.matchMedia('(hover: hover) and (pointer: fine)').matches
+                  && ! window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+        playClip() {
+            if (! this.canHover) return;
+            const v = this.$refs.clip;
+            if (! v) return;
+            this.hovering = true;
+            // hover-intent delay: a fast sweep across a rail never fetches anything
+            this.hoverT = setTimeout(() => {
+                if (! this.hovering) return;
+                if (! v.src) v.src = v.dataset.src;                 // lazy: fetch on real hover only
+                v.play().then(() => { if (this.hovering) this.hv = true; })  // crossfade once a frame paints
+                        .catch(() => {});
+            }, 220);
+        },
+        stopClip() {
+            this.hovering = false;
+            clearTimeout(this.hoverT);
+            this.hv = false;
+            const v = this.$refs.clip;
+            if (v) { v.pause(); v.removeAttribute('src'); v.load(); } // release the buffer, don't just pause
+        },
         async toggleList() {
             if (this.busy) return; this.busy = true;
             try { this.inList = (await nxPost('{{ route('content.list', $content) }}')).in_list; }
@@ -29,13 +55,21 @@
          @keydown.enter="$dispatch('open-title', '{{ route('title.modal', $content) }}')"
          class="block w-full cursor-pointer text-left {{ $ranked ? 'ml-6' : '' }}">
         <div class="relative aspect-video overflow-hidden rounded-lg ring-1 ring-white/5 transition duration-200 group-hover:ring-2 group-hover:ring-white/25"
-             style="background:{{ $content->backdrop_url ? '#0e0a17' : $content->gradient }}">
+             style="background:{{ $content->backdrop_url ? '#0e0a17' : $content->gradient }}"
+             @if (! $content->backdrop_url) @mouseenter="playClip()" @mouseleave="stopClip()" @endif>
             @if ($content->backdrop_url)
                 <img src="{{ $content->backdrop_url }}" alt="{{ $content->title }}" loading="lazy"
                      referrerpolicy="no-referrer" onerror="this.style.display='none'"
                      class="absolute inset-0 h-full w-full object-cover">
             @else
-                <div class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center">
+                {{-- no image → branded placeholder; hovering plays an animated logo clip
+                     (lazy: src is only set on first hover, so nothing downloads until then) --}}
+                <video x-ref="clip" aria-hidden="true" data-src="{{ asset('assets/'.($content->id % 2 ? 'logomedia2.mp4' : 'logomedia1.mp4')) }}"
+                       muted loop playsinline preload="none"
+                       class="absolute inset-0 h-full w-full object-cover mix-blend-screen transition-opacity duration-300"
+                       :class="hv ? 'opacity-90' : 'opacity-0'"></video>
+                <div class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center transition-opacity duration-300"
+                     :class="hv ? 'opacity-0' : 'opacity-100'">
                     <img src="{{ asset('assets/netwix-icon.png') }}" alt="" class="h-9 w-9 opacity-40">
                     <span class="line-clamp-2 text-[13px] font-semibold text-cream/80">{{ $content->title }}</span>
                 </div>
