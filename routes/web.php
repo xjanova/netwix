@@ -69,12 +69,17 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::post('/api/content/{content}/progress', [InteractionController::class, 'progress'])->name('content.progress');
 
     Route::get('/api/episode/{episode}/source', [EpisodeSourceController::class, 'resolve'])->name('episode.source');
-
-    // Streaming proxy for imported content (hides expiring URLs, strips fake segment headers).
-    Route::get('/stream/{episode}/index.m3u8', [StreamController::class, 'manifest'])->name('stream.manifest');
-    Route::get('/stream/{episode}/segment', [StreamController::class, 'segment'])->name('stream.segment');
-    Route::get('/stream/{episode}/video.mp4', [StreamController::class, 'mp4'])->name('stream.mp4');
 });
+
+// ---- Public streaming proxy (guests can watch) -------------------------
+// Deliberately NOT behind auth: the mobile app and guest web viewers stream
+// without a session (members still get history/resume/favorites via the
+// authenticated interaction routes above). This is safe as an open endpoint —
+// segment URLs are HMAC-signed so it can't be abused as an SSRF proxy, and it
+// only exposes the same imported streams the resolver already hands out.
+Route::get('/stream/{episode}/index.m3u8', [StreamController::class, 'manifest'])->name('stream.manifest');
+Route::get('/stream/{episode}/segment', [StreamController::class, 'segment'])->name('stream.segment');
+Route::get('/stream/{episode}/video.mp4', [StreamController::class, 'mp4'])->name('stream.mp4');
 
 // ---- Admin -------------------------------------------------------------
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
