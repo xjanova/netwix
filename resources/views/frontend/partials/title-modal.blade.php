@@ -26,8 +26,8 @@
                     class="pointer-events-none absolute left-1/2 top-1/2 h-full w-full -translate-x-1/2 -translate-y-1/2 border-0"
                     style="min-width:178%;min-height:178%" allow="autoplay; encrypted-media"></iframe>
         @elseif (! $content->backdrop_url)
-            <img src="{{ asset('assets/netwix-icon.png') }}" alt="" aria-hidden="true"
-                 class="pointer-events-none absolute left-1/2 top-[42%] h-[42%] w-auto -translate-x-1/2 -translate-y-1/2 opacity-20">
+            {{-- no trailer and no image → fill with an animated NetWix logo clip --}}
+            @include('partials.logo-fill', ['seed' => $content->id])
         @endif
         <div class="absolute inset-0" style="background:linear-gradient(180deg,transparent 40%, rgba(20,16,32,0.9) 92%, #141020 100%)"></div>
 
