@@ -16,7 +16,7 @@
 
         <div class="flex flex-col gap-3.5">
             <input type="text" name="name" value="{{ old('name') }}" placeholder="ชื่อของคุณ" class="nx-input" required autofocus>
-            <input type="email" name="email" value="{{ old('email') }}" placeholder="อีเมล" class="nx-input" required>
+            <input type="email" name="email" value="{{ old('email', request('email')) }}" placeholder="อีเมล" class="nx-input" required>
             <input type="password" name="password" placeholder="รหัสผ่าน (อย่างน้อย 8 ตัว)" class="nx-input" required>
             <input type="password" name="password_confirmation" placeholder="ยืนยันรหัสผ่าน" class="nx-input" required>
         </div>

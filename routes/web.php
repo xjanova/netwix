@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
+use App\Http\Controllers\Auth\SetupController;
 use App\Http\Controllers\BrowseController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\InteractionController;
@@ -14,12 +15,18 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', [HomeController::class, 'index'])->name('home');
 
+// ---- First-run setup (only while no admin exists) -----------------------
+Route::middleware('throttle:10,1')->group(function () {
+    Route::get('/setup', [SetupController::class, 'show'])->name('setup');
+    Route::post('/setup', [SetupController::class, 'store']);
+});
+
 // ---- Guest auth --------------------------------------------------------
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'show'])->name('login');
-    Route::post('/login', [LoginController::class, 'login']);
+    Route::post('/login', [LoginController::class, 'login'])->middleware('throttle:10,1');
     Route::get('/register', [RegisterController::class, 'show'])->name('register');
-    Route::post('/register', [RegisterController::class, 'register']);
+    Route::post('/register', [RegisterController::class, 'register'])->middleware('throttle:10,1');
 });
 
 // ---- Authenticated (choose profile) ------------------------------------

@@ -6,5 +6,6 @@
 <body class="bg-ink text-cream antialiased">
     @yield('content')
     @stack('scripts')
+    <style>[x-cloak]{display:none !important;}</style>
 </body>
 </html>

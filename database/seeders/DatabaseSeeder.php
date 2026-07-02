@@ -35,17 +35,8 @@ class DatabaseSeeder extends Seeder
 
     private function seedUsers(): void
     {
-        $admin = User::updateOrCreate(
-            ['email' => env('ADMIN_EMAIL', 'admin@netwix.online')],
-            [
-                'name' => 'อดิศร ผู้ดูแล',
-                'password' => Hash::make(env('SEED_ADMIN_PASSWORD', 'netwix-admin-2026')),
-                'role' => 'admin',
-                'plan' => 'premium',
-            ],
-        );
-        $admin->profiles()->firstOrCreate(['name' => 'อดิศร'], ['avatar_color' => '#b026ff']);
-
+        // No admin is seeded — the primary admin is created once via the
+        // first-run /setup page (SetupController).
         $demo = User::updateOrCreate(
             ['email' => 'demo@netwix.online'],
             [

@@ -46,7 +46,7 @@ php artisan serve
 ```
 
 บัญชีทดลอง (จาก seeder): `demo@netwix.online` / `netwix-demo-2026`
-ผู้ดูแล: `admin@netwix.online` / ค่าจาก `SEED_ADMIN_PASSWORD`
+ผู้ดูแลหลัก: สร้างครั้งแรกผ่านหน้า **`/setup`** (first-run — ปิดอัตโนมัติเมื่อมีแอดมินแล้ว)
 
 ## โครงสร้างคอนเทนต์
 
