@@ -5,18 +5,24 @@ namespace App\Http\Controllers;
 use App\Models\Episode;
 use App\Services\Import\SourceRegistry;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 
 class EpisodeSourceController extends Controller
 {
     /**
      * Resolve a playable stream for an episode.
-     *  - mirrored / manual URL  → ready, play from our storage
-     *  - wow-drama (server-resolvable) → ready, via HLS proxy
-     *  - rongyok not mirrored   → NOT ready (server can't fetch rongyok); the client should
-     *    request a mirror and poll. { ready:false, queued:true }
+     *  - stored URL (manual / preview ep1) → ready, play it directly
+     *  - wow-drama                         → ready, via the server-side HLS proxy
+     *  - rongyok (or any signed source)    → ready, resolve a FRESH signed CDN url on demand and
+     *    cache it per-episode until just before it expires. NetWix does this itself now — the
+     *    home downloader is no longer required.
      */
     public function resolve(Episode $episode, SourceRegistry $registry): JsonResponse
     {
+        // Never hand out a playable URL for unpublished/embargoed content — the public mobile
+        // endpoint (/api/app/…) shares this resolver, and the rest of the app gates on this too.
+        abort_unless((bool) $episode->content?->is_published, 404);
+
         if ($episode->video_url) {
             return response()->json([
                 'ready' => true,
@@ -38,8 +44,40 @@ class EpisodeSourceController extends Controller
             ]);
         }
 
-        // rongyok not mirrored yet — the server can't fetch it (only our downloader can).
-        // The customer just sees "preparing"; admins do the mirroring.
-        return response()->json(['ready' => false], 202);
+        // Signed-CDN sources (rongyok): the URL expires ~24h, so resolve on demand and cache the
+        // resolved url per-episode until shortly before it expires.
+        $cacheKey = "episode:src:{$episode->id}";
+        if (is_string($cached = Cache::get($cacheKey)) && $cached !== '') {
+            return response()->json(['ready' => true, 'kind' => 'mp4', 'url' => $cached]);
+        }
+
+        // A recent failure is cached briefly so a burst of "preparing" polls doesn't hammer the
+        // upstream (and get NetWix's IP blocked) while it's momentarily unavailable.
+        if (Cache::get($cacheKey.':miss')) {
+            return response()->json(['ready' => false], 202);
+        }
+
+        $source = $registry->get($episode->source);
+        $seriesKey = $episode->content?->source_key;
+        if (! $source || ! $seriesKey) {
+            return response()->json(['ready' => false, 'error' => 'no_source'], 404);
+        }
+
+        $stream = $source->resolveByRef((string) $seriesKey, (string) $episode->source_ref);
+        if (! $stream) {
+            // Transient (source down / just rotated again) — the client shows "preparing" and retries.
+            Cache::put($cacheKey.':miss', 1, now()->addSeconds(15));
+
+            return response()->json(['ready' => false], 202);
+        }
+
+        // Cache until ~1h before the signed url's own expiry (ex=<hex unix seconds>), min 60s.
+        $ttl = 6 * 3600;
+        if (preg_match('~[?&]ex=([0-9a-f]+)~i', $stream->url, $m)) {
+            $ttl = max(60, (int) hexdec($m[1]) - time() - 3600);
+        }
+        Cache::put($cacheKey, $stream->url, now()->addSeconds($ttl));
+
+        return response()->json(['ready' => true, 'kind' => $stream->kind, 'url' => $stream->url]);
     }
 }

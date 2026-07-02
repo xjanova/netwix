@@ -88,11 +88,8 @@ class ImportController extends Controller
         ]);
         abort_unless($this->registry->has($data['source']), 404);
 
-        // No downloader connected → importing is pointless (nothing can fetch the videos).
-        if (! \App\Support\IngestAgent::connected()) {
-            return back()->withErrors(['import' => 'ยังไม่ได้เชื่อมต่อ Hive Download — เปิดโปรแกรม NetwixSync บนเครื่องบ้านก่อนจึงจะนำเข้าได้']);
-        }
-
+        // NetWix resolves signed CDN URLs itself at watch time, so importing no longer depends on
+        // the home downloader being connected.
         @set_time_limit(0);
         @ini_set('memory_limit', '512M');
 

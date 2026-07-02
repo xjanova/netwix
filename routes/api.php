@@ -14,7 +14,9 @@ use Illuminate\Support\Facades\Route;
 | Responses use the {success, data} envelope.
 */
 
-Route::prefix('app')->group(function () {
+// Public + unauthenticated, so rate-limit it (the source endpoint hands out signed CDN links and
+// resolves upstream on a cache miss — cap enumeration/abuse per IP).
+Route::prefix('app')->middleware('throttle:90,1')->group(function () {
     Route::get('home', [CatalogController::class, 'home']);
     Route::get('titles', [CatalogController::class, 'titles']);
     Route::get('titles/{slug}', [CatalogController::class, 'show']);

@@ -25,16 +25,14 @@
     @endforeach
 </div>
 
-{{-- Downloader connection banner --}}
-<div class="mb-5 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 text-sm {{ $agent['connected'] ? 'border-success/25 bg-success/[0.06]' : 'border-[#ff6b81]/25 bg-[#ff6b81]/[0.06]' }}">
-    <span class="relative flex h-3 w-3">
-        @if ($agent['connected'])<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60"></span>@endif
-        <span class="relative inline-flex h-3 w-3 rounded-full {{ $agent['connected'] ? 'bg-success' : 'bg-[#ff6b81]' }}"></span>
-    </span>
-    <span class="font-semibold">{{ $agent['connected'] ? 'เชื่อมต่อ Hive Download แล้ว — พร้อมนำเข้า/ดาวน์โหลด' : 'ยังไม่ได้เชื่อมต่อ Hive Download' }}</span>
+{{-- NetWix resolves signed CDN links itself at watch time, so importing needs no home downloader.
+     Hive Download is now optional (only for pre-downloading preview files). --}}
+<div class="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-success/25 bg-success/[0.06] px-4 py-3 text-sm">
+    <span class="relative inline-flex h-3 w-3 rounded-full bg-success"></span>
+    <span class="font-semibold">พร้อมนำเข้า — NetWix ดึงลิงก์วิดีโอสดเองบนเซิร์ฟเวอร์</span>
     <span class="text-cream/50">
-        @if ($agent['last_seen'])· เห็นล่าสุด {{ $agent['last_seen']->diffForHumans() }}@endif
-        @unless ($agent['connected'])· เปิดแท็บ “NetWix Sync” ในโปรแกรม Hive Download แล้วกด “เริ่มซิงค์” ปุ่มนำเข้าจึงจะทำงาน@endunless
+        โปรแกรม Hive Download เป็นอุปกรณ์เสริม (ใช้ดาวน์โหลดไฟล์พรีวิวเท่านั้น)
+        @if ($agent['connected'])· เชื่อมต่ออยู่{{ $agent['last_seen'] ? ' · '.$agent['last_seen']->diffForHumans() : '' }}@endif
     </span>
     <a href="{{ route('admin.storage.index') }}" class="ml-auto text-xs text-brand hover:underline">ดูสถานะ →</a>
 </div>
@@ -83,9 +81,8 @@
 
             <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="publish" value="1" checked class="accent-brand"> เผยแพร่ทันที</label>
 
-            <button type="submit" x-bind:disabled="sel.length === 0 || {{ $agent['connected'] ? 'false' : 'true' }}"
-                    class="btn-brand ml-auto px-6 py-2.5 text-sm disabled:opacity-40"
-                    title="{{ $agent['connected'] ? '' : 'ต้องเชื่อมต่อ Hive Download ก่อน' }}">นำเข้าที่เลือก →</button>
+            <button type="submit" x-bind:disabled="sel.length === 0"
+                    class="btn-brand ml-auto px-6 py-2.5 text-sm disabled:opacity-40">นำเข้าที่เลือก →</button>
         </div>
 
         {{-- Genre assignment --}}

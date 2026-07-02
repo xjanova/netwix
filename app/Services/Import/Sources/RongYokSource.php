@@ -7,6 +7,7 @@ use App\Services\Import\JsonExtract;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -168,12 +169,68 @@ class RongYokSource implements MediaSource
         return array_map(fn ($n) => ['number' => $n, 'ref' => (string) $n], $nums);
     }
 
+    private const ENDPOINT_CACHE_KEY = 'rongyok:video_endpoint';
+    private const ENDPOINT_FALLBACK = 'get_video.php';
+
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream
     {
-        $resp = $this->http()->withHeaders([
-            'Referer' => self::BASE."/watch/?series_id={$sourceKey}&ep={$sourceRef}",
-            'X-Requested-With' => 'XMLHttpRequest',
-        ])->get(self::BASE.'/watch/get_video.php', ['series_id' => $sourceKey, 'ep' => $sourceRef]);
+        // rongyok rotates the resolver endpoint filename to deter scrapers; the OLD get_video.php
+        // now returns already-expired Discord URLs. Use the cached endpoint first.
+        $cached = Cache::get(self::ENDPOINT_CACHE_KEY);
+        if ($cached) {
+            $endpoint = $cached;
+        } else {
+            $endpoint = $this->discoverEndpoint();
+            Cache::put(self::ENDPOINT_CACHE_KEY, $endpoint, now()->addHour());
+        }
+
+        if ($stream = $this->callResolve($endpoint, $sourceKey, $sourceRef)) {
+            return $stream;
+        }
+
+        // Only the CACHED endpoint can be stale-due-to-rotation (a just-discovered one is current),
+        // so re-discover once and retry only if the filename actually changed.
+        if ($cached !== null) {
+            $fresh = $this->discoverEndpoint();
+            Cache::put(self::ENDPOINT_CACHE_KEY, $fresh, now()->addHour());
+            if ($fresh !== $endpoint && ($stream = $this->callResolve($fresh, $sourceKey, $sourceRef))) {
+                return $stream;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Read the current (rotating) resolver endpoint filename (e.g. "xq7bza9k.php") from
+     * /watch/watch.js. Tolerates JSON/bundler slash-escaping and other query params appearing before
+     * series_id; falls back to the legacy get_video.php if it can't be found.
+     */
+    private function discoverEndpoint(): string
+    {
+        try {
+            $js = str_replace('\\/', '/', $this->http()->get(self::BASE.'/watch/watch.js')->body());
+            // e.g.  fetch(`/watch/xq7bza9k.php?series_id=...`)  or  `...php?ep=1&series_id=...`
+            if (preg_match('~/watch/([a-z0-9_]{4,})\.php\?[^"\'`\s]*series_id~i', $js, $m)) {
+                return $m[1].'.php';
+            }
+        } catch (\Throwable) {
+            // fall through to the legacy endpoint
+        }
+
+        return self::ENDPOINT_FALLBACK;
+    }
+
+    private function callResolve(string $endpoint, string $sourceKey, string $sourceRef): ?RemoteStream
+    {
+        try {
+            $resp = $this->http()->withHeaders([
+                'Referer' => self::BASE."/watch/?series_id={$sourceKey}&ep={$sourceRef}",
+                'X-Requested-With' => 'XMLHttpRequest',
+            ])->get(self::BASE."/watch/{$endpoint}", ['series_id' => $sourceKey, 'ep' => $sourceRef]);
+        } catch (\Throwable) {
+            return null;
+        }
 
         if (! $resp->ok()) {
             return null;
@@ -188,6 +245,22 @@ class RongYokSource implements MediaSource
         }
         $url = $data['video_url'] ?? null;
 
-        return $url ? new RemoteStream(RemoteStream::KIND_MP4, $url) : null;
+        // A stale endpoint hands back an already-expired signature — reject it so the caller
+        // re-discovers the rotated endpoint instead of playing a dead URL.
+        if (! is_string($url) || $url === '' || ! self::urlIsFresh($url)) {
+            return null;
+        }
+
+        return new RemoteStream(RemoteStream::KIND_MP4, $url);
+    }
+
+    /** Discord signed URLs carry ?ex=<hex unix seconds>; a past ex means the URL is already dead. */
+    public static function urlIsFresh(string $url): bool
+    {
+        if (! preg_match('~[?&]ex=([0-9a-f]+)~i', $url, $m)) {
+            return true;   // no ex param → can't tell, assume usable
+        }
+
+        return hexdec($m[1]) > time() + 60;   // small clock-skew buffer
     }
 }
