@@ -7,7 +7,6 @@
         'title' => $e->title,
         'url' => $e->video_url,
         'resolve' => ($e->source && ! $e->video_url) ? route('episode.source', $e) : null,
-        'request' => ($e->source === 'rongyok' && ! $e->video_url) ? route('mirror.request', $e) : null,
     ])->values();
 @endphp
 
@@ -27,12 +26,11 @@
                @click="togglePlay()"
                class="h-full w-full bg-black object-contain"></video>
 
-        {{-- preparing overlay (rongyok episode not mirrored yet) --}}
+        {{-- preparing overlay (episode not mirrored yet) --}}
         <div x-show="preparing" x-cloak class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/85 px-8 text-center">
             <div class="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-brand"></div>
-            <div class="text-lg font-semibold">กำลังเตรียมวิดีโอ…</div>
-            <div class="max-w-xs text-sm text-cream/60">ตอนนี้ยังไม่ได้ดาวน์โหลดมาเก็บ ระบบได้เพิ่มเข้าคิวโหลดให้แล้ว (โหลดโดยลูกค้า) — เมื่อพร้อมจะเล่นอัตโนมัติ</div>
-            <div x-show="requests > 1" class="text-xs text-cream/40">มีผู้ขอดูตอนนี้แล้ว <span x-text="requests"></span> ครั้ง</div>
+            <div class="text-lg font-semibold">กำลังเตรียมไฟล์ไว้…</div>
+            <div class="max-w-xs text-sm text-cream/60">ตอนนี้กำลังเตรียมพร้อมให้รับชม อีกสักครู่ — เมื่อพร้อมจะเล่นอัตโนมัติ</div>
         </div>
 
         {{-- gradient + caption --}}
@@ -60,9 +58,7 @@
             lock: false,
             touchY: 0,
             preparing: false,
-            requests: 0,
             _poll: null,
-            _requested: new Set(),
 
             init() {
                 if (this.episodes.length) this.load();
@@ -83,19 +79,14 @@
                 const data = await this.tryResolve(ep);
                 if (data && data.ready && data.url) { this.attach(data.url); return; }
 
-                // Not available — queue a customer request and poll until it's mirrored.
-                this.requests = (data && data.requests) || 0;
+                // Not mirrored yet — show "preparing" and poll until it becomes available.
                 this.preparing = true;
-                if (ep.request && !this._requested.has(ep.n)) {
-                    this._requested.add(ep.n);
-                    try { const r = await window.nxPost(ep.request); if (r && r.requests) this.requests = r.requests; } catch (e) {}
-                }
                 const myIndex = this.index;
                 this._poll = setInterval(async () => {
                     if (this.index !== myIndex) { this.stopPoll(); return; }
                     const d = await this.tryResolve(ep);
                     if (d && d.ready && d.url) { this.stopPoll(); this.preparing = false; this.attach(d.url); }
-                }, 8000);
+                }, 10000);
             },
 
             async tryResolve(ep) {

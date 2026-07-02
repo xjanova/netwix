@@ -5,8 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Episode;
 use App\Services\Import\SourceRegistry;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 class EpisodeSourceController extends Controller
 {
@@ -40,43 +38,8 @@ class EpisodeSourceController extends Controller
             ]);
         }
 
-        // rongyok (and anything else) must be mirrored first — server IP can't fetch it.
-        return response()->json([
-            'ready' => false,
-            'queued' => (bool) $episode->mirror_requested_at,
-            'requests' => (int) $episode->mirror_requests,
-        ], 202);
-    }
-
-    /**
-     * A customer opened an episode that isn't mirrored yet — record the request so NetwixSync
-     * (running on a residential machine) prioritises it. Marked as customer-triggered.
-     */
-    public function request(Request $request, Episode $episode): JsonResponse
-    {
-        if ($episode->video_url) {
-            return response()->json(['queued' => false, 'ready' => true]);
-        }
-        if ($episode->source !== 'rongyok') {
-            return response()->json(['queued' => false]); // wow-drama streams live; nothing to queue
-        }
-
-        // Debounce repeat views from the same profile within a short window (avoid inflating count).
-        $profile = $request->attributes->get('profile');
-        $key = "mreq:{$episode->id}:".($profile?->id ?? 'x');
-        $fresh = ! Cache::has($key);
-        Cache::put($key, 1, now()->addMinutes(30));
-
-        if ($fresh) {
-            $episode->increment('mirror_requests');
-        }
-        if (! $episode->mirror_requested_at) {
-            $episode->forceFill(['mirror_requested_at' => now()])->save();
-        }
-
-        return response()->json([
-            'queued' => true,
-            'requests' => (int) $episode->fresh()->mirror_requests,
-        ], 202);
+        // rongyok not mirrored yet — the server can't fetch it (only our downloader can).
+        // The customer just sees "preparing"; admins do the mirroring.
+        return response()->json(['ready' => false], 202);
     }
 }

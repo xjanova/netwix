@@ -32,22 +32,14 @@ class StorageController extends Controller
             ->count();
         $projectedBytes = $summary['avg'] * $mirrorableTotal;
 
-        // Customer-requested episodes waiting to be mirrored (server can't fetch rongyok itself).
-        $requests = Episode::whereNotNull('mirror_requested_at')->whereNull('mirrored_at')
-            ->with('content:id,title,slug')
-            ->orderByDesc('mirror_requests')->orderByDesc('mirror_requested_at')
-            ->limit(30)->get();
-
         return view('admin.storage.index', [
             'summary' => $summary,
             'titles' => $titles,
             'mirrorableTotal' => $mirrorableTotal,
             'projectedBytes' => $projectedBytes,
+            'agent' => \App\Support\IngestAgent::status(),
             'pendingCount' => Episode::whereNull('mirrored_at')->whereNotNull('source')
                 ->whereHas('content', fn ($q) => $q->where('source', 'rongyok'))->count(),
-            'requests' => $requests,
-            'requestsTotal' => Episode::whereNotNull('mirror_requested_at')->whereNull('mirrored_at')->count(),
-            'customerMirrored' => Episode::where('mirror_trigger', 'customer')->whereNotNull('mirrored_at')->count(),
         ]);
     }
 }

@@ -25,6 +25,9 @@ class IngestController extends Controller
         $given = (string) $request->header('X-Ingest-Token', '');
         abort_if($expected === '' , 503, 'ingest token not configured');
         abort_unless(hash_equals($expected, $given), 401, 'invalid ingest token');
+
+        // Any authenticated call means the downloader is alive and connected.
+        \App\Support\IngestAgent::ping();
     }
 
     /** Worklist: imported episodes that still need their video mirrored. */
@@ -39,9 +42,6 @@ class IngestController extends Controller
             ->when($source, fn ($q) => $q->where('source', $source))
             ->whereHas('content', fn ($q) => $q->whereNotNull('source_key'))
             ->with('content:id,source,source_key,title')
-            // customer-requested episodes first (and most-requested first), then the sequential backlog.
-            ->orderByRaw('mirror_requested_at IS NULL')
-            ->orderByDesc('mirror_requests')
             ->orderBy('content_id')->orderBy('number')
             ->limit((int) $request->integer('limit', 500))
             ->get()
@@ -51,8 +51,6 @@ class IngestController extends Controller
                 'source_key' => $e->content->source_key,
                 'number' => $e->number,
                 'title' => $e->content->title,
-                'requested' => (bool) $e->mirror_requested_at,
-                'requests' => (int) $e->mirror_requests,
             ]);
 
         return response()->json(['count' => $items->count(), 'items' => $items]);
@@ -91,7 +89,7 @@ class IngestController extends Controller
             'video_url' => Storage::disk('public')->url($path),
             'mirrored_at' => now(),
             'file_size' => Storage::disk('public')->size($path),
-            'mirror_trigger' => $episode->mirror_requested_at ? 'customer' : 'admin',
+            'mirror_trigger' => 'admin',
         ]);
 
         return response()->json([

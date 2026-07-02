@@ -48,6 +48,7 @@ class ImportController extends Controller
             'q' => $q,
             'filter' => $filter,
             'genres' => Genre::orderBy('sort')->get(),
+            'agent' => \App\Support\IngestAgent::status(),
         ]);
     }
 
@@ -86,6 +87,11 @@ class ImportController extends Controller
             'publish' => ['sometimes', 'boolean'],
         ]);
         abort_unless($this->registry->has($data['source']), 404);
+
+        // No downloader connected → importing is pointless (nothing can fetch the videos).
+        if (! \App\Support\IngestAgent::connected()) {
+            return back()->withErrors(['import' => 'ยังไม่ได้เชื่อมต่อ Hive Download — เปิดโปรแกรม NetwixSync บนเครื่องบ้านก่อนจึงจะนำเข้าได้']);
+        }
 
         @set_time_limit(0);
         @ini_set('memory_limit', '512M');
