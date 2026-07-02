@@ -20,7 +20,7 @@
            :class="sidebar ? 'translate-x-0' : '-translate-x-full'"
            style="background:linear-gradient(180deg,#0d0913 0%,#0a0710 100%)">
         <div class="flex items-center gap-2.5 px-2">
-            <img src="{{ asset('assets/netwix-logo.png') }}" alt="NetWix" class="h-6 w-auto">
+            <img src="{{ asset('assets/netwix-wordmark.png') }}" alt="NetWix" class="h-8 w-auto">
             <span class="rounded border border-white/15 px-1.5 py-0.5 text-[11px] font-semibold tracking-widest text-cream/40">ADMIN</span>
         </div>
 

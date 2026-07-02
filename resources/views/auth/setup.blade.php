@@ -11,7 +11,7 @@
           class="relative z-10 w-[min(460px,100%)] rounded-2xl border border-white/10 bg-surface/85 p-10 backdrop-blur-xl"
           style="box-shadow:0 40px 90px rgba(0,0,0,0.55)">
         @csrf
-        <img src="{{ asset('assets/netwix-logo.png') }}" alt="NetWix" class="mx-auto mb-7 h-12 w-auto">
+        <img src="{{ asset('assets/netwix-wordmark.png') }}" alt="NetWix" class="mx-auto mb-7 h-14 w-auto">
         <div class="nx-gradient mx-auto mb-4 w-fit rounded px-2.5 py-1 text-[11px] font-bold tracking-widest">FIRST-RUN SETUP</div>
         <h1 class="mb-2 text-center text-2xl font-bold">ตั้งค่าผู้ดูแลหลัก</h1>
         <p class="mb-6 text-center text-sm text-cream/55">สร้างบัญชีผู้ดูแลระบบบัญชีแรกของ NetWix<br>หน้านี้จะปิดอัตโนมัติเมื่อมีผู้ดูแลแล้ว</p>

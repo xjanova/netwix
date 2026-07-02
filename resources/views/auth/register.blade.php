@@ -11,7 +11,7 @@
           class="relative z-10 w-[min(430px,100%)] rounded-2xl border border-white/10 bg-surface/85 p-10 backdrop-blur-xl"
           style="box-shadow:0 40px 90px rgba(0,0,0,0.55)">
         @csrf
-        <img src="{{ asset('assets/netwix-logo.png') }}" alt="NetWix" class="mx-auto mb-9 h-14 w-auto">
+        <img src="{{ asset('assets/netwix-wordmark.png') }}" alt="NetWix" class="mx-auto mb-9 h-16 w-auto">
         <h1 class="mb-6 text-center text-2xl font-bold">สมัครสมาชิก</h1>
 
         <div class="flex flex-col gap-3.5">

@@ -10,7 +10,7 @@
              style="background:radial-gradient(ellipse at 18% -10%, rgba(255,45,85,0.20), transparent 50%), radial-gradient(ellipse at 82% 0%, rgba(139,47,240,0.22), transparent 55%), #07050c;"></div>
 
         <header class="relative z-20 flex items-center justify-between px-[5vw] py-5">
-            <img src="{{ asset('assets/netwix-logo.png') }}" alt="NetWix" class="h-8 w-auto sm:h-9">
+            <img src="{{ asset('assets/netwix-wordmark.png') }}" alt="NetWix" class="h-10 w-auto sm:h-12">
             <a href="{{ route('login') }}" class="btn-brand px-5 py-2 text-sm sm:px-6">เข้าสู่ระบบ</a>
         </header>
 
@@ -147,7 +147,7 @@
 
     {{-- ================= FOOTER ================= --}}
     <footer class="border-t border-white/5 px-[5vw] py-10 text-cream/45">
-        <img src="{{ asset('assets/netwix-logo.png') }}" alt="NetWix" class="mb-5 h-5 opacity-70">
+        <img src="{{ asset('assets/netwix-wordmark.png') }}" alt="NetWix" class="mb-5 h-8 opacity-70">
         <div class="grid max-w-3xl grid-cols-2 gap-3 text-[13px] sm:grid-cols-4">
             <a href="{{ route('login') }}" class="hover:text-cream">เข้าสู่ระบบ</a>
             <a href="{{ route('register') }}" class="hover:text-cream">สมัครสมาชิก</a>

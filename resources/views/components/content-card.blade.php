@@ -23,8 +23,11 @@
              style="-webkit-text-stroke:2px rgba(255,255,255,0.35)">{{ $ranked }}</div>
     @endif
 
-    <button type="button" @click="$dispatch('open-title', '{{ route('title.modal', $content) }}')"
-            class="block w-full text-left {{ $ranked ? 'ml-6' : '' }}">
+    {{-- NOTE: must be a <div>, not <button> — the hover bar nests <a>/<button>
+         inside, and interactive-in-button is invalid HTML that explodes the DOM --}}
+    <div role="button" tabindex="0" @click="$dispatch('open-title', '{{ route('title.modal', $content) }}')"
+         @keydown.enter="$dispatch('open-title', '{{ route('title.modal', $content) }}')"
+         class="block w-full cursor-pointer text-left {{ $ranked ? 'ml-6' : '' }}">
         <div class="relative aspect-video overflow-hidden rounded-lg ring-1 ring-white/5 transition duration-200 group-hover:ring-2 group-hover:ring-white/25"
              style="background:{{ $content->backdrop_url ? '#0e0a17' : $content->gradient }}">
             @if ($content->backdrop_url)
@@ -57,7 +60,7 @@
                 <span class="text-[11px] font-bold text-success">{{ $content->match_score }}% ตรงใจ</span>
             </div>
         </div>
-    </button>
+    </div>
 
     <div class="mt-2 {{ $ranked ? 'ml-6' : '' }}">
         <div class="truncate text-[13px] font-medium">{{ $content->title }}</div>

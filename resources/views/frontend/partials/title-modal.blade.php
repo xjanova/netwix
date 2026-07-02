@@ -14,12 +14,15 @@
      }">
     {{-- backdrop --}}
     <div class="relative aspect-video w-full overflow-hidden bg-black">
+        {{-- gradient always underneath so the backdrop never shows a black void --}}
+        <div class="absolute inset-0" style="background:{{ $content->gradient }}"></div>
+        @if ($content->backdrop_url)
+            <img src="{{ $content->backdrop_url }}" alt="" aria-hidden="true" class="absolute inset-0 h-full w-full object-cover">
+        @endif
         @if ($heroYt)
             <iframe src="https://www.youtube.com/embed/{{ $heroYt }}?autoplay=1&mute=1&loop=1&playlist={{ $heroYt }}&controls=0&modestbranding=1&rel=0&playsinline=1"
                     class="pointer-events-none absolute left-1/2 top-1/2 h-full w-full -translate-x-1/2 -translate-y-1/2 border-0"
                     style="min-width:178%;min-height:178%" allow="autoplay; encrypted-media"></iframe>
-        @else
-            <div class="absolute inset-0" style="background:{{ $content->gradient }}"></div>
         @endif
         <div class="absolute inset-0" style="background:linear-gradient(180deg,transparent 40%, rgba(20,16,32,0.9) 92%, #141020 100%)"></div>
 

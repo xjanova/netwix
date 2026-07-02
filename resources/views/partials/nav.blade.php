@@ -29,7 +29,7 @@
                 <span class="block h-0.5 w-5 bg-cream"></span>
                 <span class="block h-0.5 w-5 bg-cream"></span>
             </button>
-            <a href="{{ route('browse') }}"><img src="{{ asset('assets/netwix-logo.png') }}" alt="NetWix" class="h-6 w-auto"></a>
+            <a href="{{ route('browse') }}"><img src="{{ asset('assets/netwix-wordmark.png') }}" alt="NetWix" class="h-8 w-auto"></a>
             <div class="hidden lg:flex items-center gap-6">
                 @foreach ($links as $link)
                     <a href="{{ route($link['route']) }}"
@@ -94,7 +94,7 @@
     <div x-show="mobile" x-cloak class="lg:hidden">
         <div class="fixed inset-0 bg-black/60 z-[180]" @click="mobile = false"></div>
         <div class="fixed inset-y-0 left-0 z-[190] w-[78vw] max-w-[300px] bg-ink-2 p-6 shadow-2xl overflow-y-auto">
-            <img src="{{ asset('assets/netwix-logo.png') }}" alt="NetWix" class="h-6 mb-6">
+            <img src="{{ asset('assets/netwix-wordmark.png') }}" alt="NetWix" class="h-9 mb-6">
             @foreach ($links as $link)
                 <a href="{{ route($link['route']) }}" class="block border-b border-white/10 py-4 text-base">{{ $link['label'] }}</a>
             @endforeach
