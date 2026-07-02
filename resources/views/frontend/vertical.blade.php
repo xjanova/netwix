@@ -18,6 +18,10 @@
                             <img src="{{ $content->poster_url }}" alt="{{ $content->title }}" loading="lazy"
                                  referrerpolicy="no-referrer" onerror="this.style.display='none'"
                                  class="absolute inset-0 h-full w-full object-cover">
+                        @else
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <img src="{{ asset('assets/netwix-icon.png') }}" alt="" class="h-14 w-14 opacity-30">
+                            </div>
                         @endif
                         <div class="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100" style="background:rgba(0,0,0,0.35)">
                             <span class="flex h-12 w-12 items-center justify-center rounded-full bg-cream/90 text-ink">

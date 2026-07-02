@@ -35,7 +35,10 @@
                      referrerpolicy="no-referrer" onerror="this.style.display='none'"
                      class="absolute inset-0 h-full w-full object-cover">
             @else
-                <div class="absolute inset-0 flex items-center justify-center px-4 text-center text-sm font-semibold text-cream/85">{{ $content->title }}</div>
+                <div class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center">
+                    <img src="{{ asset('assets/netwix-icon.png') }}" alt="" class="h-9 w-9 opacity-40">
+                    <span class="line-clamp-2 text-[13px] font-semibold text-cream/80">{{ $content->title }}</span>
+                </div>
             @endif
 
             @if ($content->is_original)

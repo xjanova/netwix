@@ -4,7 +4,7 @@
 @section('content')
 <div class="relative flex min-h-screen items-center justify-center overflow-hidden p-6"
      style="background:radial-gradient(circle at 12% 18%, rgba(255,45,85,0.22), transparent 42%), radial-gradient(circle at 88% 82%, rgba(139,47,240,0.24), transparent 46%), #07050c;">
-    <img src="{{ asset('assets/netwix-logo.png') }}" aria-hidden="true" alt=""
+    <img src="{{ asset('assets/netwix-icon.png') }}" aria-hidden="true" alt=""
          class="pointer-events-none absolute left-1/2 top-1/2 w-[1200px] max-w-none -translate-x-1/2 -translate-y-1/2 opacity-[0.06] blur-[1px]">
 
     <form method="POST" action="{{ route('setup') }}"

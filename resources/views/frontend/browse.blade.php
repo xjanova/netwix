@@ -19,6 +19,10 @@
                 :src="`https://www.youtube.com/embed/{{ $heroYt }}?autoplay=1&mute=${muted ? 1 : 0}&loop=1&playlist={{ $heroYt }}&controls=0&modestbranding=1&rel=0&showinfo=0&playsinline=1`"
                 class="pointer-events-none absolute left-1/2 top-1/2 h-full w-full -translate-x-1/2 -translate-y-1/2 border-0"
                 style="min-width:178vh;min-height:75vw" allow="autoplay; encrypted-media"></iframe>
+        @elseif (! $hero->backdrop_url)
+            {{-- no trailer and no image → brand the hero with the logo --}}
+            <img src="{{ asset('assets/netwix-icon.png') }}" alt="" aria-hidden="true"
+                 class="pointer-events-none absolute right-[6%] top-1/2 h-[46%] max-h-[380px] w-auto -translate-y-1/2 opacity-[0.12]">
         @endif
 
         <div class="absolute inset-0" style="background:linear-gradient(90deg, rgba(7,5,12,0.85) 0%, rgba(7,5,12,0.25) 45%, rgba(7,5,12,0.1) 65%, rgba(7,5,12,0.6) 100%)"></div>
