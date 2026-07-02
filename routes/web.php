@@ -5,6 +5,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\Auth\SetupController;
 use App\Http\Controllers\BrowseController;
+use App\Http\Controllers\EpisodeSourceController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\InteractionController;
 use App\Http\Controllers\ProfileSelectionController;
@@ -57,11 +58,17 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::post('/api/content/{content}/list', [InteractionController::class, 'toggleMyList'])->name('content.list');
     Route::post('/api/content/{content}/like', [InteractionController::class, 'toggleLike'])->name('content.like');
     Route::post('/api/content/{content}/progress', [InteractionController::class, 'progress'])->name('content.progress');
+
+    Route::get('/api/episode/{episode}/source', [EpisodeSourceController::class, 'resolve'])->name('episode.source');
 });
 
 // ---- Admin -------------------------------------------------------------
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/', [Admin\DashboardController::class, 'index'])->name('dashboard');
+
+    Route::get('import', [Admin\ImportController::class, 'index'])->name('import.index');
+    Route::post('import/sync', [Admin\ImportController::class, 'sync'])->name('import.sync');
+    Route::post('import', [Admin\ImportController::class, 'import'])->name('import.store');
 
     Route::resource('contents', Admin\ContentController::class)->except('show');
     Route::post('contents/{content}/episodes', [Admin\EpisodeController::class, 'store'])->name('contents.episodes.store');

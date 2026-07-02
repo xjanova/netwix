@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Storage;
 class Content extends Model
 {
     protected $fillable = [
-        'title', 'slug', 'type', 'synopsis', 'year', 'maturity',
+        'title', 'slug', 'source', 'source_key', 'type', 'synopsis', 'year', 'maturity',
         'match_score', 'rating', 'is_original', 'is_featured', 'is_published',
         'poster_path', 'backdrop_path', 'trailer_youtube_id', 'video_url',
         'duration_minutes', 'views', 'sort',

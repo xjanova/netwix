@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Storage;
 class Episode extends Model
 {
     protected $fillable = [
-        'content_id', 'season_id', 'number', 'title',
+        'content_id', 'season_id', 'source', 'source_ref', 'number', 'title',
         'description', 'duration_minutes', 'video_url', 'thumbnail_path', 'sort',
     ];
 

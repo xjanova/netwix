@@ -8,6 +8,7 @@
     $nav = [
         ['route' => 'admin.dashboard', 'label' => 'แดชบอร์ด'],
         ['route' => 'admin.contents.index', 'label' => 'จัดการคอนเทนต์', 'badge' => \App\Models\Content::count()],
+        ['route' => 'admin.import.index', 'label' => 'นำเข้าหนัง'],
         ['route' => 'admin.genres.index', 'label' => 'หมวดหมู่'],
         ['route' => 'admin.users.index', 'label' => 'สมาชิก'],
         ['route' => 'admin.analytics', 'label' => 'วิเคราะห์ข้อมูล'],

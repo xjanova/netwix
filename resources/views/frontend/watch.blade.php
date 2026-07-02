@@ -7,6 +7,7 @@
         progressUrl: '{{ route('content.progress', $content) }}',
         episodeId: {{ $episode->id ?? 'null' }},
         source: @js($source),
+        resolveUrl: @js($resolveUrl ?? null),
         youtube: @js($youtubeId),
      })"
      x-init="init()">
@@ -26,11 +27,14 @@
     @if ($youtubeId)
         <iframe src="https://www.youtube.com/embed/{{ $youtubeId }}?autoplay=1&rel=0&modestbranding=1&playsinline=1"
                 class="h-full w-full border-0" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>
-    @elseif ($source)
+    @elseif ($source || $resolveUrl)
         <video x-ref="video" controls autoplay playsinline
                @timeupdate.throttle.10000ms="saveProgress()"
                @ended="saveProgress(100)"
                class="h-full w-full bg-black object-contain"></video>
+        <div x-show="err" x-cloak class="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-cream/70">
+            <span x-text="err"></span>
+        </div>
     @else
         <div class="flex h-full items-center justify-center px-6 text-center text-cream/60">
             ยังไม่มีไฟล์วิดีโอสำหรับตอนนี้ — เพิ่มลิงก์วิดีโอได้ในแผงผู้ดูแล
@@ -42,9 +46,21 @@
 <script>
     function watchPlayer(cfg) {
         return {
-            init() {
-                if (this.$refs.video && cfg.source && !cfg.youtube) {
+            err: '',
+            async init() {
+                if (!this.$refs.video || cfg.youtube) return;
+                if (cfg.source) {
                     window.nxAttachVideo(this.$refs.video, cfg.source);
+                } else if (cfg.resolveUrl) {
+                    try {
+                        const r = await fetch(cfg.resolveUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                        if (!r.ok) throw new Error();
+                        const d = await r.json();
+                        if (!d.url) throw new Error();
+                        window.nxAttachVideo(this.$refs.video, d.url);
+                    } catch (e) {
+                        this.err = 'ไม่สามารถโหลดวิดีโอจากแหล่งต้นทางได้ในขณะนี้';
+                    }
                 }
             },
             saveProgress(force = null) {

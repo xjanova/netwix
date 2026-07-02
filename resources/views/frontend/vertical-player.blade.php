@@ -6,6 +6,7 @@
         'n' => $e->number,
         'title' => $e->title,
         'url' => $e->video_url,
+        'resolve' => ($e->source && ! $e->video_url) ? route('episode.source', $e) : null,
     ])->values();
 @endphp
 
@@ -52,8 +53,15 @@
             init() {
                 if (this.episodes.length) this.load();
             },
-            load() {
-                const url = this.episodes[this.index]?.url;
+            async load() {
+                const ep = this.episodes[this.index];
+                let url = ep?.url;
+                if (!url && ep?.resolve) {
+                    try {
+                        const r = await fetch(ep.resolve, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                        if (r.ok) url = (await r.json()).url;
+                    } catch (e) { /* ignore */ }
+                }
                 if (url) window.nxAttachVideo(this.$refs.video, url);
                 this.$refs.video.play?.().catch(() => {});
             },

@@ -33,10 +33,16 @@ class WatchController extends Controller
 
         $source = $episode?->video_url ?? $content->video_url;
 
+        // Imported episodes carry a source ref instead of a stored URL — resolve it on demand.
+        $resolveUrl = ($episode && $episode->source && ! $source)
+            ? route('episode.source', $episode)
+            : null;
+
         return view('frontend.watch', [
             'content' => $content,
             'episode' => $episode,
             'source' => $source,
+            'resolveUrl' => $resolveUrl,
             'youtubeId' => Content::youtubeIdFrom($source) ?? $content->youtube_id,
         ]);
     }
