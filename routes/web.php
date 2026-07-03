@@ -103,6 +103,8 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::post('/api/content/{content}/rate', [InteractionController::class, 'rate'])->name('content.rate');
 
     Route::get('/api/episode/{episode}/source', [EpisodeSourceController::class, 'resolve'])->name('episode.source');
+    Route::post('/api/episode/{episode}/thumb', [EpisodeSourceController::class, 'captureThumb'])
+        ->middleware('throttle:60,1')->name('episode.thumb');
 
     // Member account: Pro status, coins, referral code + share, redeem a code.
     Route::get('/account', [\App\Http\Controllers\AccountController::class, 'index'])->name('account');

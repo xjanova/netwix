@@ -7,6 +7,10 @@
         'title' => $e->title,
         'url' => $e->video_url,
         'resolve' => ($e->source && ! $e->video_url) ? route('episode.source', $e) : null,
+        // per-episode cover: captured frame if we have one, else the title's main poster
+        'thumb' => $e->thumbnail_path ? $e->thumbnail_url : $content->poster_url,
+        'has' => (bool) $e->thumbnail_path,
+        'post' => route('episode.thumb', $e),
     ])->values();
 @endphp
 
@@ -22,6 +26,36 @@
 >
     <a href="{{ route('browse.vertical') }}" class="absolute left-4 top-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-lg backdrop-blur hover:bg-white/20">✕</a>
 
+    {{-- open the episode grid --}}
+    <button @click.stop="epMenu = true"
+            class="absolute left-16 top-4 z-40 flex h-10 items-center gap-1.5 rounded-full bg-white/10 px-4 text-sm font-semibold backdrop-blur hover:bg-white/20">
+        ▦ ตอน <span x-text="index + 1"></span>/{{ $eps->count() }}
+    </button>
+
+    {{-- episode picker: a grid of covers (captured frame, else the main poster) — tap to jump --}}
+    <div x-show="epMenu" x-cloak @click.self="epMenu = false"
+         class="absolute inset-0 z-50 flex flex-col bg-black/85 backdrop-blur">
+        <div class="flex items-center justify-between px-5 py-4">
+            <span class="truncate text-lg font-bold">เลือกตอน · {{ $content->title }}</span>
+            <button @click="epMenu = false" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-lg hover:bg-white/20">✕</button>
+        </div>
+        <div class="grid flex-1 grid-cols-3 content-start gap-2.5 overflow-y-auto px-5 pb-8 sm:grid-cols-4 md:grid-cols-6">
+            <template x-for="(ep, i) in episodes" :key="i">
+                <button @click="go(i)" style="aspect-ratio:9/16"
+                        class="group relative overflow-hidden rounded-lg ring-1 ring-white/10 transition hover:ring-2 hover:ring-white/40"
+                        :class="i === index ? '!ring-2 !ring-brand' : ''">
+                    <div class="absolute inset-0" style="background:linear-gradient(160deg,#1c1626,#120e1a)"></div>
+                    <img :src="ep.thumb" x-show="ep.thumb" loading="lazy" referrerpolicy="no-referrer"
+                         class="absolute inset-0 h-full w-full object-cover" onerror="this.style.display='none'">
+                    <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent pb-1.5 pt-4 text-center text-[12px] font-bold">
+                        ตอน <span x-text="ep.n"></span>
+                    </div>
+                    <span x-show="i === index" x-cloak class="nx-gradient absolute right-1 top-1 rounded px-1 py-0.5 text-[9px] font-bold">กำลังดู</span>
+                </button>
+            </template>
+        </div>
+    </div>
+
     <div class="relative h-full max-h-[100dvh] w-auto" style="aspect-ratio:9/16">
         <video x-ref="video" playsinline autoplay loop
                :muted="muted"
@@ -29,7 +63,7 @@
                @timeupdate="onTime()"
                @play="playing = true" @pause="playing = false"
                @waiting="buffering = true" @stalled="buffering = true"
-               @playing="buffering = false" @canplay="buffering = false" x-on:error="buffering = false"
+               @playing="buffering = false; maybeCapture()" @canplay="buffering = false" x-on:error="buffering = false"
                class="h-full w-full bg-black object-contain"></video>
 
         {{-- prominent tap-to-unmute (only while muted) — the whole reason people say "no sound" --}}
@@ -110,6 +144,7 @@
             lock: false,
             touchY: 0,
             preparing: false,
+            epMenu: false,
             _poll: null,
 
             // transport state
@@ -251,6 +286,34 @@
 
             next() { if (this.index < this.episodes.length - 1) { this.index++; this.load(); } },
             prev() { if (this.index > 0) { this.index--; this.load(); } },
+            go(i) {
+                this.epMenu = false;
+                if (i !== this.index) { this.index = i; this.load(); }
+            },
+
+            // Grab a small JPEG frame at a random moment during playback as this episode's cover —
+            // once, only if it has no thumb yet. Cross-origin sources taint the canvas (toDataURL
+            // throws) → we just skip and keep the poster fallback.
+            maybeCapture() {
+                const ep = this.episodes[this.index];
+                if (!ep || ep.has || ep._cap || !window.nxPost) return;
+                ep._cap = true;
+                const v = this.$refs.video;
+                const delay = 5000 + Math.floor(Math.random() * 18000);
+                setTimeout(() => {
+                    if (this.episodes[this.index] !== ep) return;   // viewer moved on
+                    if (!v.videoWidth || v.readyState < 2 || v.paused) return;
+                    try {
+                        const w = 240, h = Math.round(w * v.videoHeight / v.videoWidth) || 135;
+                        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+                        cv.getContext('2d').drawImage(v, 0, 0, w, h);
+                        const img = cv.toDataURL('image/jpeg', 0.62);   // throws if tainted
+                        nxPost(ep.post, { image: img })
+                            .then((r) => { if (r && r.ok) { ep.has = true; if (r.url) ep.thumb = r.url; } })
+                            .catch(() => {});
+                    } catch (e) { /* cross-origin video → keep poster fallback */ }
+                }, delay);
+            },
             onWheel(e) {
                 if (this.lock) return;
                 if (e.deltaY > 25) this.next();

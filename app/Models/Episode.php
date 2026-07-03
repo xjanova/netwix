@@ -54,15 +54,21 @@ class Episode extends Model
         return $this->belongsTo(Season::class);
     }
 
+    /** Per-episode cover: the captured frame if we have one, else the title's main poster. */
     public function getThumbnailUrlAttribute(): ?string
     {
-        if (! $this->thumbnail_path) {
-            return null;
+        if ($this->thumbnail_path) {
+            return str_starts_with($this->thumbnail_path, 'http')
+                ? $this->thumbnail_path
+                : Storage::url($this->thumbnail_path);
         }
 
-        return str_starts_with($this->thumbnail_path, 'http')
-            ? $this->thumbnail_path
-            : Storage::url($this->thumbnail_path);
+        return $this->content?->poster_url;   // fall back to the main poster until a frame is grabbed
+    }
+
+    public function getHasThumbAttribute(): bool
+    {
+        return (bool) $this->thumbnail_path;
     }
 
     public function getDurationLabelAttribute(): ?string

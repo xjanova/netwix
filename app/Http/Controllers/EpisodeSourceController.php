@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Episode;
 use App\Services\Import\SourceRegistry;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 
 class EpisodeSourceController extends Controller
 {
@@ -79,5 +81,46 @@ class EpisodeSourceController extends Controller
         Cache::put($cacheKey, $stream->url, now()->addSeconds($ttl));
 
         return response()->json(['ready' => true, 'kind' => $stream->kind, 'url' => $stream->url]);
+    }
+
+    /**
+     * Store a small JPEG frame grabbed from the player as this episode's cover — first capture wins
+     * (never overwritten), so an episode gets a real thumbnail the first time anyone watches it and
+     * falls back to the title's main poster until then. Only works for same-origin video (our HLS
+     * proxy / stored mp4); a cross-origin source taints the canvas client-side and just isn't sent.
+     */
+    public function captureThumb(Request $request, Episode $episode): JsonResponse
+    {
+        abort_unless((bool) $episode->content?->is_published, 404);
+
+        if ($episode->thumbnail_path) {
+            return response()->json(['ok' => true, 'skipped' => 'exists']);
+        }
+
+        $data = $request->validate(['image' => ['required', 'string', 'max:400000']]);
+
+        $prefix = 'data:image/jpeg;base64,';
+        if (! str_starts_with($data['image'], $prefix)) {
+            return response()->json(['ok' => false, 'error' => 'format'], 422);
+        }
+        $bin = base64_decode(substr($data['image'], strlen($prefix)), true);
+
+        // Must be a genuine, sanely-sized JPEG — reject garbage, huge payloads, decompression bombs.
+        if ($bin === false || strlen($bin) < 500 || strlen($bin) > 300_000 || substr($bin, 0, 3) !== "\xFF\xD8\xFF") {
+            return response()->json(['ok' => false, 'error' => 'invalid'], 422);
+        }
+        if (function_exists('getimagesizefromstring')) {   // dimension sanity check when GD is present
+            $info = @getimagesizefromstring($bin);
+            if (! $info || ($info['mime'] ?? '') !== 'image/jpeg'
+                || $info[0] < 40 || $info[0] > 1280 || $info[1] < 40 || $info[1] > 1280) {
+                return response()->json(['ok' => false, 'error' => 'invalid'], 422);
+            }
+        }
+
+        $path = "media/thumbs/{$episode->id}.jpg";
+        Storage::disk('public')->put($path, $bin);
+        $episode->update(['thumbnail_path' => $path]);
+
+        return response()->json(['ok' => true, 'url' => Storage::disk('public')->url($path)]);
     }
 }
