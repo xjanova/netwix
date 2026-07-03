@@ -138,6 +138,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('episodes/{episode}/thumb', [Admin\StorageController::class, 'setThumb'])->name('storage.set-thumb');
     Route::delete('episodes/{episode}/mirror', [Admin\StorageController::class, 'unmirror'])->name('storage.unmirror');
     Route::post('contents/{content}/mirror-all', [Admin\StorageController::class, 'mirrorContent'])->name('storage.mirror-content');
+    Route::post('contents/{content}/poster', [Admin\StorageController::class, 'setPoster'])->name('storage.set-poster');
 
     Route::post('contents/reset-all-thumbs', [Admin\ContentController::class, 'resetAllThumbs'])->name('contents.reset-all-thumbs');
     Route::resource('contents', Admin\ContentController::class)->except('show');

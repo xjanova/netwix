@@ -100,6 +100,37 @@ class StorageController extends Controller
         return response()->json(['ok' => true, 'url' => Storage::disk('public')->url($path).'?t='.now()->timestamp]);
     }
 
+    /** Admin: set a title's poster (2:3) or backdrop (16:9) from a JPEG frame grabbed in the picker. */
+    public function setPoster(Request $request, Content $content): JsonResponse
+    {
+        $data = $request->validate([
+            'image' => ['required', 'string', 'max:1200000'],
+            'kind' => ['required', 'in:poster,backdrop'],
+        ]);
+
+        $prefix = 'data:image/jpeg;base64,';
+        if (! str_starts_with($data['image'], $prefix)) {
+            return response()->json(['ok' => false, 'error' => 'format'], 422);
+        }
+        $bin = base64_decode(substr($data['image'], strlen($prefix)), true);
+        if ($bin === false || strlen($bin) < 500 || strlen($bin) > 800_000 || substr($bin, 0, 3) !== "\xFF\xD8\xFF") {
+            return response()->json(['ok' => false, 'error' => 'invalid'], 422);
+        }
+        if (function_exists('getimagesizefromstring')) {
+            $info = @getimagesizefromstring($bin);
+            if (! $info || ($info['mime'] ?? '') !== 'image/jpeg' || $info[0] < 40 || $info[0] > 2560 || $info[1] < 40 || $info[1] > 2560) {
+                return response()->json(['ok' => false, 'error' => 'invalid'], 422);
+            }
+        }
+
+        $path = "media/posters/{$content->id}-{$data['kind']}.jpg";
+        Storage::disk('public')->put($path, $bin);
+        $url = Storage::disk('public')->url($path).'?t='.now()->timestamp;
+        $content->update([($data['kind'] === 'poster' ? 'poster_path' : 'backdrop_path') => $url]);
+
+        return response()->json(['ok' => true, 'url' => $url]);
+    }
+
     /** Admin: download every not-yet-stored episode of a title (progressive sources only). */
     public function mirrorContent(Content $content, MediaMirror $mirror): RedirectResponse
     {

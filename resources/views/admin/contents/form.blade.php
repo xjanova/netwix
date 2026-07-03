@@ -6,6 +6,18 @@
 @php
     $primaryId = $content->exists ? optional($content->primaryGenre())->id : null;
     $val = fn ($f, $d = '') => old($f, $content->$f ?? $d);
+
+    // A same-origin playable source for the first episode, so the admin can preview + grab a poster.
+    $firstEp = $content->exists ? $content->episodes->first() : null;
+    $previewSrc = null;
+    if ($firstEp) {
+        $previewSrc = $firstEp->video_url
+            ?: ($firstEp->source
+                ? (in_array($firstEp->source, ['wowdrama', 'anime108'], true) ? route('stream.manifest', $firstEp) : route('stream.mp4', $firstEp))
+                : null);
+    } elseif ($content->exists && $content->video_url) {
+        $previewSrc = $content->video_url;
+    }
 @endphp
 
 @section('content')
@@ -62,6 +74,75 @@
                          class="mt-2 h-28 w-auto rounded-lg object-cover ring-1 ring-white/10">
                 </div>
             </div>
+
+            @if ($previewSrc)
+                <div class="mt-4 border-t border-white/5 pt-4" x-data="posterPicker({ src: @js($previewSrc), url: @js(route('admin.storage.set-poster', $content)) })">
+                    <button type="button" @click="show()"
+                            class="rounded-lg bg-brand/15 px-4 py-2 text-sm font-semibold text-brand hover:bg-brand/25">🎬 เล่นวิดีโอ / จับปกจากเฟรม</button>
+                    <span class="ml-2 text-xs text-cream/40">เล่นดูในหลังบ้าน แล้วเลือกเฟรมเป็นปกหรือภาพพื้นหลัง</span>
+
+                    <div x-show="open" x-cloak @keydown.escape.window="hide()" @click.self="hide()"
+                         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
+                        <div class="nx-card w-full max-w-3xl p-5" @click.stop>
+                            <div class="mb-3 flex items-center justify-between">
+                                <h3 class="text-base font-semibold">เล่นวิดีโอ · เลือกปกจากเฟรม</h3>
+                                <button type="button" @click="hide()" class="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 hover:bg-white/20">✕</button>
+                            </div>
+                            <video x-ref="pv" controls playsinline class="mb-3 max-h-[56vh] w-full rounded-lg bg-black"></video>
+                            <div class="flex flex-wrap items-center gap-3">
+                                <button type="button" @click="grab('poster')" x-bind:disabled="saving"
+                                        class="btn-brand px-4 py-2 text-sm disabled:opacity-50">📸 ตั้งเป็นปก (2:3)</button>
+                                <button type="button" @click="grab('backdrop')" x-bind:disabled="saving"
+                                        class="rounded-lg bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/15 disabled:opacity-50">🖼 ตั้งเป็นภาพพื้นหลัง (16:9)</button>
+                                <span class="text-sm" :class="ok ? 'text-success' : 'text-[#ff6b81]'" x-text="msg"></span>
+                                <span class="ml-auto text-xs text-cream/40">เลื่อนแถบวิดีโอไปเฟรมที่ต้องการ แล้วกด</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                @push('scripts')
+                <script>
+                    function posterPicker(cfg) {
+                        return {
+                            open: false, saving: false, ok: false, msg: '',
+                            show() {
+                                this.open = true; this.msg = '';
+                                this.$nextTick(() => {
+                                    const v = this.$refs.pv;
+                                    window.nxAttachVideo ? window.nxAttachVideo(v, cfg.src) : (v.src = cfg.src);
+                                    v.play?.().catch(() => {});
+                                });
+                            },
+                            hide() {
+                                const v = this.$refs.pv;
+                                if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
+                                this.open = false;
+                            },
+                            async grab(kind) {
+                                const v = this.$refs.pv;
+                                if (!v || !v.videoWidth) { this.ok = false; this.msg = 'วิดีโอยังไม่พร้อม รอสักครู่'; return; }
+                                this.saving = true; this.msg = '';
+                                try {
+                                    const w = 640, h = Math.round(w * v.videoHeight / v.videoWidth) || 360;
+                                    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+                                    cv.getContext('2d').drawImage(v, 0, 0, w, h);
+                                    const img = cv.toDataURL('image/jpeg', 0.82);
+                                    const r = await window.nxPost(cfg.url, { image: img, kind });
+                                    if (r && r.ok) {
+                                        this.ok = true;
+                                        this.msg = (kind === 'poster' ? 'ตั้งเป็นปกแล้ว' : 'ตั้งเป็นภาพพื้นหลังแล้ว') + ' ✓';
+                                        const input = document.querySelector(kind === 'poster' ? '[name="poster_path"]' : '[name="backdrop_path"]');
+                                        if (input) { input.value = r.url; input.dispatchEvent(new Event('input', { bubbles: true })); }
+                                    } else { this.ok = false; this.msg = 'บันทึกไม่สำเร็จ'; }
+                                } catch (e) { this.ok = false; this.msg = 'จับเฟรมไม่ได้'; }
+                                finally { this.saving = false; }
+                            },
+                        };
+                    }
+                </script>
+                @endpush
+            @endif
         </div>
 
     </div>
