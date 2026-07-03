@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Membership;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -24,6 +25,7 @@ class RegisterController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'confirmed', Password::min(8)],
+            'ref' => ['nullable', 'string', 'max:16'],
         ], [
             'name.required' => 'กรุณากรอกชื่อ',
             'email.required' => 'กรุณากรอกอีเมล',
@@ -44,6 +46,14 @@ class RegisterController extends Controller
             'name' => $data['name'],
             'avatar_color' => '#8b2ff0',
         ]);
+
+        // Membership: own referral code + signup bonus, then redeem a friend's code if present.
+        $membership = app(Membership::class);
+        $membership->ensureCode($user);
+        $membership->addCoins($user, (int) $membership->config()['signup_bonus_coins']);
+        if (filled($data['ref'] ?? null)) {
+            $membership->redeem($user, $data['ref']);
+        }
 
         Auth::login($user);
         $request->session()->regenerate();

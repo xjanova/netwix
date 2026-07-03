@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\App\AuthController;
 use App\Http\Controllers\Api\App\CatalogController;
 use App\Http\Controllers\Api\App\FeedbackController;
 use App\Http\Controllers\Api\App\LibraryController;
+use App\Http\Controllers\Api\App\MembershipController;
 use App\Http\Controllers\Api\App\SourceController;
 use Illuminate\Support\Facades\Route;
 
@@ -30,6 +31,9 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
     Route::get('content/{content:id}/comments', [FeedbackController::class, 'comments']);
     Route::get('content/{content:id}/ratings', [FeedbackController::class, 'ratings']);
 
+    // Public: admin-defined membership rules (free episodes, coin costs, Pro, referral rewards).
+    Route::get('membership/config', [MembershipController::class, 'config']);
+
     // Auth: exchange a one-time login code for a bearer token, then member calls.
     Route::post('auth/exchange', [AuthController::class, 'exchange']);
     Route::middleware('auth.apptoken')->group(function () {
@@ -47,5 +51,9 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
         // Feedback (writes)
         Route::post('content/{content:id}/comments', [FeedbackController::class, 'storeComment']);
         Route::post('content/{content:id}/rating', [FeedbackController::class, 'storeRating']);
+
+        // Membership: this member's Pro/coins/referral state + redeem a code.
+        Route::get('membership', [MembershipController::class, 'me']);
+        Route::post('referral/redeem', [MembershipController::class, 'redeem']);
     });
 });

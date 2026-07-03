@@ -73,6 +73,11 @@ Route::get('/mauth/issue', [\App\Http\Controllers\Api\App\AuthController::class,
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [LoginController::class, 'logout'])->name('logout');
 
+    // Member account: Pro status, coins, referral code + share, redeem a code.
+    Route::get('/account', [\App\Http\Controllers\AccountController::class, 'index'])->name('account');
+    Route::post('/account/redeem', [\App\Http\Controllers\AccountController::class, 'redeem'])
+        ->middleware('throttle:10,1')->name('account.redeem');
+
     Route::get('/profiles', [ProfileSelectionController::class, 'index'])->name('profiles.index');
     Route::post('/profiles', [ProfileSelectionController::class, 'store'])->name('profiles.store');
     Route::post('/profiles/{profile}/select', [ProfileSelectionController::class, 'select'])->name('profiles.select');
@@ -140,6 +145,9 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
 
     Route::get('settings', [Admin\SettingController::class, 'index'])->name('settings.index');
     Route::put('settings', [Admin\SettingController::class, 'update'])->name('settings.update');
+
+    Route::get('membership', [Admin\MembershipController::class, 'index'])->name('membership.index');
+    Route::put('membership', [Admin\MembershipController::class, 'update'])->name('membership.update');
 
     Route::get('analytics', [Admin\AnalyticsController::class, 'index'])->name('analytics');
 });

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\App;
 use App\Http\Controllers\Controller;
 use App\Models\AppToken;
 use App\Models\User;
+use App\Services\Membership;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -100,6 +101,7 @@ class AuthController extends Controller
     private function userPayload(User $user): array
     {
         $profile = $user->defaultProfile();
+        $membership = app(Membership::class)->state($user);
 
         return [
             'id' => $user->id,
@@ -107,8 +109,12 @@ class AuthController extends Controller
             'email' => str_ends_with((string) $user->email, '@social.netwix') ? null : $user->email,
             'avatar' => $user->avatar,
             'provider' => $user->provider,
-            'plan' => $user->plan ?? 'free',
-            'is_pro' => ($user->plan ?? 'free') !== 'free',
+            // Flat fields kept for the app's existing reads; `membership` has the full state.
+            'plan' => $membership['plan'],
+            'is_pro' => $membership['is_pro'],
+            'coins' => $membership['coins'],
+            'referral_code' => $membership['referral_code'],
+            'membership' => $membership,
             'profile' => [
                 'id' => $profile->id,
                 'name' => $profile->name,
