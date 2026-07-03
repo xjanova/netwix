@@ -42,11 +42,9 @@
                                 ? (in_array($ep->source, ['wowdrama', 'anime108'], true) ? route('stream.manifest', $ep) : route('stream.mp4', $ep))
                                 : null);
                     @endphp
-                    @if ($thumbSrc)
-                        <button type="button"
-                                @click="open({ num: {{ $ep->number }}, src: @js($thumbSrc), hls: @js(str_ends_with($thumbSrc, '.m3u8') || str_contains($thumbSrc, '/index.m3u8')), post: @js(route('admin.storage.set-thumb', $ep)) })"
-                                class="rounded-md bg-white/5 px-2.5 py-1 text-xs hover:bg-white/10" title="เลือกปกจากเฟรมในวิดีโอ">🖼 เลือกปก</button>
-                    @endif
+                    <button type="button"
+                            @click="open({ num: {{ $ep->number }}, src: @js($thumbSrc), hls: @js($thumbSrc && (str_ends_with($thumbSrc, '.m3u8') || str_contains($thumbSrc, '/index.m3u8'))), post: @js(route('admin.storage.set-thumb', $ep)) })"
+                            class="rounded-md bg-white/5 px-2.5 py-1 text-xs hover:bg-white/10" title="เลือกปกจากเฟรมในวิดีโอ หรืออัปโหลดรูปเอง">🖼 ปก</button>
                     @if ($ep->is_mirrored)
                         <form method="POST" action="{{ route('admin.storage.unmirror', $ep) }}" onsubmit="return confirm('ลบไฟล์ตอนนี้ออกจากเซิร์ฟเวอร์? (กลับไปสตรีมสด)')">
                             @csrf @method('DELETE')
@@ -89,12 +87,16 @@
                 <h3 class="text-base font-semibold">เลือกปกจากวิดีโอ · ตอนที่ <span x-text="ep?.num"></span></h3>
                 <button type="button" @click="close()" class="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 hover:bg-white/20">✕</button>
             </div>
-            <video x-ref="vid" controls playsinline class="mb-3 max-h-[58vh] w-full rounded-lg bg-black"></video>
+            <video x-ref="vid" x-show="ep?.src" controls playsinline class="mb-3 max-h-[58vh] w-full rounded-lg bg-black"></video>
+            <div x-show="!ep?.src" class="mb-3 rounded-lg border border-dashed border-white/10 bg-white/[0.02] py-10 text-center text-sm text-cream/40">ตอนนี้ยังไม่มีวิดีโอ — อัปโหลดรูปปกเองได้เลย</div>
             <div class="flex flex-wrap items-center gap-3">
-                <button type="button" @click="capture()" x-bind:disabled="saving"
+                <button type="button" x-show="ep?.src" @click="capture()" x-bind:disabled="saving"
                         class="btn-brand px-5 py-2.5 text-sm disabled:opacity-50" x-text="saving ? 'กำลังบันทึก…' : '📸 ใช้เฟรมนี้เป็นปก'"></button>
+                <button type="button" @click="$refs.file.click()" x-bind:disabled="saving"
+                        class="rounded-lg bg-white/10 px-4 py-2.5 text-sm hover:bg-white/15 disabled:opacity-50" title="อัปโหลดรูปปกจากเครื่อง (jpg/png/webp/gif…) ระบบจะแปลงเป็น WebP ให้">⬆ อัปโหลดรูป</button>
+                <input x-ref="file" type="file" accept="image/*" class="hidden" @change="upload($event)">
                 <span class="text-sm" :class="ok ? 'text-success' : 'text-[#ff6b81]'" x-text="msg"></span>
-                <span class="ml-auto text-xs text-cream/40">เล่น/เลื่อนแถบไปยังเฟรมที่ต้องการ แล้วกดปุ่ม</span>
+                <span class="ml-auto text-xs text-cream/40">จับเฟรมจากวิดีโอ หรืออัปโหลดรูปเอง</span>
             </div>
         </div>
     </div>
@@ -106,6 +108,7 @@
                 ep: null, saving: false, ok: false, msg: '',
                 open(ep) {
                     this.ep = ep; this.msg = ''; this.ok = false;
+                    if (!ep.src) return;
                     this.$nextTick(() => {
                         const v = this.$refs.vid;
                         window.nxAttachVideo ? window.nxAttachVideo(v, ep.src) : (v.src = ep.src);
@@ -131,6 +134,26 @@
                         else { this.ok = false; this.msg = 'บันทึกไม่สำเร็จ'; }
                     } catch (e) {
                         this.ok = false; this.msg = 'จับเฟรมไม่ได้ (วิดีโออาจข้ามโดเมนโดยไม่มี CORS)';
+                    } finally { this.saving = false; }
+                },
+                async upload(e) {
+                    const f = e.target.files && e.target.files[0];
+                    e.target.value = '';
+                    if (!f) return;
+                    if (!f.type.startsWith('image/')) { this.ok = false; this.msg = 'ไฟล์ไม่ใช่รูปภาพ'; return; }
+                    if (f.size > 7_000_000) { this.ok = false; this.msg = 'ไฟล์ใหญ่เกินไป (สูงสุด 7MB)'; return; }
+                    this.saving = true; this.msg = '';
+                    try {
+                        const img = await new Promise((res, rej) => {
+                            const r = new FileReader();
+                            r.onload = () => res(r.result); r.onerror = rej;
+                            r.readAsDataURL(f);
+                        });
+                        const r = await window.nxPost(this.ep.post, { image: img });
+                        if (r && r.ok) { this.ok = true; this.msg = 'อัปโหลดปกใหม่แล้ว ✓ กำลังรีเฟรช…'; setTimeout(() => location.reload(), 700); }
+                        else { this.ok = false; this.msg = 'อัปโหลดไม่สำเร็จ (รูปไม่ถูกต้อง?)'; }
+                    } catch (err) {
+                        this.ok = false; this.msg = 'อ่านไฟล์ไม่ได้';
                     } finally { this.saving = false; }
                 },
             };

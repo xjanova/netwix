@@ -61,17 +61,37 @@
                     <label class="mb-1.5 block text-sm text-cream/60">วิดีโอหลัก (mp4 / m3u8 / YouTube) — หนัง & แนวตั้ง</label>
                     <input name="video_url" value="{{ $val('video_url') }}" class="nx-input">
                 </div>
-                <div x-data="{ p: @js($val('poster_path')), ok: true }">
+                <div x-data="posterField('poster', @js($content->exists ? route('admin.storage.set-poster', $content) : null), @js($val('poster_path')))">
                     <label class="mb-1.5 block text-sm text-cream/60">โปสเตอร์ (URL 2:3)</label>
-                    <input name="poster_path" x-model="p" x-on:input="ok = true" value="{{ $val('poster_path') }}" class="nx-input">
-                    <img x-show="p && ok" x-cloak :src="p" x-on:error="ok = false" referrerpolicy="no-referrer" alt=""
-                         class="mt-2 h-40 w-auto rounded-lg object-cover ring-1 ring-white/10">
+                    <input name="poster_path" x-model="v" x-on:input="ok = true" class="nx-input">
+                    <div class="mt-2 flex items-start gap-3">
+                        <img x-show="v && ok" x-cloak :src="v" x-on:error="ok = false" referrerpolicy="no-referrer" alt=""
+                             class="h-40 w-auto rounded-lg object-cover ring-1 ring-white/10">
+                        @if ($content->exists)
+                            <div class="flex flex-col gap-1">
+                                <button type="button" @click="$refs.f.click()" x-bind:disabled="saving"
+                                        class="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/15 disabled:opacity-50" x-text="saving ? 'กำลังอัปโหลด…' : '⬆ อัปโหลดรูป'"></button>
+                                <input x-ref="f" type="file" accept="image/*" class="hidden" @change="up($event)">
+                                <span class="text-xs leading-tight" :class="up_ok ? 'text-success' : 'text-[#ff6b81]'" x-text="msg"></span>
+                            </div>
+                        @endif
+                    </div>
                 </div>
-                <div x-data="{ b: @js($val('backdrop_path')), ok: true }">
+                <div x-data="posterField('backdrop', @js($content->exists ? route('admin.storage.set-poster', $content) : null), @js($val('backdrop_path')))">
                     <label class="mb-1.5 block text-sm text-cream/60">ภาพพื้นหลัง (URL 16:9)</label>
-                    <input name="backdrop_path" x-model="b" x-on:input="ok = true" value="{{ $val('backdrop_path') }}" class="nx-input">
-                    <img x-show="b && ok" x-cloak :src="b" x-on:error="ok = false" referrerpolicy="no-referrer" alt=""
-                         class="mt-2 h-28 w-auto rounded-lg object-cover ring-1 ring-white/10">
+                    <input name="backdrop_path" x-model="v" x-on:input="ok = true" class="nx-input">
+                    <div class="mt-2 flex items-start gap-3">
+                        <img x-show="v && ok" x-cloak :src="v" x-on:error="ok = false" referrerpolicy="no-referrer" alt=""
+                             class="h-28 w-auto rounded-lg object-cover ring-1 ring-white/10">
+                        @if ($content->exists)
+                            <div class="flex flex-col gap-1">
+                                <button type="button" @click="$refs.f.click()" x-bind:disabled="saving"
+                                        class="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/15 disabled:opacity-50" x-text="saving ? 'กำลังอัปโหลด…' : '⬆ อัปโหลดรูป'"></button>
+                                <input x-ref="f" type="file" accept="image/*" class="hidden" @change="up($event)">
+                                <span class="text-xs leading-tight" :class="up_ok ? 'text-success' : 'text-[#ff6b81]'" x-text="msg"></span>
+                            </div>
+                        @endif
+                    </div>
                 </div>
             </div>
 
@@ -143,6 +163,35 @@
                 </script>
                 @endpush
             @endif
+
+            @push('scripts')
+            <script>
+                function posterField(kind, url, initial) {
+                    return {
+                        v: initial || '', ok: true, saving: false, up_ok: false, msg: '', url,
+                        up(e) {
+                            const f = e.target.files && e.target.files[0];
+                            e.target.value = '';
+                            if (!f || !this.url) return;
+                            if (!f.type.startsWith('image/')) { this.up_ok = false; this.msg = 'ไฟล์ไม่ใช่รูปภาพ'; return; }
+                            if (f.size > 8_000_000) { this.up_ok = false; this.msg = 'ไฟล์ใหญ่เกินไป (สูงสุด 8MB)'; return; }
+                            this.saving = true; this.msg = '';
+                            const r = new FileReader();
+                            r.onload = async () => {
+                                try {
+                                    const res = await window.nxPost(this.url, { image: r.result, kind });
+                                    if (res && res.ok) { this.v = res.url; this.ok = true; this.up_ok = true; this.msg = 'อัปโหลดแล้ว ✓'; }
+                                    else { this.up_ok = false; this.msg = 'อัปโหลดไม่สำเร็จ (รูปไม่ถูกต้อง?)'; }
+                                } catch (err) { this.up_ok = false; this.msg = 'อัปโหลดผิดพลาด'; }
+                                finally { this.saving = false; }
+                            };
+                            r.onerror = () => { this.saving = false; this.up_ok = false; this.msg = 'อ่านไฟล์ไม่ได้'; };
+                            r.readAsDataURL(f);
+                        },
+                    };
+                }
+            </script>
+            @endpush
         </div>
 
     </div>

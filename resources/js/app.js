@@ -122,3 +122,48 @@ window.nxRail = () => ({
 
 window.Alpine = Alpine;
 Alpine.start();
+
+/**
+ * Admin hover-zoom: any element carrying data-zoom-src shows a large, cursor-following
+ * floating preview of that image on hover. Rendered at <body> level with position:fixed so it
+ * never gets clipped by a table's overflow — used where posters/thumbnails are shown small
+ * (จัดการคอนเทนต์ / จัดเก็บสื่อ). Pointer-events:none so it never steals the hover.
+ */
+(function () {
+    let box;
+    const ensure = () => {
+        if (box) return box;
+        box = document.createElement('div');
+        box.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;display:none;';
+        box.innerHTML = '<img referrerpolicy="no-referrer" alt="" style="max-height:70vh;max-width:340px;width:auto;height:auto;border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.65);outline:1px solid rgba(255,255,255,.16);display:block;background:#111;">';
+        document.body.appendChild(box);
+        return box;
+    };
+    const place = (e) => {
+        const b = ensure();
+        const pad = 20, w = 360, h = Math.min(window.innerHeight * 0.7, 520);
+        let x = e.clientX + pad, y = e.clientY + pad;
+        if (x + w > window.innerWidth) x = Math.max(8, e.clientX - w - pad);
+        if (y + h > window.innerHeight) y = Math.max(8, window.innerHeight - h - 8);
+        b.style.left = x + 'px';
+        b.style.top = y + 'px';
+    };
+    document.addEventListener('mouseover', (e) => {
+        const el = e.target.closest?.('[data-zoom-src]');
+        if (!el) return;
+        const src = el.getAttribute('data-zoom-src');
+        if (!src) return;
+        const b = ensure();
+        b.firstChild.src = src;
+        b.style.display = 'block';
+        place(e);
+    });
+    document.addEventListener('mousemove', (e) => {
+        if (!box || box.style.display === 'none') return;
+        if (!e.target.closest?.('[data-zoom-src]')) { box.style.display = 'none'; return; }
+        place(e);
+    });
+    document.addEventListener('mouseout', (e) => {
+        if (box && e.target.closest?.('[data-zoom-src]')) box.style.display = 'none';
+    });
+})();

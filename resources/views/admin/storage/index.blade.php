@@ -127,7 +127,8 @@
                     <tr class="border-b border-white/[0.04] hover:bg-white/[0.02]">
                         <td class="px-5 py-3">
                             <div class="flex items-center gap-3">
-                                <div class="relative h-12 w-[46px] flex-shrink-0 overflow-hidden rounded" style="background:{{ $t->gradient }}">
+                                <div class="relative h-12 w-[46px] flex-shrink-0 overflow-hidden rounded {{ $t->poster_url ? 'cursor-zoom-in' : '' }}"
+                                     style="background:{{ $t->gradient }}" @if ($t->poster_url) data-zoom-src="{{ $t->poster_url }}" @endif>
                                     @if ($t->poster_url)
                                         <img src="{{ $t->poster_url }}" alt="" loading="lazy" referrerpolicy="no-referrer"
                                              class="absolute inset-0 h-full w-full object-cover" onerror="this.style.display='none'">

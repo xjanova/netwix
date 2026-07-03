@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Content;
 use App\Models\Episode;
 use App\Services\MediaMirror;
+use App\Support\ImageStore;
 use App\Support\MediaUsage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -76,55 +77,40 @@ class StorageController extends Controller
     /** Admin: set an episode's cover to a JPEG frame the admin grabbed in the picker (overwrites). */
     public function setThumb(Request $request, Episode $episode): JsonResponse
     {
-        $data = $request->validate(['image' => ['required', 'string', 'max:800000']]);
-
-        $prefix = 'data:image/jpeg;base64,';
-        if (! str_starts_with($data['image'], $prefix)) {
-            return response()->json(['ok' => false, 'error' => 'format'], 422);
-        }
-        $bin = base64_decode(substr($data['image'], strlen($prefix)), true);
-        if ($bin === false || strlen($bin) < 500 || strlen($bin) > 500_000 || substr($bin, 0, 3) !== "\xFF\xD8\xFF") {
+        $data = $request->validate(['image' => ['required', 'string', 'max:10000000']]);   // uploads up to ~7MB
+        $bin = ImageStore::decodeDataUrl($data['image']);
+        if ($bin === null) {
             return response()->json(['ok' => false, 'error' => 'invalid'], 422);
         }
-        if (function_exists('getimagesizefromstring')) {
-            $info = @getimagesizefromstring($bin);
-            if (! $info || ($info['mime'] ?? '') !== 'image/jpeg' || $info[0] < 40 || $info[0] > 1920 || $info[1] < 40 || $info[1] > 1920) {
-                return response()->json(['ok' => false, 'error' => 'invalid'], 422);
-            }
+        $path = ImageStore::putWebp($bin, 'media/thumbs', (string) $episode->id, 720);
+        if ($path === null) {
+            return response()->json(['ok' => false, 'error' => 'decode'], 422);
         }
+        // Store the full, cache-busted URL (same filename is reused, so ?t= forces Cloudflare/browser
+        // to fetch the new image). getThumbnailUrlAttribute passes http(s) URLs through as-is.
+        $url = Storage::disk('public')->url($path).'?t='.now()->timestamp;
+        $episode->update(['thumbnail_path' => $url]);
 
-        $path = "media/thumbs/{$episode->id}.jpg";
-        Storage::disk('public')->put($path, $bin);
-        $episode->update(['thumbnail_path' => $path]);
-
-        return response()->json(['ok' => true, 'url' => Storage::disk('public')->url($path).'?t='.now()->timestamp]);
+        return response()->json(['ok' => true, 'url' => $url]);
     }
 
     /** Admin: set a title's poster (2:3) or backdrop (16:9) from a JPEG frame grabbed in the picker. */
     public function setPoster(Request $request, Content $content): JsonResponse
     {
         $data = $request->validate([
-            'image' => ['required', 'string', 'max:1200000'],
+            'image' => ['required', 'string', 'max:10000000'],   // uploads up to ~7MB
             'kind' => ['required', 'in:poster,backdrop'],
         ]);
 
-        $prefix = 'data:image/jpeg;base64,';
-        if (! str_starts_with($data['image'], $prefix)) {
-            return response()->json(['ok' => false, 'error' => 'format'], 422);
-        }
-        $bin = base64_decode(substr($data['image'], strlen($prefix)), true);
-        if ($bin === false || strlen($bin) < 500 || strlen($bin) > 800_000 || substr($bin, 0, 3) !== "\xFF\xD8\xFF") {
+        $bin = ImageStore::decodeDataUrl($data['image']);
+        if ($bin === null) {
             return response()->json(['ok' => false, 'error' => 'invalid'], 422);
         }
-        if (function_exists('getimagesizefromstring')) {
-            $info = @getimagesizefromstring($bin);
-            if (! $info || ($info['mime'] ?? '') !== 'image/jpeg' || $info[0] < 40 || $info[0] > 2560 || $info[1] < 40 || $info[1] > 2560) {
-                return response()->json(['ok' => false, 'error' => 'invalid'], 422);
-            }
+        $max = $data['kind'] === 'poster' ? 1000 : 1600;
+        $path = ImageStore::putWebp($bin, 'media/posters', "{$content->id}-{$data['kind']}", $max);
+        if ($path === null) {
+            return response()->json(['ok' => false, 'error' => 'decode'], 422);
         }
-
-        $path = "media/posters/{$content->id}-{$data['kind']}.jpg";
-        Storage::disk('public')->put($path, $bin);
         $url = Storage::disk('public')->url($path).'?t='.now()->timestamp;
         $content->update([($data['kind'] === 'poster' ? 'poster_path' : 'backdrop_path') => $url]);
 

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Episode;
 use App\Services\Import\SourceRegistry;
+use App\Support\ImageStore;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -97,28 +98,15 @@ class EpisodeSourceController extends Controller
             return response()->json(['ok' => true, 'skipped' => 'exists']);
         }
 
-        $data = $request->validate(['image' => ['required', 'string', 'max:400000']]);
-
-        $prefix = 'data:image/jpeg;base64,';
-        if (! str_starts_with($data['image'], $prefix)) {
-            return response()->json(['ok' => false, 'error' => 'format'], 422);
-        }
-        $bin = base64_decode(substr($data['image'], strlen($prefix)), true);
-
-        // Must be a genuine, sanely-sized JPEG — reject garbage, huge payloads, decompression bombs.
-        if ($bin === false || strlen($bin) < 500 || strlen($bin) > 300_000 || substr($bin, 0, 3) !== "\xFF\xD8\xFF") {
+        $data = $request->validate(['image' => ['required', 'string', 'max:600000']]);
+        $bin = ImageStore::decodeDataUrl($data['image'], 600_000);
+        if ($bin === null) {
             return response()->json(['ok' => false, 'error' => 'invalid'], 422);
         }
-        if (function_exists('getimagesizefromstring')) {   // dimension sanity check when GD is present
-            $info = @getimagesizefromstring($bin);
-            if (! $info || ($info['mime'] ?? '') !== 'image/jpeg'
-                || $info[0] < 40 || $info[0] > 1280 || $info[1] < 40 || $info[1] > 1280) {
-                return response()->json(['ok' => false, 'error' => 'invalid'], 422);
-            }
+        $path = ImageStore::putWebp($bin, 'media/thumbs', (string) $episode->id, 640);
+        if ($path === null) {
+            return response()->json(['ok' => false, 'error' => 'decode'], 422);
         }
-
-        $path = "media/thumbs/{$episode->id}.jpg";
-        Storage::disk('public')->put($path, $bin);
         $episode->update(['thumbnail_path' => $path]);
 
         return response()->json(['ok' => true, 'url' => Storage::disk('public')->url($path)]);
