@@ -4,7 +4,7 @@
     // @section('meta_robots', 'noindex,nofollow') / @section('meta_canonical', '…').
     $seoTitle = trim($__env->yieldContent('title')) ?: 'สตรีมมิ่งไม่มีสะดุด';
     $seoDesc = trim($__env->yieldContent('meta_description'))
-        ?: 'NetWix — ดูหนัง ซีรีส์ และซีรีส์แนวตั้งออนไลน์ สตรีมไม่จำกัด เริ่มต้น 99 บาท/เดือน ยกเลิกได้ทุกเมื่อ รับชมได้ทุกอุปกรณ์ ทั้งมือถือ แท็บเล็ต และทีวี';
+        ?: 'NetWix — ดูหนัง ซีรีส์ และซีรีส์แนวตั้งออนไลน์ สตรีมไม่จำกัด ดูได้ทุกอุปกรณ์ ทั้งมือถือ แท็บเล็ต และทีวี';
     $seoImage = trim($__env->yieldContent('meta_image')) ?: asset('assets/netwix-logo-full.png');
     $seoRobots = trim($__env->yieldContent('meta_robots')) ?: 'index,follow,max-image-preview:large,max-snippet:-1';
     $seoCanonical = trim($__env->yieldContent('meta_canonical')) ?: url()->current();
