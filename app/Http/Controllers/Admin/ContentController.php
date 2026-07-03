@@ -16,10 +16,16 @@ class ContentController extends Controller
     {
         $type = $request->query('type');
         $q = trim((string) $request->query('q', ''));
+        $genre = $request->query('genre');
+        $maturity = $request->query('maturity');
+        $minRating = $request->query('min_rating');
 
         $contents = Content::query()
             ->when($type && $type !== 'all', fn ($w) => $w->where('type', $type))
             ->when($q !== '', fn ($w) => $w->where('title', 'like', "%{$q}%"))
+            ->when($genre, fn ($w) => $w->whereHas('genres', fn ($g) => $g->where('genres.id', $genre)))
+            ->when($maturity, fn ($w) => $w->where('maturity', $maturity))
+            ->when($minRating !== null && $minRating !== '', fn ($w) => $w->where('rating', '>=', (float) $minRating))
             ->with('genres')
             ->withCount('episodes')
             ->latest()
@@ -30,6 +36,12 @@ class ContentController extends Controller
             'contents' => $contents,
             'type' => $type ?: 'all',
             'q' => $q,
+            'genre' => $genre,
+            'maturity' => $maturity,
+            'minRating' => $minRating,
+            'genres' => Genre::orderBy('sort')->get(),
+            'maturities' => Content::query()->whereNotNull('maturity')->where('maturity', '!=', '')
+                ->distinct()->orderBy('maturity')->pluck('maturity'),
             'counts' => [
                 'all' => Content::count(),
                 'series' => Content::where('type', 'series')->count(),

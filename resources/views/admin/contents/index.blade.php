@@ -5,23 +5,48 @@
 @section('content')
 @php
     $tabs = ['all' => 'ทั้งหมด', 'series' => 'ซีรี่ส์', 'movie' => 'ภาพยนตร์', 'vertical' => 'แนวตั้ง'];
+    // filters carried across the type tabs + pagination
+    $activeFilters = array_filter([
+        'q' => $q, 'genre' => $genre, 'maturity' => $maturity, 'min_rating' => $minRating,
+    ], fn ($v) => $v !== null && $v !== '');
 @endphp
 
-<div class="mb-5 flex flex-wrap items-center justify-between gap-3">
-    <div class="flex flex-wrap gap-2">
-        @foreach ($tabs as $key => $label)
-            <a href="{{ route('admin.contents.index', ['type' => $key, 'q' => $q]) }}"
-               class="rounded-lg px-4 py-2 text-sm transition {{ $type === $key ? 'nx-gradient font-semibold' : 'bg-white/5 text-cream/60 hover:text-cream' }}">
-                {{ $label }} <span class="opacity-60">{{ $counts[$key] }}</span>
-            </a>
-        @endforeach
-    </div>
-    <form method="GET" action="{{ route('admin.contents.index') }}" class="flex gap-2">
-        <input type="hidden" name="type" value="{{ $type }}">
-        <input type="text" name="q" value="{{ $q }}" placeholder="ค้นหาชื่อเรื่อง…"
-               class="rounded-lg border border-white/10 bg-surface-2 px-3.5 py-2 text-sm outline-none focus:border-brand">
-    </form>
+<div class="mb-4 flex flex-wrap gap-2">
+    @foreach ($tabs as $key => $label)
+        <a href="{{ route('admin.contents.index', array_merge($activeFilters, ['type' => $key])) }}"
+           class="rounded-lg px-4 py-2 text-sm transition {{ $type === $key ? 'nx-gradient font-semibold' : 'bg-white/5 text-cream/60 hover:text-cream' }}">
+            {{ $label }} <span class="opacity-60">{{ $counts[$key] }}</span>
+        </a>
+    @endforeach
 </div>
+
+<form method="GET" action="{{ route('admin.contents.index') }}" class="mb-5 flex flex-wrap items-center gap-2">
+    <input type="hidden" name="type" value="{{ $type }}">
+    <input type="text" name="q" value="{{ $q }}" placeholder="ค้นหาชื่อเรื่อง…"
+           class="min-w-[180px] flex-1 rounded-lg border border-white/10 bg-surface-2 px-3.5 py-2 text-sm outline-none focus:border-brand">
+    <select name="genre" onchange="this.form.submit()" class="rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-sm outline-none focus:border-brand">
+        <option value="">ทุกหมวด</option>
+        @foreach ($genres as $g)
+            <option value="{{ $g->id }}" @selected((string) $genre === (string) $g->id)>{{ $g->name }}</option>
+        @endforeach
+    </select>
+    <select name="maturity" onchange="this.form.submit()" class="rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-sm outline-none focus:border-brand">
+        <option value="">ทุกเรทอายุ</option>
+        @foreach ($maturities as $m)
+            <option value="{{ $m }}" @selected($maturity === $m)>{{ $m }}</option>
+        @endforeach
+    </select>
+    <select name="min_rating" onchange="this.form.submit()" class="rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-sm outline-none focus:border-brand">
+        <option value="">ทุกคะแนน</option>
+        @foreach ([9, 8, 7, 6, 5] as $r)
+            <option value="{{ $r }}" @selected((string) $minRating === (string) $r)>★ {{ $r }}+ ขึ้นไป</option>
+        @endforeach
+    </select>
+    <button type="submit" class="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15">กรอง</button>
+    @if ($activeFilters)
+        <a href="{{ route('admin.contents.index', ['type' => $type]) }}" class="rounded-lg px-3 py-2 text-sm text-cream/50 hover:text-cream">ล้างตัวกรอง</a>
+    @endif
+</form>
 
 <div class="nx-card overflow-hidden">
     <div class="overflow-x-auto">
@@ -45,7 +70,7 @@
                                 <div class="h-10 w-[68px] flex-shrink-0 rounded" style="background:{{ $c->gradient }}"></div>
                                 <div>
                                     <div class="font-medium">{{ $c->title }}</div>
-                                    <div class="text-xs text-cream/40">{{ $c->year }} · {{ $c->maturity }} @if ($c->is_original)· <span class="text-brand">Original</span>@endif</div>
+                                    <div class="text-xs text-cream/40">{{ $c->year }} · {{ $c->maturity }} · <span class="text-gold">★ {{ $c->rating }}</span> @if ($c->is_original)· <span class="text-brand">Original</span>@endif</div>
                                 </div>
                             </div>
                         </td>
