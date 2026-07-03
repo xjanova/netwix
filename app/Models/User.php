@@ -43,6 +43,11 @@ class User extends Authenticatable
         return $this->hasMany(Profile::class);
     }
 
+    public function appTokens(): HasMany
+    {
+        return $this->hasMany(AppToken::class);
+    }
+
     public function isAdmin(): bool
     {
         return $this->role === 'admin';

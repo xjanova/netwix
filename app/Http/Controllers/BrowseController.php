@@ -15,8 +15,8 @@ class BrowseController extends Controller
         $profile = $this->profile($request);
 
         $hero = Content::published()->where('is_featured', true)
-            ->with('genres')->inRandomOrder()->first()
-            ?? Content::published()->with('genres')->latest()->first();
+            ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
+            ?? Content::published()->with(['genres', 'previewEpisode'])->latest()->first();
 
         $rows = [];
 
@@ -26,14 +26,14 @@ class BrowseController extends Controller
                 ->whereBetween('percent', [1, 94])
                 ->orderByDesc('last_watched_at')
                 ->pluck('content_id'))
-            ->with('genres')->get();
+            ->with(['genres', 'previewEpisode'])->get();
         if ($continue->isNotEmpty()) {
             $rows[] = ['title' => 'ดูต่อสำหรับ '.$profile->name, 'items' => $continue];
         }
 
         // NetWix Originals
         $originals = Content::published()->where('is_original', true)
-            ->with('genres')->latest()->take(14)->get();
+            ->with(['genres', 'previewEpisode'])->latest()->take(14)->get();
         if ($originals->isNotEmpty()) {
             $rows[] = ['title' => 'NETWIX Originals', 'items' => $originals];
         }
@@ -42,11 +42,11 @@ class BrowseController extends Controller
         $rows[] = [
             'title' => 'มาแรงตอนนี้',
             'ranked' => true,
-            'items' => Content::published()->orderByDesc('views')->with('genres')->take(10)->get(),
+            'items' => Content::published()->orderByDesc('views')->with(['genres', 'previewEpisode'])->take(10)->get(),
         ];
 
         // My list
-        $myList = $profile->myList()->published()->with('genres')->get();
+        $myList = $profile->myList()->published()->with(['genres', 'previewEpisode'])->get();
         if ($myList->isNotEmpty()) {
             $rows[] = ['title' => 'รายการของฉัน', 'items' => $myList];
         }
@@ -55,7 +55,7 @@ class BrowseController extends Controller
         foreach (Genre::orderBy('sort')->get() as $genre) {
             $items = Content::published()
                 ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
-                ->with('genres')->latest()->take(14)->get();
+                ->with(['genres', 'previewEpisode'])->latest()->take(14)->get();
             if ($items->count() >= 3) {
                 $rows[] = ['title' => $genre->name, 'items' => $items];
             }
@@ -83,14 +83,14 @@ class BrowseController extends Controller
         $profile = $this->profile($request);
 
         $hero = Content::published()->type($type)->where('is_featured', true)
-            ->with('genres')->inRandomOrder()->first()
-            ?? Content::published()->type($type)->with('genres')->latest()->first();
+            ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
+            ?? Content::published()->type($type)->with(['genres', 'previewEpisode'])->latest()->first();
 
         $rows = [];
         foreach (Genre::orderBy('sort')->get() as $genre) {
             $items = Content::published()->type($type)
                 ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
-                ->with('genres')->latest()->take(14)->get();
+                ->with(['genres', 'previewEpisode'])->latest()->take(14)->get();
             if ($items->isNotEmpty()) {
                 $rows[] = ['title' => $genre->name, 'items' => $items];
             }
@@ -109,7 +109,7 @@ class BrowseController extends Controller
         $profile = $this->profile($request);
 
         $items = Content::published()->type('vertical')
-            ->with('genres')->withCount('episodes')->latest()->get();
+            ->with(['genres', 'previewEpisode'])->withCount('episodes')->latest()->get();
 
         return view('frontend.vertical', [
             'items' => $items,
@@ -121,7 +121,7 @@ class BrowseController extends Controller
     {
         $profile = $this->profile($request);
 
-        $items = $profile->myList()->published()->with('genres')->orderByDesc('my_list_items.created_at')->get();
+        $items = $profile->myList()->published()->with(['genres', 'previewEpisode'])->orderByDesc('my_list_items.created_at')->get();
 
         return view('frontend.mylist', [
             'items' => $items,

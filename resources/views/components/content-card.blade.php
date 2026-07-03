@@ -1,5 +1,7 @@
 @props(['content', 'inList' => false, 'ranked' => null])
 
+@php $preview = $content->preview_url; @endphp
+
 <div
     x-data="{
         inList: @js($inList),
@@ -54,25 +56,37 @@
     <div role="button" tabindex="0" @click="$dispatch('open-title', '{{ route('title.modal', $content) }}')"
          @keydown.enter="$dispatch('open-title', '{{ route('title.modal', $content) }}')"
          class="block w-full cursor-pointer text-left {{ $ranked ? 'ml-6' : '' }}">
+        @php
+            // The real hover preview is the stored ep1 clip. When a title has no
+            // clip yet, fall back to the animated logo — but only if there's no
+            // cover art (a logo looping over a real poster looks off).
+            $logoClip = asset('assets/'.($content->id % 2 ? 'logomedia2.mp4' : 'logomedia1.mp4'));
+            $hoverClip = $preview ?: (! $content->backdrop_url ? $logoClip : null);
+        @endphp
         <div class="relative aspect-video overflow-hidden rounded-lg ring-1 ring-white/5 transition duration-200 group-hover:ring-2 group-hover:ring-white/25"
              style="background:{{ $content->backdrop_url ? '#0e0a17' : $content->gradient }}"
-             @if (! $content->backdrop_url) @mouseenter="playClip()" @mouseleave="stopClip()" @endif>
+             @if ($hoverClip) @mouseenter="playClip()" @mouseleave="stopClip()" @endif>
             @if ($content->backdrop_url)
                 <img src="{{ $content->backdrop_url }}" alt="{{ $content->title }}" loading="lazy"
                      referrerpolicy="no-referrer" onerror="this.style.display='none'"
                      class="absolute inset-0 h-full w-full object-cover">
             @else
-                {{-- no image → branded placeholder; hovering plays an animated logo clip
-                     (lazy: src is only set on first hover, so nothing downloads until then) --}}
-                <video x-ref="clip" aria-hidden="true" data-src="{{ asset('assets/'.($content->id % 2 ? 'logomedia2.mp4' : 'logomedia1.mp4')) }}"
-                       muted loop playsinline preload="none"
-                       class="absolute inset-0 h-full w-full object-cover mix-blend-screen transition-opacity duration-300"
-                       :class="hv ? 'opacity-90' : 'opacity-0'"></video>
+                {{-- no cover art → branded placeholder (fades out while the clip plays) --}}
                 <div class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center transition-opacity duration-300"
                      :class="hv ? 'opacity-0' : 'opacity-100'">
                     <img src="{{ asset('assets/netwix-icon.png') }}" alt="" class="h-9 w-9 opacity-40">
                     <span class="line-clamp-2 text-[13px] font-semibold text-cream/80">{{ $content->title }}</span>
                 </div>
+            @endif
+
+            {{-- silent auto-preview on hover: ep1 clip over the cover (or logo).
+                 No controls, muted, loops. Lazy — src is only fetched on a real
+                 hover (see playClip), so nothing downloads while scrolling a rail. --}}
+            @if ($hoverClip)
+                <video x-ref="clip" aria-hidden="true" data-src="{{ $hoverClip }}"
+                       muted loop playsinline preload="none"
+                       class="absolute inset-0 h-full w-full object-cover transition-opacity duration-300 {{ $preview ? '' : 'mix-blend-screen' }}"
+                       :class="hv ? '{{ $preview ? 'opacity-100' : 'opacity-90' }}' : 'opacity-0'"></video>
             @endif
 
             @if ($content->is_original)

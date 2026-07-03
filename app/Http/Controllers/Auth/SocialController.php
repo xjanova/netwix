@@ -52,7 +52,9 @@ class SocialController extends Controller
         Auth::login($user, remember: true);
         $request->session()->regenerate();
 
-        return redirect()->route('profiles.index');
+        // Honor a pending intended URL (the mobile auth bridge sets this) so
+        // social sign-in can hand control back to /app/auth/issue.
+        return redirect()->intended(route('profiles.index'));
     }
 
     /**

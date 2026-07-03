@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\App\AuthController;
 use App\Http\Controllers\Api\App\CatalogController;
 use App\Http\Controllers\Api\App\SourceController;
 use Illuminate\Support\Facades\Route;
@@ -22,4 +23,11 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
     Route::get('titles/{slug}', [CatalogController::class, 'show']);
     Route::get('search', [CatalogController::class, 'search']);
     Route::get('episodes/{episode}/source', [SourceController::class, 'source']);
+
+    // Auth: exchange a one-time login code for a bearer token, then member calls.
+    Route::post('auth/exchange', [AuthController::class, 'exchange']);
+    Route::middleware('auth.apptoken')->group(function () {
+        Route::get('auth/me', [AuthController::class, 'me']);
+        Route::post('auth/logout', [AuthController::class, 'logout']);
+    });
 });

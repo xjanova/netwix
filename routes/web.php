@@ -53,6 +53,14 @@ Route::middleware('guest')->group(function () {
         ->whereIn('provider', ['google', 'line'])->name('social.callback');
 });
 
+// ---- Mobile auth bridge (reuses the web sign-in → issues an app token) --
+// The app opens /app/auth/start in an in-app browser; after the normal web
+// login it lands on /app/auth/issue, which deep-links back with a one-time code.
+Route::get('/app/auth/start', [\App\Http\Controllers\Api\App\AuthController::class, 'start'])
+    ->name('app.auth.start');
+Route::get('/app/auth/issue', [\App\Http\Controllers\Api\App\AuthController::class, 'issue'])
+    ->middleware('auth')->name('app.auth.issue');
+
 // ---- Authenticated (choose profile) ------------------------------------
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [LoginController::class, 'logout'])->name('logout');

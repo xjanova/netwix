@@ -64,7 +64,10 @@
 
 <div class="relative z-10 -mt-16 pb-10">
     @isset($heading)
-        <h1 class="px-[4vw] pt-4 text-2xl font-bold">{{ $heading }}</h1>
+        <h1 class="flex items-center gap-3 px-[4vw] pt-4 text-2xl font-bold">
+            <span class="nx-gradient h-7 w-1.5 shrink-0 rounded-full" aria-hidden="true"></span>
+            <span>{{ $heading }}</span>
+        </h1>
     @endisset
 
     @forelse ($rows as $row)

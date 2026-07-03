@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\Storage;
 
 class Content extends Model
@@ -49,6 +50,12 @@ class Content extends Model
         return $this->hasMany(Episode::class)->orderBy('season_id')->orderBy('number');
     }
 
+    /** The first episode — its stored ep1 clip powers the browse hover preview. */
+    public function previewEpisode(): HasOne
+    {
+        return $this->hasOne(Episode::class)->orderBy('season_id')->orderBy('number');
+    }
+
     // ---- Scopes --------------------------------------------------------
 
     public function scopePublished(Builder $q): Builder
@@ -76,6 +83,27 @@ class Content extends Model
     public function getBackdropUrlAttribute(): ?string
     {
         return $this->resolveMedia($this->backdrop_path);
+    }
+
+    /**
+     * URL for the silent hover preview on browse cards. Only our own locally
+     * stored progressive MP4 (the downloaded episode 1) qualifies — remote CDN
+     * links and HLS (.m3u8) can't autoplay in a bare <video>, so they're skipped
+     * and the card falls back to the animated logo clip.
+     */
+    public function getPreviewUrlAttribute(): ?string
+    {
+        $ep = $this->relationLoaded('previewEpisode')
+            ? $this->getRelation('previewEpisode')
+            : $this->previewEpisode;
+
+        $url = $ep?->video_url;
+
+        if ($url && str_contains($url, '/storage/') && str_ends_with($url, '.mp4')) {
+            return $url;
+        }
+
+        return null;
     }
 
     private function resolveMedia(?string $path): ?string
