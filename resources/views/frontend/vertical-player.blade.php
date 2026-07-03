@@ -29,7 +29,7 @@
                @timeupdate="onTime()"
                @play="playing = true" @pause="playing = false"
                @waiting="buffering = true" @stalled="buffering = true"
-               @playing="buffering = false" @canplay="buffering = false" @error="buffering = false"
+               @playing="buffering = false" @canplay="buffering = false" x-on:error="buffering = false"
                class="h-full w-full bg-black object-contain"></video>
 
         {{-- prominent tap-to-unmute (only while muted) — the whole reason people say "no sound" --}}

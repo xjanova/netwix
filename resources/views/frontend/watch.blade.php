@@ -42,7 +42,7 @@
                @timeupdate.throttle.10000ms="saveProgress()"
                @ended="saveProgress(100)"
                @waiting="loading = true" @stalled="loading = true"
-               @playing="loading = false" @canplay="loading = false" @error="loading = false"
+               @playing="loading = false" @canplay="loading = false" x-on:error="loading = false"
                class="h-full w-full bg-black object-contain"></video>
         <div x-show="err" x-cloak class="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-cream/70">
             <span x-text="err"></span>
