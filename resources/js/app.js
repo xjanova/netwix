@@ -88,5 +88,37 @@ window.nxFullscreenActive = function () {
     return !!(document.fullscreenElement || document.webkitFullscreenElement);
 };
 
+/**
+ * Horizontal content rail: arrow buttons, plus a desktop "hover the edge to auto-scroll" behaviour
+ * (the closer the cursor is to the left/right edge, the faster it scrolls). Touch devices keep the
+ * native swipe. Used by every content row via x-data="nxRail()".
+ */
+window.nxRail = () => ({
+    _raf: null,
+    _vel: 0,
+    scroll(dir) {
+        const r = this.$refs.rail;
+        if (r) r.scrollBy({ left: dir * r.clientWidth * 0.85, behavior: 'smooth' });
+    },
+    edgeMove(e) {
+        if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return; // desktop only
+        const r = this.$refs.rail.getBoundingClientRect();
+        const frac = (e.clientX - r.left) / r.width;
+        const zone = 0.16;
+        let v = 0;
+        if (frac < zone) v = -(1 - frac / zone);
+        else if (frac > 1 - zone) v = (frac - (1 - zone)) / zone;
+        this._vel = Math.max(-1, Math.min(1, v));
+        if (this._vel && !this._raf) this._loop();
+    },
+    edgeLeave() { this._vel = 0; },
+    _loop() {
+        this._raf = requestAnimationFrame(() => {
+            if (this._vel && this.$refs.rail) { this.$refs.rail.scrollLeft += this._vel * 26; this._loop(); }
+            else { this._raf = null; }
+        });
+    },
+});
+
 window.Alpine = Alpine;
 Alpine.start();

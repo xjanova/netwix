@@ -9,18 +9,18 @@
     </div>
 
     @forelse ($rows as $row)
-        <section class="mt-7" x-data="{ scroll(d) { $refs.rail.scrollBy({ left: d * $refs.rail.clientWidth * 0.85, behavior: 'smooth' }); } }">
-            <h2 class="mb-2 flex items-center gap-2.5 px-[4vw] text-lg font-semibold sm:text-xl">
+        <section class="mt-7" x-data="nxRail()">
+            <h2 class="mb-2 flex items-center gap-2 px-[4vw] text-lg font-semibold sm:text-xl">
                 <span class="nx-gradient h-5 w-1 shrink-0 rounded-full sm:h-6" aria-hidden="true"></span>
                 <span>{{ $row['title'] }}</span>
                 @if ($row['genre'])
-                    <a href="{{ route('browse.genre', $row['genre']) }}" class="ml-auto whitespace-nowrap text-sm font-normal text-cream/50 transition hover:text-brand">ดูทั้งหมด ›</a>
+                    <a href="{{ route('browse.genre', $row['genre']) }}" class="ml-1 whitespace-nowrap rounded-full bg-white/10 px-2.5 py-0.5 text-[12px] font-semibold text-cream/85 transition hover:bg-brand hover:text-white">ดูทั้งหมด ›</a>
                 @endif
             </h2>
             <div class="group/row relative">
                 <button type="button" @click="scroll(-1)"
                         class="absolute left-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-r from-ink/80 to-transparent text-2xl opacity-0 transition group-hover/row:opacity-100 lg:flex">‹</button>
-                <div x-ref="rail" class="nx-rail px-[4vw] pb-2">
+                <div x-ref="rail" class="nx-rail px-[4vw] pb-2" @mousemove="edgeMove($event)" @mouseleave="edgeLeave()">
                     @foreach ($row['items'] as $content)
                         <a href="{{ route('watch', $content) }}" class="group block w-[132px] shrink-0 sm:w-[150px] md:w-[168px]">
                             <div class="relative aspect-[9/16] overflow-hidden rounded-xl ring-1 ring-white/5 transition group-hover:ring-2 group-hover:ring-white/25"
