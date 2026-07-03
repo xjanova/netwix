@@ -25,27 +25,98 @@
     @endforeach
 </div>
 
-<div class="mt-6 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-    {{-- Activity bar chart --}}
-    <div class="nx-card p-5">
-        <div class="mb-5 flex items-center justify-between">
-            <h3 class="text-base font-semibold">กิจกรรมการรับชม (7 วันล่าสุด)</h3>
-            <span class="text-xs text-cream/45">หน่วย: ครั้ง</span>
+{{-- Activity area chart (14 days) --}}
+@php
+    $vals = $activity->pluck('value')->all();
+    $n = count($vals);
+    $maxV = max(1, max($vals ?: [0]));
+    $W = 700; $H = 180; $padY = 18;
+    $yFor = fn ($v) => round($H - $padY - ($v / $maxV) * ($H - 2 * $padY), 1);
+    $xFor = fn ($i) => $n > 1 ? round($i / ($n - 1) * $W, 1) : 0;
+    $line = [];
+    foreach ($vals as $i => $v) { $line[] = $xFor($i).','.$yFor($v); }
+    $linePts = implode(' ', $line);
+    $areaPts = '0,'.$H.' '.$linePts.' '.$W.','.$H;
+    $total14 = array_sum($vals);
+    $last7 = array_sum(array_slice($vals, -7));
+    $prev7 = array_sum(array_slice($vals, -14, 7));
+    $trend = $prev7 > 0 ? round(($last7 - $prev7) / $prev7 * 100) : ($last7 > 0 ? 100 : 0);
+@endphp
+<div class="nx-card mt-6 p-5">
+    <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+            <h3 class="text-base font-semibold">กิจกรรมการรับชม</h3>
+            <div class="mt-1 flex items-center gap-2 text-sm">
+                <span class="text-2xl font-extrabold">{{ number_format($total14) }}</span>
+                <span class="text-cream/45">ครั้ง / 14 วัน</span>
+                <span class="rounded-full px-2 py-0.5 text-[12px] font-semibold {{ $trend >= 0 ? 'text-success' : 'text-[#ff6b81]' }}"
+                      style="background:{{ $trend >= 0 ? 'rgba(62,207,142,.12)' : 'rgba(255,107,129,.12)' }}">
+                    {{ $trend >= 0 ? '▲' : '▼' }} {{ abs($trend) }}% <span class="font-normal text-cream/45">vs 7 วันก่อน</span>
+                </span>
+            </div>
         </div>
-        <div class="flex h-44 items-end gap-3.5 pt-2">
-            @foreach ($chartBars as $b)
-                <div class="flex h-full flex-1 flex-col items-center justify-end gap-2">
-                    <span class="text-[11.5px] font-semibold text-cream/70">{{ $b['value'] }}</span>
-                    <div class="w-full max-w-[38px] rounded-t-md nx-gradient" style="height:{{ $b['height'] }}"></div>
-                    <span class="text-[11.5px] text-cream/45">{{ $b['day'] }}</span>
+    </div>
+    <svg viewBox="0 0 {{ $W }} {{ $H }}" preserveAspectRatio="none" class="h-44 w-full" style="overflow:visible">
+        <defs>
+            <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#b026ff" stop-opacity="0.38"/>
+                <stop offset="1" stop-color="#b026ff" stop-opacity="0"/>
+            </linearGradient>
+            <linearGradient id="lineStroke" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="#ff2d55"/>
+                <stop offset="1" stop-color="#b026ff"/>
+            </linearGradient>
+        </defs>
+        <polygon points="{{ $areaPts }}" fill="url(#areaFill)"/>
+        <polyline points="{{ $linePts }}" fill="none" stroke="url(#lineStroke)" stroke-width="2.5"
+                  stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+        @if ($n)
+            <circle cx="{{ $xFor($n - 1) }}" cy="{{ $yFor(end($vals)) }}" r="4" fill="#fff"/>
+        @endif
+    </svg>
+    <div class="mt-2 flex justify-between text-[11px] text-cream/40">
+        @foreach ($activity as $i => $a)
+            @if ($i % 3 === 0 || $i === $n - 1)<span>{{ $a['label'] }}</span>@endif
+        @endforeach
+    </div>
+</div>
+
+<div class="mt-6 grid gap-4 lg:grid-cols-2">
+    {{-- Content mix donut --}}
+    @php
+        $typeTotal = max(1, $typeBreakdown->sum('value'));
+        $acc = 0; $segs = [];
+        foreach ($typeBreakdown as $t) {
+            $a = round($acc / $typeTotal * 100, 2); $acc += $t['value']; $b = round($acc / $typeTotal * 100, 2);
+            $segs[] = "{$t['color']} {$a}% {$b}%";
+        }
+        $conic = 'conic-gradient('.implode(', ', $segs).')';
+    @endphp
+    <div class="nx-card p-5">
+        <h3 class="mb-4 text-base font-semibold">คอนเทนต์ตามประเภท</h3>
+        <div class="flex items-center gap-6">
+            <div class="relative h-32 w-32 flex-shrink-0 rounded-full" style="background:{{ $conic }}">
+                <div class="absolute inset-[13px] flex flex-col items-center justify-center rounded-full bg-panel-2">
+                    <span class="text-2xl font-extrabold">{{ number_format($typeBreakdown->sum('value')) }}</span>
+                    <span class="text-[11px] text-cream/45">เรื่อง</span>
                 </div>
-            @endforeach
+            </div>
+            <div class="flex flex-1 flex-col gap-2.5">
+                @foreach ($typeBreakdown as $t)
+                    <div class="flex items-center gap-2.5 text-sm">
+                        <span class="h-3 w-3 shrink-0 rounded-full" style="background:{{ $t['color'] }}"></span>
+                        <span class="flex-1">{{ $t['label'] }}</span>
+                        <span class="font-semibold">{{ number_format($t['value']) }}</span>
+                        <span class="w-12 text-right text-cream/45">{{ round($t['value'] / $typeTotal * 100) }}%</span>
+                    </div>
+                @endforeach
+            </div>
         </div>
     </div>
 
     {{-- Genre shares --}}
     <div class="nx-card p-5">
-        <h3 class="mb-4 text-base font-semibold">สัดส่วนตามหมวด</h3>
+        <h3 class="mb-4 text-base font-semibold">สัดส่วนตามหมวด (Top 5)</h3>
         <div class="flex flex-col gap-3.5">
             @forelse ($genreShares as $g)
                 <div>
@@ -112,20 +183,25 @@
 <div class="nx-card mt-6 p-5">
     <div class="mb-4 flex items-center justify-between">
         <h3 class="text-base font-semibold">คอนเทนต์ยอดนิยม</h3>
-        <a href="{{ route('admin.contents.index') }}" class="text-[13px] text-brand hover:underline">ดูทั้งหมด →</a>
+        <a href="{{ route('admin.contents.index', ['sort' => 'views']) }}" class="text-[13px] text-brand hover:underline">ดูทั้งหมด →</a>
     </div>
     <div class="flex flex-col gap-0.5">
         @forelse ($topContent as $i => $c)
-            <div class="flex items-center gap-4 rounded-lg p-2.5 hover:bg-white/[0.03]">
-                <span class="w-6 text-[15px] font-bold text-cream/35">{{ $i + 1 }}</span>
-                <div class="h-10 w-[68px] flex-shrink-0 rounded" style="background:{{ $c->gradient }}"></div>
+            <a href="{{ route('admin.contents.edit', $c) }}" class="flex items-center gap-4 rounded-lg p-2.5 transition hover:bg-white/[0.03]">
+                <span class="w-6 text-center text-[16px] font-extrabold {{ $i === 0 ? 'text-gold' : 'text-cream/35' }}">{{ $i + 1 }}</span>
+                <div class="relative h-12 w-[46px] flex-shrink-0 overflow-hidden rounded" style="background:{{ $c->gradient }}">
+                    @if ($c->poster_url)
+                        <img src="{{ $c->poster_url }}" alt="" loading="lazy" referrerpolicy="no-referrer"
+                             class="absolute inset-0 h-full w-full object-cover" onerror="this.style.display='none'">
+                    @endif
+                </div>
                 <div class="min-w-0 flex-1">
                     <div class="truncate text-sm font-semibold">{{ $c->title }}</div>
-                    <div class="text-xs text-cream/45">{{ $c->primaryGenre()?->name }}</div>
+                    <div class="text-xs text-cream/45">{{ $c->primaryGenre()?->name }} · {{ ['series' => 'ซีรี่ส์', 'movie' => 'ภาพยนตร์', 'vertical' => 'แนวตั้ง'][$c->type] ?? $c->type }}</div>
                 </div>
                 <div class="w-24 text-right"><div class="text-[13.5px] font-semibold">{{ number_format($c->views) }}</div><div class="text-[11px] text-cream/40">ผู้ชม</div></div>
                 <div class="w-14 text-right"><div class="text-[13.5px] font-semibold text-gold">★ {{ $c->rating }}</div><div class="text-[11px] text-cream/40">คะแนน</div></div>
-            </div>
+            </a>
         @empty
             <div class="py-8 text-center text-sm text-cream/45">ยังไม่มีคอนเทนต์ — <a href="{{ route('admin.contents.create') }}" class="text-brand">เพิ่มเรื่องแรก</a></div>
         @endforelse

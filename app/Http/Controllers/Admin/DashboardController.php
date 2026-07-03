@@ -42,19 +42,19 @@ class DashboardController extends Controller
             ['label' => 'คะแนนเฉลี่ย', 'value' => number_format((float) (Content::avg('rating') ?? 0), 1).' / 10'],
         ];
 
-        // 7-day activity (watch-progress touches per day) → bar chart
-        $days = collect(range(6, 0))->map(function ($n) {
+        // 14-day watch activity → SVG area chart
+        $activity = collect(range(13, 0))->map(function ($n) {
             $date = Carbon::today()->subDays($n);
-            $count = WatchProgress::whereDate('last_watched_at', $date)->count();
 
-            return ['day' => ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'][$date->dayOfWeek], 'value' => $count];
-        });
-        $maxDay = max(1, $days->max('value'));
-        $chartBars = $days->map(fn ($d) => [
-            'day' => $d['day'],
-            'value' => $d['value'],
-            'height' => round(($d['value'] / $maxDay) * 100).'%',
-        ]);
+            return ['label' => $date->format('j/n'), 'value' => WatchProgress::whereDate('last_watched_at', $date)->count()];
+        })->values();
+
+        // Content mix by type (for the donut)
+        $typeBreakdown = collect([
+            'series' => ['label' => 'ซีรี่ส์', 'color' => '#b026ff'],
+            'movie' => ['label' => 'ภาพยนตร์', 'color' => '#ff2d55'],
+            'vertical' => ['label' => 'แนวตั้ง', 'color' => '#3ecf8e'],
+        ])->map(fn ($m, $type) => $m + ['value' => Content::where('type', $type)->count()])->values();
 
         // Genre shares
         $genreCounts = Genre::withCount('contents')->orderByDesc('contents_count')->take(5)->get();
@@ -68,6 +68,6 @@ class DashboardController extends Controller
 
         $storage = \App\Support\MediaUsage::summary();
 
-        return view('admin.dashboard', compact('stats', 'miniMetrics', 'chartBars', 'genreShares', 'topContent', 'storage'));
+        return view('admin.dashboard', compact('stats', 'miniMetrics', 'activity', 'typeBreakdown', 'genreShares', 'topContent', 'storage'));
     }
 }
