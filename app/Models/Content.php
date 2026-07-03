@@ -50,6 +50,22 @@ class Content extends Model
         return $this->hasMany(Episode::class)->orderBy('season_id')->orderBy('number');
     }
 
+    public function comments(): HasMany
+    {
+        return $this->hasMany(Comment::class);
+    }
+
+    public function ratings(): HasMany
+    {
+        return $this->hasMany(Rating::class);
+    }
+
+    /** Profiles that liked this title (inverse of Profile::likes). */
+    public function likedBy(): BelongsToMany
+    {
+        return $this->belongsToMany(Profile::class, 'likes')->withTimestamps();
+    }
+
     /** The first episode — its stored ep1 clip powers the browse hover preview. */
     public function previewEpisode(): HasOne
     {

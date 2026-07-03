@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\App;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppToken;
-use App\Models\Profile;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -100,7 +99,7 @@ class AuthController extends Controller
 
     private function userPayload(User $user): array
     {
-        $profile = $this->defaultProfile($user);
+        $profile = $user->defaultProfile();
 
         return [
             'id' => $user->id,
@@ -116,15 +115,5 @@ class AuthController extends Controller
                 'avatar_color' => $profile->avatar_color,
             ],
         ];
-    }
-
-    /** The user's first profile, creating a starter one if somehow missing. */
-    private function defaultProfile(User $user): Profile
-    {
-        return $user->profiles()->oldest('id')->first()
-            ?? $user->profiles()->create([
-                'name' => Str::limit($user->name, 20, ''),
-                'avatar_color' => '#8b2ff0',
-            ]);
     }
 }

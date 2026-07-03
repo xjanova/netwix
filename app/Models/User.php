@@ -48,6 +48,16 @@ class User extends Authenticatable
         return $this->hasMany(AppToken::class);
     }
 
+    /** The user's first profile, creating a starter one if none exists. */
+    public function defaultProfile(): Profile
+    {
+        return $this->profiles()->oldest('id')->first()
+            ?? $this->profiles()->create([
+                'name' => \Illuminate\Support\Str::limit($this->name, 20, ''),
+                'avatar_color' => '#b026ff',
+            ]);
+    }
+
     public function isAdmin(): bool
     {
         return $this->role === 'admin';
