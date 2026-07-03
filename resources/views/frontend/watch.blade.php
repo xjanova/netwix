@@ -79,18 +79,20 @@
                 <span class="truncate text-lg font-bold">เลือกตอน · {{ $content->title }}</span>
                 <button @click="epMenu = false" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-lg hover:bg-white/20">✕</button>
             </div>
-            <div class="grid flex-1 content-start gap-3 overflow-y-auto px-5 pb-8" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
+            <div class="grid flex-1 content-start gap-2.5 overflow-y-auto px-5 pb-8" style="grid-template-columns:repeat(auto-fill,minmax(148px,1fr))">
                 <template x-for="(ep, i) in episodes" :key="i">
                     <button @click="go(i)" style="aspect-ratio:16/9"
                             class="group relative overflow-hidden rounded-lg ring-1 ring-white/10 transition hover:ring-2 hover:ring-white/40"
                             :class="i === index ? '!ring-2 !ring-brand' : ''">
-                        <div class="absolute inset-0" style="background:linear-gradient(160deg,#1c1626,#120e1a)"></div>
+                        <div class="absolute inset-0" style="background:linear-gradient(160deg,#241a33,#130f1c)"></div>
                         <img :src="ep.thumb" x-show="ep.thumb" loading="lazy" referrerpolicy="no-referrer"
                              class="absolute inset-0 h-full w-full object-cover" onerror="this.style.display='none'">
-                        <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent pb-1.5 pt-5 text-center text-[13px] font-bold">
-                            ตอน <span x-text="ep.n"></span>
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-transparent"></div>
+                        <div class="absolute bottom-1.5 left-2 flex items-baseline gap-1 leading-none drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
+                            <span class="text-[19px] font-extrabold" x-text="ep.n"></span>
+                            <span class="text-[11px] font-medium text-cream/60">ตอน</span>
                         </div>
-                        <span x-show="i === index" x-cloak class="nx-gradient absolute right-1.5 top-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold">กำลังดู</span>
+                        <span x-show="i === index" x-cloak class="nx-gradient absolute right-1.5 top-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold">● กำลังดู</span>
                     </button>
                 </template>
             </div>
