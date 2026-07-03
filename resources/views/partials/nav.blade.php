@@ -1,11 +1,11 @@
 @php
     $links = [
-        ['label' => 'หน้าแรก', 'route' => 'browse'],
-        ['label' => 'ซีรี่ส์', 'route' => 'browse.series'],
-        ['label' => 'ภาพยนตร์', 'route' => 'browse.movies'],
-        ['label' => 'อนิเมะ', 'route' => 'browse.anime'],
-        ['label' => 'ซีรีส์แนวตั้ง', 'route' => 'browse.vertical'],
-        ['label' => 'รายการของฉัน', 'route' => 'browse.mylist'],
+        ['label' => 'หน้าแรก', 'en' => 'Home', 'route' => 'browse'],
+        ['label' => 'ซีรี่ส์', 'en' => 'Series', 'route' => 'browse.series'],
+        ['label' => 'ภาพยนตร์', 'en' => 'Movies', 'route' => 'browse.movies'],
+        ['label' => 'อนิเมะ', 'en' => 'Anime', 'route' => 'browse.anime'],
+        ['label' => 'ซีรีส์แนวตั้ง', 'en' => 'Shorts', 'route' => 'browse.vertical'],
+        ['label' => 'รายการของฉัน', 'en' => 'My List', 'route' => 'browse.mylist'],
     ];
 @endphp
 <nav
@@ -34,8 +34,9 @@
             <div class="hidden lg:flex items-center gap-6">
                 @foreach ($links as $link)
                     <a href="{{ route($link['route']) }}"
-                       class="text-sm transition {{ request()->routeIs($link['route']) ? 'text-cream font-semibold' : 'text-cream/65 hover:text-cream' }}">
-                        {{ $link['label'] }}
+                       class="text-center leading-tight transition {{ request()->routeIs($link['route']) ? 'text-cream font-semibold' : 'text-cream/65 hover:text-cream' }}">
+                        <span class="block text-sm">{{ $link['label'] }}</span>
+                        <span class="block text-[10px] font-normal tracking-wide {{ request()->routeIs($link['route']) ? 'text-cream/55' : 'text-cream/35' }}">{{ $link['en'] }}</span>
                     </a>
                 @endforeach
             </div>
@@ -98,7 +99,9 @@
         <div class="fixed inset-y-0 left-0 z-[190] w-[78vw] max-w-[300px] bg-ink-2 p-6 shadow-2xl overflow-y-auto">
             <img src="{{ asset('assets/netwix-wordmark.png') }}" alt="NetWix" class="h-9 mb-6">
             @foreach ($links as $link)
-                <a href="{{ route($link['route']) }}" class="block border-b border-white/10 py-4 text-base">{{ $link['label'] }}</a>
+                <a href="{{ route($link['route']) }}" class="block border-b border-white/10 py-4 text-base">
+                    {{ $link['label'] }} <span class="text-sm font-normal text-cream/40">{{ $link['en'] }}</span>
+                </a>
             @endforeach
             <form method="POST" action="{{ route('logout') }}" class="mt-4">
                 @csrf<button class="py-4 text-base text-cream/60">ออกจากระบบ</button>

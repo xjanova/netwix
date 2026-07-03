@@ -1,10 +1,11 @@
-@props(['title', 'items', 'ranked' => false, 'myListIds' => [], 'link' => null])
+@props(['title', 'items', 'ranked' => false, 'myListIds' => [], 'link' => null, 'en' => null])
 
 @if ($items->isNotEmpty())
     <section class="mt-8" x-data="nxRail()">
         <h2 class="mb-2 flex items-center gap-2 px-[4vw] text-lg font-semibold sm:text-xl">
             <span class="nx-gradient h-5 w-1 shrink-0 rounded-full sm:h-6" aria-hidden="true"></span>
             <span>{{ $title }}</span>
+            @if ($en)<span class="text-[14px] font-normal text-cream/40">{{ $en }}</span>@endif
             @if ($link)
                 <a href="{{ $link }}" class="ml-1 whitespace-nowrap rounded-full bg-white/10 px-2.5 py-0.5 text-[12px] font-semibold text-cream/85 transition hover:bg-brand hover:text-white">ดูทั้งหมด ›</a>
             @endif

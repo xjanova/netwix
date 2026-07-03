@@ -6,6 +6,7 @@
     <h1 class="mb-7 flex flex-wrap items-center gap-3 text-2xl font-bold sm:text-3xl">
         <span class="nx-gradient h-7 w-1.5 shrink-0 rounded-full" aria-hidden="true"></span>
         <span>{{ $heading }}</span>
+        @if ($headingEn ?? null)<span class="text-lg font-normal text-cream/45">{{ $headingEn }}</span>@endif
         <span class="text-base font-normal text-cream/40">{{ $items->count() }} เรื่อง</span>
     </h1>
 

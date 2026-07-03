@@ -38,7 +38,7 @@ class BrowseController extends Controller
                 ->pluck('content_id'))
             ->with(['genres', 'previewEpisode'])->get();
         if ($continue->isNotEmpty()) {
-            $rows[] = ['title' => 'ดูต่อสำหรับ '.$profile->name, 'items' => $continue];
+            $rows[] = ['title' => 'ดูต่อสำหรับ '.$profile->name, 'en' => 'Continue Watching', 'items' => $continue];
         }
 
         // NetWix Originals
@@ -51,6 +51,7 @@ class BrowseController extends Controller
         // Trending (by views)
         $rows[] = [
             'title' => 'มาแรงตอนนี้',
+            'en' => 'Trending Now',
             'ranked' => true,
             'items' => Content::published()->rankedByEngagement()->with(['genres', 'previewEpisode'])->take(10)->get(),
         ];
@@ -58,7 +59,7 @@ class BrowseController extends Controller
         // My list
         $myList = $profile->myList()->published()->with(['genres', 'previewEpisode'])->get();
         if ($myList->isNotEmpty()) {
-            $rows[] = ['title' => 'รายการของฉัน', 'items' => $myList];
+            $rows[] = ['title' => 'รายการของฉัน', 'en' => 'My List', 'items' => $myList];
         }
 
         // Per-genre rows — anime/cartoon lives on its own /anime page, so it's kept out here
@@ -71,7 +72,7 @@ class BrowseController extends Controller
                 ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
                 ->with(['genres', 'previewEpisode'])->inRandomOrder()->take(14)->get();
             if ($items->count() >= 3) {
-                $rows[] = ['title' => $genre->name, 'items' => $items, 'link' => route('browse.genre', $genre)];
+                $rows[] = ['title' => $genre->name, 'en' => $genre->name_en, 'items' => $items, 'link' => route('browse.genre', $genre)];
             }
         }
 
@@ -107,7 +108,7 @@ class BrowseController extends Controller
             ?? Content::published()->where($isAnime)->with(['genres', 'previewEpisode'])->inRandomOrder()->first();
 
         $rows = [[
-            'title' => 'อนิเมะมาแรง', 'ranked' => true,
+            'title' => 'อนิเมะมาแรง', 'en' => 'Trending Anime', 'ranked' => true,
             'items' => Content::published()->where($isAnime)->rankedByEngagement()
                 ->with(['genres', 'previewEpisode'])->take(10)->get(),
         ]];
@@ -120,7 +121,7 @@ class BrowseController extends Controller
                 ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
                 ->with(['genres', 'previewEpisode'])->inRandomOrder()->take(14)->get();
             if ($items->count() >= 3) {
-                $rows[] = ['title' => $genre->name, 'items' => $items, 'link' => route('browse.genre', $genre)];
+                $rows[] = ['title' => $genre->name, 'en' => $genre->name_en, 'items' => $items, 'link' => route('browse.genre', $genre)];
             }
         }
 
@@ -212,7 +213,7 @@ class BrowseController extends Controller
                 ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
                 ->with(['genres', 'previewEpisode'])->inRandomOrder()->take(14)->get();
             if ($items->isNotEmpty()) {
-                $rows[] = ['title' => $genre->name, 'items' => $items, 'link' => route('browse.genre', $genre)];
+                $rows[] = ['title' => $genre->name, 'en' => $genre->name_en, 'items' => $items, 'link' => route('browse.genre', $genre)];
             }
         }
 
@@ -237,6 +238,7 @@ class BrowseController extends Controller
 
         return view('frontend.genre', [
             'heading' => $genre->name,
+            'headingEn' => $genre->name_en,
             'items' => $items,
             'myListIds' => $this->myListIds($profile),
         ]);
@@ -253,7 +255,7 @@ class BrowseController extends Controller
         $trending = Content::published()->type('vertical')->rankedByEngagement()
             ->with(['genres', 'previewEpisode'])->withCount('episodes')->take(14)->get();
         if ($trending->isNotEmpty()) {
-            $rows[] = ['title' => 'แนวตั้งมาแรง', 'genre' => null, 'items' => $trending];
+            $rows[] = ['title' => 'แนวตั้งมาแรง', 'en' => 'Trending Shorts', 'genre' => null, 'items' => $trending];
         }
 
         // One shuffled row per genre.
@@ -272,7 +274,7 @@ class BrowseController extends Controller
         // Nothing grouped (e.g. no genres assigned) → one catch-all row.
         if ($rows === [] || count($rows) === 1) {
             $rows[] = [
-                'title' => 'ทั้งหมด', 'genre' => null,
+                'title' => 'ทั้งหมด', 'en' => 'All', 'genre' => null,
                 'items' => Content::published()->type('vertical')
                     ->with(['genres', 'previewEpisode'])->withCount('episodes')->latest()->take(30)->get(),
             ];
