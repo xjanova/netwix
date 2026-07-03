@@ -26,6 +26,8 @@
 
         <button type="submit" class="btn-brand mt-5 w-full py-3.5 text-base">สร้างบัญชี</button>
 
+        @include('auth.partials.social')
+
         <div class="mt-7 border-t border-white/10 pt-5 text-center text-sm text-cream/55">
             มีบัญชีอยู่แล้ว? <a href="{{ route('login') }}" class="font-semibold text-cream underline">เข้าสู่ระบบ</a>
         </div>

@@ -6,15 +6,60 @@
 
     {{-- ================= HERO ================= --}}
     <section class="relative overflow-hidden">
-        <div class="absolute inset-0" aria-hidden="true"
+        {{-- base brand glow --}}
+        <div class="absolute inset-0 z-0" aria-hidden="true"
              style="background:radial-gradient(ellipse at 18% -10%, rgba(255,45,85,0.20), transparent 50%), radial-gradient(ellipse at 82% 0%, rgba(139,47,240,0.22), transparent 55%), #07050c;"></div>
 
+        {{-- ambient video background --}}
+        <video class="absolute inset-0 z-[1] h-full w-full object-cover opacity-[0.14]"
+               style="mix-blend-mode:screen" autoplay muted loop playsinline preload="metadata" aria-hidden="true">
+            <source src="{{ asset('assets/logomedia2.mp4') }}" type="video/mp4">
+        </video>
+
+        {{-- fireflies --}}
+        <div class="pointer-events-none absolute inset-0 z-[5] overflow-hidden" aria-hidden="true">
+            @for ($i = 0; $i < 32; $i++)
+                <span class="nx-firefly" style="
+                    --x:{{ rand(1, 97) }}%; --y:{{ rand(3, 90) }}%;
+                    --size:{{ rand(3, 7) }}px;
+                    --dx:{{ rand(-70, 70) }}px; --dy:{{ rand(-55, 25) }}px;
+                    --dur:{{ rand(60, 150) / 10 }}s; --delay:{{ rand(0, 90) / 10 }}s;"></span>
+            @endfor
+        </div>
+
+        {{-- header --}}
         <header class="relative z-20 flex items-center justify-between px-[5vw] py-5">
-            <img src="{{ asset('assets/netwix-wordmark.png') }}" alt="NetWix" class="h-10 w-auto sm:h-12">
+            <img src="{{ asset('assets/netwix-wordmark.png') }}" alt="NetWix" class="h-14 w-auto sm:h-16">
             <a href="{{ route('login') }}" class="btn-brand px-5 py-2 text-sm sm:px-6">เข้าสู่ระบบ</a>
         </header>
 
-        <div class="relative z-20 mx-auto max-w-3xl px-6 pb-10 pt-8 text-center sm:pt-16">
+        {{-- news ticker (admin-editable) --}}
+        @php
+            $ticker = collect($announcements)->map(fn ($a) => [
+                'badge' => $a->badge ?? null,
+                'body' => $a->body ?? '',
+                'link' => $a->link ?? null,
+            ])->values();
+        @endphp
+        <div class="relative z-20 px-6">
+            <div x-data="{ items: {{ \Illuminate\Support\Js::from($ticker) }}, i: 0 }"
+                 x-init="items.length > 1 && setInterval(() => i = (i + 1) % items.length, 4500)"
+                 class="relative mx-auto flex h-9 max-w-2xl items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.04] px-4 backdrop-blur">
+                <template x-for="(item, idx) in items" :key="idx">
+                    <a x-show="i === idx" :href="item.link"
+                       x-transition:enter="nx-ticker-enter" x-transition:enter-start="opacity-0 translate-y-3" x-transition:enter-end="opacity-100 translate-y-0"
+                       x-transition:leave="nx-ticker-enter" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-3"
+                       class="absolute inset-0 flex items-center justify-center gap-2 px-4 text-[13px] font-medium text-cream/85 sm:text-sm">
+                        <span x-show="item.badge" x-text="item.badge"
+                              class="nx-gradient shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide text-white"></span>
+                        <span class="truncate" x-text="item.body"></span>
+                    </a>
+                </template>
+            </div>
+        </div>
+
+        {{-- headline + signup --}}
+        <div class="relative z-20 mx-auto max-w-3xl px-6 pb-10 pt-7 text-center sm:pt-12">
             <h1 class="text-[clamp(32px,5.5vw,60px)] font-extrabold leading-[1.12]">
                 ภาพยนตร์ ซีรีส์ และ<span class="nx-gradient-text">ซีรีส์แนวตั้ง</span><br>ไม่จำกัด
             </h1>
@@ -26,14 +71,19 @@
             </form>
         </div>
 
-        {{-- 3D poster wall --}}
-        @if ($trending->isNotEmpty())
-            <div class="relative z-10" aria-hidden="true" style="perspective:1400px">
-                <div class="flex justify-center gap-3 px-2 sm:gap-4"
-                     style="transform:rotateX(16deg) scale(1.04);transform-origin:center bottom">
-                    @foreach ($trending->take(9) as $c)
-                        <div class="relative aspect-[2/3] w-28 shrink-0 overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/10 sm:w-36 md:w-44 {{ $loop->index % 2 ? 'translate-y-5' : '' }}"
+        {{-- auto-scrolling poster marquee (real covers, drifting left) --}}
+        @if ($marquee->isNotEmpty())
+            <div class="nx-marquee relative z-10 py-4" aria-hidden="true">
+                <div class="nx-marquee-track px-2" style="--speed:80s">
+                    @foreach ($marquee->concat($marquee) as $c)
+                        <div class="relative aspect-[2/3] w-28 shrink-0 overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/10 sm:w-36 md:w-40"
                              style="background:{{ $c->gradient }}">
+                            @if ($c->poster_url)
+                                {{-- scraped posters (rongyok/wow-drama) block hotlinking by Referer → no-referrer (brain: FIX v0.2.4) --}}
+                                <img src="{{ $c->poster_url }}" alt="" loading="lazy"
+                                     referrerpolicy="no-referrer" onerror="this.style.display='none'"
+                                     class="h-full w-full object-cover">
+                            @endif
                             @if ($c->is_original)
                                 <span class="nx-gradient absolute left-2 top-2 rounded px-1.5 py-0.5 text-[8px] font-bold tracking-widest">NETWIX</span>
                             @endif
@@ -43,12 +93,12 @@
                         </div>
                     @endforeach
                 </div>
-                <div class="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink via-ink/25 to-transparent"></div>
+                <div class="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink via-ink/20 to-transparent"></div>
             </div>
         @endif
 
         {{-- glowing curved divider --}}
-        <div class="relative z-10 -mt-10 h-24 overflow-hidden sm:-mt-14" aria-hidden="true">
+        <div class="relative z-10 -mt-8 h-24 overflow-hidden sm:-mt-12" aria-hidden="true">
             <div class="absolute left-1/2 top-7 h-[240px] w-[160vw] -translate-x-1/2 rounded-t-[100%]"
                  style="background:linear-gradient(180deg,#130b21 0%,#07050c 70%);box-shadow:0 -5px 34px 6px rgba(176,38,255,0.38), inset 0 3px 0 0 rgba(255,45,85,0.55);"></div>
         </div>
@@ -65,6 +115,11 @@
                               style="-webkit-text-stroke:2px rgba(244,241,248,0.35)">{{ $i + 1 }}</span>
                         <div class="relative z-10 aspect-[2/3] overflow-hidden rounded-lg shadow-xl ring-1 ring-white/10 transition duration-200 group-hover:scale-105 group-hover:ring-white/30"
                              style="background:{{ $c->gradient }}">
+                            @if ($c->poster_url)
+                                <img src="{{ $c->poster_url }}" alt="{{ $c->title }}" loading="lazy"
+                                     referrerpolicy="no-referrer" onerror="this.style.display='none'"
+                                     class="h-full w-full object-cover">
+                            @endif
                             @if ($c->is_original)
                                 <span class="nx-gradient absolute left-2 top-2 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest">NETWIX</span>
                             @endif
@@ -79,6 +134,48 @@
             </div>
         </section>
     @endif
+
+    {{-- ================= DOWNLOAD APP ================= --}}
+    <section class="px-[5vw] py-10">
+        <div class="relative overflow-hidden rounded-3xl border border-white/[0.07] px-6 py-10 sm:px-12"
+             style="background:linear-gradient(135deg,#1c0f33 0%,#140b26 55%,#0c0817 100%)">
+            <div class="pointer-events-none absolute -right-10 -top-16 h-64 w-64 rounded-full opacity-40 blur-3xl" style="background:radial-gradient(circle,#b026ff,transparent 70%)"></div>
+            <div class="relative grid items-center gap-8 lg:grid-cols-[1.3fr_1fr]">
+                <div>
+                    <span class="nx-gradient inline-block rounded-full px-3 py-1 text-[11px] font-bold tracking-widest">แอป NETWIX</span>
+                    <h2 class="mt-4 text-2xl font-extrabold sm:text-3xl">พก NetWix ไปได้ทุกที่</h2>
+                    <p class="mt-3 max-w-md text-[15px] leading-relaxed text-cream/70">
+                        ดาวน์โหลดตอนไว้ดูออฟไลน์ ปัดชมซีรีส์แนวตั้งลื่นไหล และดูต่อจากที่ค้างไว้ทุกอุปกรณ์ —
+                        แอป NetWix สำหรับ Android และ iOS กำลังจะมาเร็ว ๆ นี้
+                    </p>
+                    <div class="mt-6 flex flex-wrap items-center gap-3">
+                        <a href="{{ route('download') }}" class="flex items-center gap-2.5 rounded-xl border border-white/15 bg-black/40 px-4 py-2.5 transition hover:border-white/35">
+                            <svg viewBox="0 0 24 24" fill="currentColor" class="h-6 w-6"><path d="M3.6 2.3 13 12l-9.4 9.7c-.4-.3-.6-.8-.6-1.4V3.7c0-.6.2-1.1.6-1.4zm11 10.8 2.6 2.6-9 5.2 6.4-7.8zm3.9-2.2 2.3 1.3c.9.5.9 1.9 0 2.4l-2.3 1.3-2.9-2.5 2.9-2.5zM5.6 2 15 7.4l-2.6 2.7L5.6 2z"/></svg>
+                            <span><span class="block text-[10px] text-cream/50">ดาวน์โหลดบน</span><span class="block text-sm font-bold">Google Play</span></span>
+                        </a>
+                        <a href="{{ route('download') }}" class="flex items-center gap-2.5 rounded-xl border border-white/15 bg-black/40 px-4 py-2.5 transition hover:border-white/35">
+                            <svg viewBox="0 0 24 24" fill="currentColor" class="h-6 w-6"><path d="M16.4 12.7c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.9-3-.8c-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7 2-1.1 2.8-2.2c.9-1.3 1.2-2.5 1.3-2.6-.1 0-2.4-1-2.4-3.6zM14.2 5.9c.6-.8 1.1-1.9 1-3-1 0-2.1.6-2.8 1.4-.6.7-1.1 1.8-1 2.9 1.1.1 2.2-.5 2.8-1.3z"/></svg>
+                            <span><span class="block text-[10px] text-cream/50">ดาวน์โหลดบน</span><span class="block text-sm font-bold">App Store</span></span>
+                        </a>
+                    </div>
+                    <a href="{{ route('download') }}" class="mt-4 inline-block text-sm text-cream/60 underline-offset-4 hover:text-cream hover:underline">ดูรายละเอียดแอป ›</a>
+                </div>
+
+                {{-- phone mockup (placeholder screen — swap with real app captures) --}}
+                <div class="flex justify-center lg:justify-end">
+                    <div class="relative h-[340px] w-[168px] rounded-[2rem] border-[6px] border-black/70 bg-ink shadow-2xl ring-1 ring-white/10">
+                        <div class="absolute left-1/2 top-2 h-1.5 w-16 -translate-x-1/2 rounded-full bg-black/70"></div>
+                        <div class="flex h-full w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-[1.6rem]"
+                             style="background:radial-gradient(ellipse at 50% 0%, rgba(176,38,255,0.35), transparent 60%), linear-gradient(160deg,#160c28,#0a0713)">
+                            <img src="{{ asset('assets/netwix-icon.png') }}" alt="NetWix" class="h-16 w-16 rounded-2xl shadow-lg">
+                            <span class="text-sm font-bold tracking-wide">NetWix</span>
+                            <span class="rounded-full border border-white/15 px-3 py-1 text-[11px] text-cream/60">เร็ว ๆ นี้</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
     {{-- ================= REASONS ================= --}}
     @php
@@ -145,17 +242,6 @@
     </section>
 
     {{-- ================= FOOTER ================= --}}
-    <footer class="border-t border-white/5 px-[5vw] py-10 text-cream/45">
-        <img src="{{ asset('assets/netwix-wordmark.png') }}" alt="NetWix" class="mb-5 h-8 opacity-70">
-        <div class="grid max-w-3xl grid-cols-2 gap-3 text-[13px] sm:grid-cols-4">
-            <a href="{{ route('login') }}" class="hover:text-cream">เข้าสู่ระบบ</a>
-            <a href="{{ route('register') }}" class="hover:text-cream">สมัครสมาชิก</a>
-            <span>ศูนย์ช่วยเหลือ</span>
-            <span>เงื่อนไขการใช้งาน</span>
-            <span>ความเป็นส่วนตัว</span>
-            <span>ติดต่อเรา</span>
-        </div>
-        <p class="mt-6 text-xs text-cream/35">© {{ date('Y') }} NetWix — บริการสตรีมมิ่งภาพยนตร์และซีรีส์</p>
-    </footer>
+    @include('partials.site-footer')
 </div>
 @endsection

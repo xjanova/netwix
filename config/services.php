@@ -42,4 +42,26 @@ return [
         'max_gb' => (float) env('NETWIX_MEDIA_MAX_GB', 55),
     ],
 
+    // ---- Social sign-in (requires laravel/socialite on the server) --------
+    // Google:  https://console.cloud.google.com/apis/credentials
+    // LINE:    https://developers.line.biz/console  (LINE Login channel)
+    //          + composer require socialiteproviders/line
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI', '/auth/google/callback'),
+    ],
+
+    'line' => [
+        'client_id' => env('LINE_CLIENT_ID'),
+        'client_secret' => env('LINE_CLIENT_SECRET'),
+        'redirect' => env('LINE_REDIRECT_URI', '/auth/line/callback'),
+    ],
+
+    // Help centre = chat with an admin via the NetWix LINE Official Account.
+    'support' => [
+        'line_url' => env('SUPPORT_LINE_URL', 'https://line.me/R/ti/p/@netwix'),
+        'email' => env('SUPPORT_EMAIL', 'support@netwix.online'),
+    ],
+
 ];

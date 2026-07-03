@@ -9,7 +9,9 @@ use App\Http\Controllers\EpisodeSourceController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\IngestController;
 use App\Http\Controllers\InteractionController;
+use App\Http\Controllers\PageController;
 use App\Http\Controllers\ProfileSelectionController;
+use App\Http\Controllers\Auth\SocialController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\StreamController;
 use App\Http\Controllers\TitleController;
@@ -17,6 +19,12 @@ use App\Http\Controllers\WatchController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', [HomeController::class, 'index'])->name('home');
+
+// ---- Public info pages (guests + members) ------------------------------
+Route::get('/download', [PageController::class, 'download'])->name('download');
+Route::get('/help', [PageController::class, 'help'])->name('help');
+Route::get('/privacy', [PageController::class, 'privacy'])->name('privacy');
+Route::get('/terms', [PageController::class, 'terms'])->name('terms');
 
 // ---- First-run setup (only while no admin exists) -----------------------
 Route::middleware('throttle:10,1')->group(function () {
@@ -37,6 +45,12 @@ Route::middleware('guest')->group(function () {
     Route::post('/login', [LoginController::class, 'login'])->middleware('throttle:10,1');
     Route::get('/register', [RegisterController::class, 'show'])->name('register');
     Route::post('/register', [RegisterController::class, 'register'])->middleware('throttle:10,1');
+
+    // Social sign-in (Google / LINE) — requires laravel/socialite on the server.
+    Route::get('/auth/{provider}/redirect', [SocialController::class, 'redirect'])
+        ->whereIn('provider', ['google', 'line'])->name('social.redirect');
+    Route::get('/auth/{provider}/callback', [SocialController::class, 'callback'])
+        ->whereIn('provider', ['google', 'line'])->name('social.callback');
 });
 
 // ---- Authenticated (choose profile) ------------------------------------
@@ -100,8 +114,16 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::put('genres/{genre}', [Admin\GenreController::class, 'update'])->name('genres.update');
     Route::delete('genres/{genre}', [Admin\GenreController::class, 'destroy'])->name('genres.destroy');
 
+    Route::get('announcements', [Admin\AnnouncementController::class, 'index'])->name('announcements.index');
+    Route::post('announcements', [Admin\AnnouncementController::class, 'store'])->name('announcements.store');
+    Route::put('announcements/{announcement}', [Admin\AnnouncementController::class, 'update'])->name('announcements.update');
+    Route::delete('announcements/{announcement}', [Admin\AnnouncementController::class, 'destroy'])->name('announcements.destroy');
+
     Route::get('users', [Admin\UserController::class, 'index'])->name('users.index');
     Route::put('users/{user}', [Admin\UserController::class, 'update'])->name('users.update');
+
+    Route::get('settings', [Admin\SettingController::class, 'index'])->name('settings.index');
+    Route::put('settings', [Admin\SettingController::class, 'update'])->name('settings.update');
 
     Route::get('analytics', [Admin\AnalyticsController::class, 'index'])->name('analytics');
 });

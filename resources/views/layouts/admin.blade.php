@@ -11,7 +11,9 @@
         ['route' => 'admin.import.index', 'label' => 'นำเข้าหนัง'],
         ['route' => 'admin.storage.index', 'label' => 'จัดเก็บสื่อ'],
         ['route' => 'admin.genres.index', 'label' => 'หมวดหมู่'],
+        ['route' => 'admin.announcements.index', 'label' => 'ข่าวสารหน้าแรก'],
         ['route' => 'admin.users.index', 'label' => 'สมาชิก'],
+        ['route' => 'admin.settings.index', 'label' => 'ตั้งค่า / เชื่อมต่อ'],
         ['route' => 'admin.analytics', 'label' => 'วิเคราะห์ข้อมูล'],
     ];
     $admin = auth()->user();

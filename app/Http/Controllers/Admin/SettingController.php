@@ -1,0 +1,62 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Setting;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\View\View;
+
+class SettingController extends Controller
+{
+    public function index(): View
+    {
+        return view('admin.settings.index', [
+            'google_client_id' => Setting::get('google_client_id'),
+            'line_client_id' => Setting::get('line_client_id'),
+            'support_line_url' => Setting::get('support_line_url', config('services.support.line_url')),
+            'support_email' => Setting::get('support_email', config('services.support.email')),
+            // Never echo secrets — only whether one is stored (drives the "ตั้งค่าแล้ว" pill).
+            'hasGoogleSecret' => filled(Setting::get('google_client_secret')),
+            'hasLineSecret' => filled(Setting::get('line_client_secret')),
+            'callbackBase' => rtrim(config('app.url'), '/'),
+        ]);
+    }
+
+    public function update(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'google_client_id' => ['nullable', 'string', 'max:255'],
+            'google_client_secret' => ['nullable', 'string', 'max:255'],
+            'line_client_id' => ['nullable', 'string', 'max:255'],
+            'line_client_secret' => ['nullable', 'string', 'max:255'],
+            'support_line_url' => ['nullable', 'url:http,https', 'max:255'],
+            'support_email' => ['nullable', 'email', 'max:255'],
+        ], [
+            'support_line_url.url' => 'ลิงก์ LINE ต้องเป็น URL ที่ขึ้นต้นด้วย http/https',
+            'support_email.email' => 'อีเมลไม่ถูกต้อง',
+        ]);
+
+        // Plain (non-secret) fields are pre-filled in the form, so they resubmit
+        // their real value — safe to write as-is (null clears them).
+        foreach (['google_client_id', 'line_client_id', 'support_line_url', 'support_email'] as $field) {
+            Setting::write($field, $data[$field] ?? null);
+        }
+
+        // Secret fields are masked and never echoed, so the form ALWAYS submits them
+        // empty. Laravel's ConvertEmptyStringsToNull turns that '' into null — so a
+        // blank submit must be treated as "keep the existing secret", NOT a wipe.
+        // (brain: SlipOK/Stripe key-wiped-on-save — check blank(), not === '')
+        // An explicit "ล้างค่า" checkbox is the only way to clear a stored secret.
+        foreach (['google_client_secret', 'line_client_secret'] as $field) {
+            if ($request->boolean($field.'_clear')) {
+                Setting::write($field, null);
+            } elseif (filled($data[$field] ?? null)) {
+                Setting::write($field, $data[$field]);
+            }
+        }
+
+        return back()->with('status', 'บันทึกการตั้งค่าแล้ว');
+    }
+}

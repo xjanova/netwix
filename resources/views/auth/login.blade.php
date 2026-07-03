@@ -27,6 +27,8 @@
             <span class="cursor-pointer">ลืมรหัสผ่าน?</span>
         </div>
 
+        @include('auth.partials.social')
+
         <div class="mt-7 border-t border-white/10 pt-5 text-center text-sm text-cream/55">
             ยังไม่มีบัญชี? <a href="{{ route('register') }}" class="font-semibold text-cream underline">สมัครสมาชิกเลย</a>
         </div>
