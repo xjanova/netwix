@@ -65,8 +65,22 @@ class StreamController extends Controller
         abort_unless(str_starts_with($url, 'https://'), 400);
 
         $ref = (string) $request->query('r', '');
-        $resp = Http::withHeaders($this->headers($ref ?: null))->timeout(30)->get($url);
-        abort_unless($resp->ok(), 502);
+
+        // Retry a transient upstream hiccup a couple of times before giving up — one failed segment
+        // shouldn't be enough to stall the whole stream (there's no lower rendition to fall back to).
+        $resp = null;
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            try {
+                $resp = Http::withHeaders($this->headers($ref ?: null))->timeout(30)->get($url);
+                if ($resp->ok()) {
+                    break;
+                }
+            } catch (\Throwable $e) {
+                $resp = null;
+            }
+            usleep(250000);   // 250ms backoff between attempts
+        }
+        abort_unless($resp && $resp->ok(), 502);
 
         $data = $resp->body();
         // Strip the fake image header: seek to the first MPEG-TS sync byte (0x47).

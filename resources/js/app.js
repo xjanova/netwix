@@ -27,11 +27,45 @@ window.nxPost = async function (url, body = {}) {
  */
 window.nxAttachVideo = async function (video, src) {
     if (!video || !src) return;
+
+    // Tear down a previous hls.js instance on this element (e.g. switching episodes) so loaders
+    // don't pile up and leak.
+    if (video._nxHls) { try { video._nxHls.destroy(); } catch (e) {} video._nxHls = null; }
+
     const isHls = /\.m3u8($|\?)/i.test(src);
     if (isHls && !video.canPlayType('application/vnd.apple.mpegurl')) {
         const { default: Hls } = await import('hls.js');
         if (Hls.isSupported()) {
-            const hls = new Hls({ enableWorker: true });
+            // Our HLS is a same-origin proxy in front of a high-bitrate, SINGLE-rendition CDN, so a
+            // segment can be slow and there's no lower quality to fall back to. Buffer generously,
+            // retry fragments hard, and — critically — recover from a *fatal* error instead of
+            // freezing forever (the #1 cause of "it just stops loading half-way").
+            const hls = new Hls({
+                enableWorker: true,
+                maxBufferLength: 30,
+                maxMaxBufferLength: 600,
+                backBufferLength: 30,
+                fragLoadingTimeOut: 60000,
+                fragLoadingMaxRetry: 8,
+                fragLoadingRetryDelay: 800,
+                manifestLoadingTimeOut: 30000,
+                manifestLoadingMaxRetry: 4,
+                levelLoadingTimeOut: 30000,
+                nudgeMaxRetry: 12,
+            });
+            video._nxHls = hls;
+            let mediaRecover = 0;
+            hls.on(Hls.Events.ERROR, function (_evt, data) {
+                if (!data || !data.fatal) return;   // non-fatal errors are retried by hls.js itself
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                    try { hls.startLoad(); } catch (e) {}          // a proxy hiccup → resume loading
+                } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                    if (mediaRecover++ < 3) { try { hls.recoverMediaError(); } catch (e) {} }
+                    else { try { hls.destroy(); } catch (e) {} video._nxHls = null; }
+                } else {
+                    try { hls.destroy(); } catch (e) {} video._nxHls = null;
+                }
+            });
             hls.loadSource(src);
             hls.attachMedia(video);
             return;
