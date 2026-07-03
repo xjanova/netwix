@@ -226,20 +226,47 @@ class BrowseController extends Controller
         ]);
     }
 
-    /** "ดูทั้งหมด" — every published title in one genre (grid), reached from a genre row heading. */
+    /** "ดูทั้งหมด" — one genre with a ranking banner, continue-watching row and a sortable grid. */
     public function genre(Request $request, Genre $genre): View
     {
         $profile = $this->profile($request);
+        $sort = $request->query('sort', 'random');
+        $dir = $request->query('dir') === 'asc' ? 'asc' : 'desc';
 
-        $items = Content::published()
+        $inGenre = fn () => Content::published()
             ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
-            ->with(['genres', 'previewEpisode'])
-            ->orderByDesc('views')->orderByDesc('id')->get();
+            ->with(['genres', 'previewEpisode']);
+
+        // Top 3 (ranking banner) + continue-watching within this genre.
+        $top = $inGenre()->rankedByEngagement()->take(3)->get();
+        $continue = $inGenre()
+            ->whereIn('id', $profile->watchProgress()->whereBetween('percent', [1, 94])
+                ->orderByDesc('last_watched_at')->pluck('content_id'))
+            ->get();
+
+        // Sortable grid — default is a fresh shuffle (like the rest of the site).
+        $q = $inGenre();
+        if ($sort === 'views') {
+            $q->orderBy('views', $dir);
+        } elseif ($sort === 'rating') {
+            $q->orderBy('rating', $dir);
+        } elseif ($sort === 'likes') {
+            $q->withCount('likedBy')->orderBy('liked_by_count', $dir);
+        } elseif ($sort === 'latest') {
+            $q->orderBy('id', $dir);
+        } else {
+            $q->inRandomOrder();
+        }
 
         return view('frontend.genre', [
+            'genre' => $genre,
             'heading' => $genre->name,
             'headingEn' => $genre->name_en,
-            'items' => $items,
+            'top' => $top,
+            'continue' => $continue,
+            'items' => $q->get(),
+            'sort' => $sort,
+            'dir' => $dir,
             'myListIds' => $this->myListIds($profile),
         ]);
     }
