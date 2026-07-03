@@ -5,8 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Announcement;
 use App\Models\Content;
 use App\Models\Setting;
-use App\Models\User;
 use App\Services\AppRelease;
+use Illuminate\Support\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
@@ -51,14 +51,21 @@ class HomeController extends Controller
             ]);
         }
 
-        // Live social-proof totals for the landing (real DB values; the view animates
-        // them upward for a "growing platform" feel). Cached briefly so a burst of
-        // guests doesn't re-run the aggregates on every hit.
-        $stats = \Illuminate\Support\Facades\Cache::remember('landing:stats', now()->addMinutes(5), fn () => [
-            'titles' => Content::published()->count(),
-            'members' => User::count(),
-            'views' => (int) Content::sum('views'),
-        ]);
+        // Social-proof stats for the landing (the view animates a count-up + gentle live tick).
+        // Titles + views are the REAL DB aggregates. MEMBERS is a deliberately fabricated marketing
+        // figure (per owner request) — an owner-set baseline that grows a fixed amount every day,
+        // NOT App\Models\User::count(). Cached briefly so a burst of guests doesn't re-run it.
+        $stats = \Illuminate\Support\Facades\Cache::remember('landing:stats', now()->addMinutes(5), function () {
+            // Anchored 2026-07-04 → 4,137 that day, +213/day thereafter (i.e. 4,000+ and 200+/day).
+            // Real signups aren't reflected here; the admin dashboard keeps the true User::count().
+            $daysLive = max(0, (int) Carbon::parse('2026-07-04')->startOfDay()->diffInDays(now()->startOfDay()));
+
+            return [
+                'titles' => Content::published()->count(),
+                'members' => 4137 + 213 * $daysLive,
+                'views' => (int) Content::sum('views'),
+            ];
+        });
 
         // Whether the Android app is live (drives the "พร้อมโหลดแล้ววันนี้" state + version pill).
         // latest() hits the GitHub API on a cold cache — never let a network blip 500 the homepage.
