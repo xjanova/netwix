@@ -125,6 +125,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
 
     Route::get('import', [Admin\ImportController::class, 'index'])->name('import.index');
     Route::post('import/sync', [Admin\ImportController::class, 'sync'])->name('import.sync');
+    Route::post('import/batch', [Admin\ImportController::class, 'batch'])->name('import.batch');
     Route::post('import', [Admin\ImportController::class, 'import'])->name('import.store');
 
     Route::get('storage', [Admin\StorageController::class, 'index'])->name('storage.index');

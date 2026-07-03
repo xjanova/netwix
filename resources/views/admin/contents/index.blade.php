@@ -67,9 +67,20 @@
                     <tr class="border-b border-white/[0.04] hover:bg-white/[0.02]">
                         <td class="px-4 py-3">
                             <div class="flex items-center gap-3">
-                                <div class="h-10 w-[68px] flex-shrink-0 rounded" style="background:{{ $c->gradient }}"></div>
+                                <div class="relative h-[64px] w-[44px] flex-shrink-0 overflow-hidden rounded" style="background:{{ $c->gradient }}">
+                                    @if ($c->poster_url)
+                                        <img src="{{ $c->poster_url }}" alt="" loading="lazy" referrerpolicy="no-referrer"
+                                             class="absolute inset-0 h-full w-full object-cover" onerror="this.style.display='none'">
+                                    @endif
+                                </div>
                                 <div>
-                                    <div class="font-medium">{{ $c->title }}</div>
+                                    <div class="flex items-center gap-1.5 font-medium">
+                                        <span>{{ $c->title }}</span>
+                                        @if (in_array($c->id, $dupIds ?? []))
+                                            <span class="rounded px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(245,197,66,.16);color:#f5c542"
+                                                  title="มีคอนเทนต์ชื่อคล้ายกันในระบบ — ตรวจสอบว่าซ้ำหรือไม่">ซ้ำ?</span>
+                                        @endif
+                                    </div>
                                     <div class="text-xs text-cream/40">{{ $c->year }} · {{ $c->maturity }} · <span class="text-gold">★ {{ $c->rating }}</span> @if ($c->is_original)· <span class="text-brand">Original</span>@endif</div>
                                 </div>
                             </div>

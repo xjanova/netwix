@@ -151,6 +151,20 @@ class Content extends Model
         return "linear-gradient(155deg, hsl({$hue} 55% 26%) 0%, hsl(".(($hue + 40) % 360)." 60% 14%) 100%)";
     }
 
+    /**
+     * Normalised title key for duplicate detection: lowercase, dub/quality tags and all non-word
+     * characters stripped, so "Perfect World (พากย์ไทย) HD" and "perfect world" collapse to one key.
+     * Deliberately loose — a match means "likely the same title", to be surfaced for admin review.
+     */
+    public static function dedupeKey(?string $title): string
+    {
+        $t = mb_strtolower(trim((string) $title), 'UTF-8');
+        $t = preg_replace('~พากย์ไทย|ซับไทย|ซับ|พากย์|เต็มเรื่อง|ตอนจบ|ครบทุกตอน|the\s*movie|hd~u', ' ', $t) ?? $t;
+        $t = preg_replace('~[^\p{L}\p{N}]+~u', '', $t) ?? $t;   // drop spaces & punctuation
+
+        return $t;
+    }
+
     public function getMatchLabelAttribute(): string
     {
         return $this->match_score.'% ตรงใจ';

@@ -7,6 +7,7 @@ use App\Models\Content;
 use App\Models\Genre;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
@@ -49,7 +50,29 @@ class ContentController extends Controller
                 'movie' => Content::where('type', 'movie')->count(),
                 'vertical' => Content::where('type', 'vertical')->count(),
             ],
+            'dupIds' => self::duplicateContentIds(),
         ]);
+    }
+
+    /**
+     * Ids of contents whose normalised title collides with at least one other content — surfaced as
+     * a "ซ้ำ?" flag for admin review. Full-table scan, cached briefly (admin-only, low traffic).
+     *
+     * @return int[]
+     */
+    public static function duplicateContentIds(): array
+    {
+        return Cache::remember('admin:dup_content_ids', now()->addSeconds(30), function () {
+            $byKey = [];
+            Content::query()->select('id', 'title', 'slug')->get()->each(function ($c) use (&$byKey) {
+                $key = Content::dedupeKey($c->title ?: $c->slug);
+                if ($key !== '') {
+                    $byKey[$key][] = $c->id;
+                }
+            });
+
+            return collect($byKey)->filter(fn ($ids) => count($ids) > 1)->flatten()->all();
+        });
     }
 
     public function create(): View

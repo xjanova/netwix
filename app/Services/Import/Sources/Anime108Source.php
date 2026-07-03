@@ -29,8 +29,25 @@ class Anime108Source implements MediaSource
     public const PLAYER = 'https://main.108player.com';
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
-    /** WP category id (or name substring) → meaning; used to tag dub/movie during catalogue sync. */
+    /** WP category slug that marks a title as a movie (→ type=movie when auto-typing). */
     private const CAT_MOVIE_SLUG = 'the-movie';
+
+    /**
+     * anime108 genre category slug → NetWix genre name (Thai). Only well-known genres are mapped;
+     * every imported title also gets the "อนิเมะ" umbrella. Used by ImportService when auto_genres
+     * is on. All targets already exist in the seeded genre set, so no odd auto-slugs are created.
+     */
+    private const GENRE_MAP = [
+        'action' => 'แอ็กชัน', 'martial-arts' => 'แอ็กชัน', 'super-power' => 'แอ็กชัน', 'samurai' => 'แอ็กชัน',
+        'adventure' => 'ผจญภัย', 'isekai' => 'ผจญภัย',
+        'comedy' => 'ตลก', 'parody' => 'ตลก',
+        'drama' => 'ดราม่า', 'slice-of-life' => 'ดราม่า', 'josei' => 'ดราม่า', 'seinen' => 'ดราม่า',
+        'fantasy' => 'แฟนตาซี & ไซไฟ', 'sci-fi' => 'แฟนตาซี & ไซไฟ', 'magic' => 'แฟนตาซี & ไซไฟ',
+        'supernatural' => 'แฟนตาซี & ไซไฟ', 'mecha' => 'แฟนตาซี & ไซไฟ', 'space' => 'แฟนตาซี & ไซไฟ',
+        'romance' => 'โรแมนติก', 'harem' => 'โรแมนติก', 'shoujo' => 'โรแมนติก',
+        'horror' => 'สยองขวัญ', 'demons' => 'สยองขวัญ', 'vampire' => 'สยองขวัญ',
+        'mystery' => 'อาชญากรรม', 'detective' => 'อาชญากรรม', 'suspense' => 'อาชญากรรม', 'psychological' => 'อาชญากรรม',
+    ];
 
     public function id(): string
     {
@@ -129,6 +146,15 @@ class Anime108Source implements MediaSource
         $catSlugs = array_filter(array_map(fn ($cid) => $cats[$cid]['slug'] ?? '', $catIds));
         $isMovie = in_array(self::CAT_MOVIE_SLUG, $catSlugs, true);
 
+        // Suggested NetWix genres (umbrella "อนิเมะ" first, then any mapped source genres).
+        $genreNames = ['อนิเมะ'];
+        foreach ($catSlugs as $s) {
+            if (isset(self::GENRE_MAP[$s])) {
+                $genreNames[] = self::GENRE_MAP[$s];
+            }
+        }
+        $genreNames = array_values(array_unique($genreNames));
+
         $year = null;
         if (preg_match('~(20\d{2})~', (string) ($el['date'] ?? ''), $ym)) {
             $year = (int) $ym[1];
@@ -142,7 +168,12 @@ class Anime108Source implements MediaSource
             posterUrl: null,
             year: $year,
             dubType: $this->detectDub($rawTitle.' '.implode(' ', $catNames)),
-            extra: ['slug' => $slug, 'media_id' => (int) ($el['featured_media'] ?? 0), 'is_movie' => $isMovie],
+            extra: [
+                'slug' => $slug,
+                'media_id' => (int) ($el['featured_media'] ?? 0),
+                'is_movie' => $isMovie,
+                'genre_names' => $genreNames,
+            ],
         );
     }
 

@@ -3,6 +3,7 @@
 namespace App\Services\Import;
 
 use App\Models\Content;
+use App\Models\Genre;
 use App\Models\SourceTitle;
 use App\Services\Import\Contracts\MediaSource;
 use Illuminate\Support\Str;
@@ -47,7 +48,7 @@ class ImportService
      * Import one synced title into `contents` (+ episodes + genres). Idempotent — re-importing
      * updates the existing content and its episodes.
      *
-     * @param  array{type?:string,genres?:int[],primary_genre?:int|null,publish?:bool,is_original?:bool}  $opts
+     * @param  array{type?:string,genres?:int[],primary_genre?:int|null,publish?:bool,is_original?:bool,auto_type?:bool,auto_genres?:bool}  $opts
      */
     public function import(SourceTitle $st, array $opts = []): Content
     {
@@ -56,7 +57,7 @@ class ImportService
             throw new \RuntimeException("ไม่รู้จักแหล่งที่มา: {$st->source}");
         }
 
-        $type = $opts['type'] ?? $source->defaultContentType();
+        $type = $this->resolveType($source, $st, $opts);
         $title = $st->displayTitle();
 
         $content = Content::updateOrCreate(
@@ -78,12 +79,46 @@ class ImportService
             ],
         );
 
-        $this->syncGenres($content, $opts);
+        $this->syncGenres($content, $this->resolveGenreOpts($st, $opts));
         $count = $this->importEpisodes($source, $st, $content, $type);
 
         $st->update(['content_id' => $content->id, 'episodes_count' => $count]);
 
         return $content;
+    }
+
+    /** Movie titles auto-split to type=movie when auto_type is on; otherwise the chosen/default type. */
+    private function resolveType(MediaSource $source, SourceTitle $st, array $opts): string
+    {
+        if (($opts['auto_type'] ?? false) && ($st->extra['is_movie'] ?? false)) {
+            return 'movie';
+        }
+
+        return $opts['type'] ?? $source->defaultContentType();
+    }
+
+    /**
+     * With auto_genres on, derive genres from the source title's own categories (extra.genre_names,
+     * matched to existing genres by name; primary = the "อนิเมะ" umbrella when present). Falls back
+     * to the manually-chosen genres in $opts when there's no source metadata.
+     */
+    private function resolveGenreOpts(SourceTitle $st, array $opts): array
+    {
+        if (! ($opts['auto_genres'] ?? false)) {
+            return $opts;
+        }
+        $names = $st->extra['genre_names'] ?? [];
+        if (! is_array($names) || $names === []) {
+            return $opts;
+        }
+
+        $idByName = Genre::whereIn('name', $names)->pluck('id', 'name');
+        $ids = collect($names)->map(fn ($n) => $idByName[$n] ?? null)->filter()->values()->all();
+        if ($ids === []) {
+            return $opts;   // none of the mapped genres exist yet → keep manual selection
+        }
+
+        return ['genres' => $ids, 'primary_genre' => $idByName['อนิเมะ'] ?? $ids[0]] + $opts;
     }
 
     /** @return int number of episodes imported */

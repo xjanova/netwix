@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Content;
 use App\Models\Genre;
 use App\Models\SourceTitle;
 use App\Services\Import\ImportService;
@@ -97,5 +98,36 @@ class Anime108ImportTest extends TestCase
             $stream->url,
         );
         $this->assertSame('https://main.108player.com/index_th.php?id=abcdef0123456789abcdef01', $stream->referer);
+    }
+
+    public function test_auto_type_splits_movies_and_auto_genres_maps_source_categories(): void
+    {
+        Http::fake([
+            'www.anime108.com/some-movie/' => Http::response('<html>a movie page with no episode select</html>'),
+        ]);
+        $anime = Genre::create(['name' => 'อนิเมะ', 'slug' => 'anime']);
+        $fantasy = Genre::create(['name' => 'แฟนตาซี & ไซไฟ', 'slug' => 'fantasy-scifi']);
+
+        $st = SourceTitle::create([
+            'source' => 'anime108', 'source_key' => '999', 'title' => 'Some Movie', 'clean_title' => 'Some Movie',
+            'extra' => ['slug' => 'some-movie', 'is_movie' => true, 'genre_names' => ['อนิเมะ', 'แฟนตาซี & ไซไฟ']],
+        ]);
+
+        $content = app(ImportService::class)->import($st, [
+            'type' => 'series', 'auto_type' => true, 'auto_genres' => true, 'publish' => true,
+        ]);
+
+        $this->assertSame('movie', $content->type);   // is_movie wins over the chosen 'series'
+        $this->assertEqualsCanonicalizing([$anime->id, $fantasy->id], $content->genres->pluck('id')->all());
+        $this->assertEquals(1, $content->genres->firstWhere('id', $anime->id)->pivot->is_primary); // umbrella = primary
+    }
+
+    public function test_dedupe_key_collapses_tags_and_flags_matches(): void
+    {
+        $this->assertSame(
+            Content::dedupeKey('perfect world'),
+            Content::dedupeKey('Perfect World (พากย์ไทย) HD'),
+        );
+        $this->assertNotSame(Content::dedupeKey('Naruto'), Content::dedupeKey('Bleach'));
     }
 }

@@ -49,13 +49,17 @@
                     <label class="mb-1.5 block text-sm text-cream/60">วิดีโอหลัก (mp4 / m3u8 / YouTube) — หนัง & แนวตั้ง</label>
                     <input name="video_url" value="{{ $val('video_url') }}" class="nx-input">
                 </div>
-                <div>
+                <div x-data="{ p: @js($val('poster_path')), ok: true }">
                     <label class="mb-1.5 block text-sm text-cream/60">โปสเตอร์ (URL 2:3)</label>
-                    <input name="poster_path" value="{{ $val('poster_path') }}" class="nx-input">
+                    <input name="poster_path" x-model="p" x-on:input="ok = true" value="{{ $val('poster_path') }}" class="nx-input">
+                    <img x-show="p && ok" x-cloak :src="p" x-on:error="ok = false" referrerpolicy="no-referrer" alt=""
+                         class="mt-2 h-40 w-auto rounded-lg object-cover ring-1 ring-white/10">
                 </div>
-                <div>
+                <div x-data="{ b: @js($val('backdrop_path')), ok: true }">
                     <label class="mb-1.5 block text-sm text-cream/60">ภาพพื้นหลัง (URL 16:9)</label>
-                    <input name="backdrop_path" value="{{ $val('backdrop_path') }}" class="nx-input">
+                    <input name="backdrop_path" x-model="b" x-on:input="ok = true" value="{{ $val('backdrop_path') }}" class="nx-input">
+                    <img x-show="b && ok" x-cloak :src="b" x-on:error="ok = false" referrerpolicy="no-referrer" alt=""
+                         class="mt-2 h-28 w-auto rounded-lg object-cover ring-1 ring-white/10">
                 </div>
             </div>
         </div>

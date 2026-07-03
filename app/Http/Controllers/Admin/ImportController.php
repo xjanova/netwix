@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Content;
 use App\Models\Genre;
 use App\Models\SourceTitle;
 use App\Services\Import\ImportService;
 use App\Services\Import\SourceRegistry;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 
 class ImportController extends Controller
@@ -49,7 +52,42 @@ class ImportController extends Controller
             'filter' => $filter,
             'genres' => Genre::orderBy('sort')->get(),
             'agent' => \App\Support\IngestAgent::status(),
+            'duplicates' => $this->duplicateHints($titles->getCollection()),
         ]);
+    }
+
+    /**
+     * For the titles shown, flag any whose normalised title already matches a content in the
+     * catalogue that isn't this exact source-title's own import — i.e. "this show may already be in
+     * NetWix (perhaps from another source)". Surfaced so the admin can decide, not auto-skipped.
+     *
+     * @param  \Illuminate\Support\Collection<int,SourceTitle>  $titles
+     * @return array<int,string>  sourceTitle id → existing content title
+     */
+    private function duplicateHints($titles): array
+    {
+        $byKey = Cache::remember('admin:content_dedupe_map', now()->addSeconds(30), function () {
+            $map = [];
+            Content::query()->select('id', 'title', 'slug', 'source', 'source_key')->get()->each(function ($c) use (&$map) {
+                $key = Content::dedupeKey($c->title ?: $c->slug);
+                if ($key !== '' && ! isset($map[$key])) {
+                    $map[$key] = ['title' => $c->title, 'source' => $c->source, 'source_key' => (string) $c->source_key];
+                }
+            });
+
+            return $map;
+        });
+
+        $hints = [];
+        foreach ($titles as $st) {
+            $hit = $byKey[Content::dedupeKey($st->displayTitle())] ?? null;
+            $isOwn = $hit && $hit['source'] === $st->source && $hit['source_key'] === (string) $st->source_key;
+            if ($hit && ! $isOwn) {
+                $hints[$st->id] = $hit['title'];
+            }
+        }
+
+        return $hints;
     }
 
     public function sync(Request $request): RedirectResponse
@@ -63,15 +101,80 @@ class ImportController extends Controller
         @set_time_limit(0);
         @ini_set('memory_limit', '512M');
 
+        $before = SourceTitle::where('source', $data['source'])->count();
         try {
             $count = $this->importer->sync($data['source'], $data['max_pages'] ?? 30);
         } catch (\Throwable $e) {
             return back()->withErrors(['sync' => 'ซิงค์ไม่สำเร็จ: '.$e->getMessage()]);
         }
+        $new = max(0, SourceTitle::where('source', $data['source'])->count() - $before);
+
+        $msg = "ซิงค์แคตตาล็อกจาก {$this->registry->get($data['source'])->displayName()} แล้ว ({$count} เรื่อง"
+            .($new > 0 ? " · ใหม่ {$new} เรื่อง" : ' · ไม่มีเรื่องใหม่').')';
 
         return redirect()
             ->route('admin.import.index', ['source' => $data['source']])
-            ->with('status', "ซิงค์แคตตาล็อกจาก {$this->registry->get($data['source'])->displayName()} แล้ว ({$count} เรื่อง)");
+            ->with('status', $msg);
+    }
+
+    /**
+     * Import a small chunk of titles and return JSON — the admin UI calls this repeatedly to drive a
+     * live progress bar (so a big selection never blocks in one long request). Works for every source;
+     * auto_type/auto_genres only take effect where the source carries that metadata (anime108).
+     */
+    public function batch(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'source' => ['required', 'string'],
+            'ids' => ['required', 'array', 'min:1', 'max:10'],
+            'ids.*' => ['integer'],
+            'type' => ['nullable', 'in:series,movie,vertical'],
+            'genres' => ['array'],
+            'genres.*' => ['integer', 'exists:genres,id'],
+            'primary_genre' => ['nullable', 'integer'],
+            'publish' => ['sometimes', 'boolean'],
+            'auto_type' => ['sometimes', 'boolean'],
+            'auto_genres' => ['sometimes', 'boolean'],
+        ]);
+        abort_unless($this->registry->has($data['source']), 404);
+
+        @set_time_limit(0);
+
+        $opts = [
+            'type' => $data['type'] ?? $this->registry->get($data['source'])->defaultContentType(),
+            'genres' => $data['genres'] ?? [],
+            'primary_genre' => $data['primary_genre'] ?? null,
+            'publish' => $request->boolean('publish'),
+            'auto_type' => $request->boolean('auto_type'),
+            'auto_genres' => $request->boolean('auto_genres'),
+        ];
+
+        $titles = SourceTitle::where('source', $data['source'])->whereIn('id', $data['ids'])->get()->keyBy('id');
+
+        $results = [];
+        foreach ($data['ids'] as $id) {
+            $st = $titles->get($id);
+            if (! $st) {
+                $results[] = ['id' => $id, 'ok' => false, 'title' => "#{$id}", 'error' => 'ไม่พบเรื่อง'];
+
+                continue;
+            }
+            try {
+                $content = $this->importer->import($st, $opts);
+                $results[] = [
+                    'id' => $id, 'ok' => true, 'title' => $st->displayTitle(),
+                    'type' => $content->type, 'episodes' => $content->episodes()->count(),
+                ];
+            } catch (\Throwable $e) {
+                $results[] = ['id' => $id, 'ok' => false, 'title' => $st->displayTitle(), 'error' => mb_substr($e->getMessage(), 0, 120)];
+            }
+        }
+
+        return response()->json([
+            'ok' => collect($results)->where('ok', true)->count(),
+            'failed' => collect($results)->where('ok', false)->count(),
+            'results' => $results,
+        ]);
     }
 
     public function import(Request $request): RedirectResponse

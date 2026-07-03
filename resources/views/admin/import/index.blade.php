@@ -14,6 +14,68 @@
 @endsection
 
 @section('content')
+<script>
+window.importer = () => ({
+    sel: [],
+    running: false, done: false, cancelled: false,
+    total: 0, processed: 0, ok: 0, failed: 0, log: [],
+    chunkSize: 4,
+    get pct() { return this.total ? Math.round(this.processed / this.total * 100) : 0; },
+    titleFor(id) {
+        const el = document.querySelector('.imp-cb[value="' + id + '"]');
+        return el ? el.dataset.title : ('#' + id);
+    },
+    async run(form) {
+        if (this.running || this.sel.length === 0) return;
+        this.running = true; this.done = false; this.cancelled = false;
+        this.total = this.sel.length; this.processed = 0; this.ok = 0; this.failed = 0; this.log = [];
+
+        const fd = new FormData(form);
+        const token = fd.get('_token');
+        const genres = [...form.querySelectorAll('input[name="genres[]"]:checked')].map(c => c.value);
+        const ids = [...this.sel];
+
+        for (let i = 0; i < ids.length && !this.cancelled; i += this.chunkSize) {
+            const batch = ids.slice(i, i + this.chunkSize);
+            const body = new URLSearchParams();
+            body.set('_token', token);
+            body.set('source', fd.get('source'));
+            body.set('type', fd.get('type') || '');
+            if (fd.get('publish')) body.set('publish', '1');
+            if (fd.get('auto_type')) body.set('auto_type', '1');
+            if (fd.get('auto_genres')) body.set('auto_genres', '1');
+            if (fd.get('primary_genre')) body.set('primary_genre', fd.get('primary_genre'));
+            genres.forEach(g => body.append('genres[]', g));
+            batch.forEach(id => body.append('ids[]', id));
+
+            try {
+                const r = await fetch('{{ route('admin.import.batch') }}', {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                    body,
+                });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const j = await r.json();
+                (j.results || []).forEach(res => {
+                    this.processed++;
+                    res.ok ? this.ok++ : this.failed++;
+                    this.log.unshift({
+                        title: res.title, ok: res.ok,
+                        detail: res.ok ? ((res.type || '') + ' · ' + (res.episodes || 0) + ' ตอน') : (res.error || 'ผิดพลาด'),
+                    });
+                });
+            } catch (e) {
+                batch.forEach(id => {
+                    this.processed++; this.failed++;
+                    this.log.unshift({ title: this.titleFor(id), ok: false, detail: 'เชื่อมต่อผิดพลาด' });
+                });
+            }
+            this.log = this.log.slice(0, 40);
+        }
+        this.done = true;
+    },
+});
+</script>
 {{-- Source tabs --}}
 <div class="mb-5 flex flex-wrap gap-2">
     @foreach ($sources as $s)
@@ -54,9 +116,7 @@
                class="ml-auto rounded-lg border border-white/10 bg-surface-2 px-3.5 py-2 text-sm outline-none focus:border-brand">
     </form>
 
-    <form method="POST" action="{{ route('admin.import.store') }}"
-          x-data="{ sel: [] }"
-          onsubmit="this.querySelector('[type=submit]').disabled=true;this.querySelector('[type=submit]').textContent='กำลังนำเข้า…'">
+    <form method="POST" action="{{ route('admin.import.store') }}" x-data="importer()" @submit.prevent="run($el)">
         @csrf
         <input type="hidden" name="source" value="{{ $sourceId }}">
 
@@ -80,6 +140,10 @@
             </div>
 
             <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="publish" value="1" checked class="accent-brand"> เผยแพร่ทันที</label>
+            <label class="flex items-center gap-2 text-sm" title="แยกหนัง/ซีรีส์ให้อัตโนมัติตามข้อมูลต้นทาง (Anime108)">
+                <input type="checkbox" name="auto_type" value="1" class="accent-brand"> แยกหนัง/ซีรีส์อัตโนมัติ</label>
+            <label class="flex items-center gap-2 text-sm" title="ใส่หมวดหมู่ให้อัตโนมัติจากต้นทาง (Anime108) — ถ้าไม่ติ๊กจะใช้หมวดที่เลือกด้านล่าง">
+                <input type="checkbox" name="auto_genres" value="1" class="accent-brand"> หมวดอัตโนมัติจากต้นทาง</label>
 
             <button type="submit" x-bind:disabled="sel.length === 0"
                     class="btn-brand ml-auto px-6 py-2.5 text-sm disabled:opacity-40">นำเข้าที่เลือก →</button>
@@ -105,6 +169,7 @@
             @foreach ($titles as $t)
                 <label class="group relative block cursor-pointer">
                     <input type="checkbox" name="ids[]" value="{{ $t->id }}" x-model="sel"
+                           data-title="{{ $t->displayTitle() }}"
                            class="imp-cb absolute left-2 top-2 z-10 h-5 w-5 accent-brand">
                     <div class="relative aspect-[2/3] overflow-hidden rounded-lg ring-1 ring-white/10 transition group-hover:ring-2 group-hover:ring-brand"
                          style="background:linear-gradient(160deg,#1c1626,#120e1a)">
@@ -119,6 +184,11 @@
                         @if ($t->dubLabel())
                             <span class="absolute bottom-9 left-2 rounded bg-black/60 px-1.5 py-0.5 text-[9px]">{{ $t->dubLabel() }}</span>
                         @endif
+                        @if (isset($duplicates[$t->id]))
+                            <span class="absolute left-2 top-8 z-10 rounded px-1.5 py-0.5 text-[9px] font-semibold"
+                                  style="background:rgba(245,197,66,.9);color:#1a1206"
+                                  title="อาจซ้ำกับที่มีอยู่แล้ว: {{ $duplicates[$t->id] }}">⚠ อาจซ้ำ</span>
+                        @endif
                         <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-2">
                             <div class="line-clamp-2 text-[12px] font-semibold leading-tight">{{ $t->displayTitle() }}</div>
                             <div class="text-[10px] text-cream/50">{{ $t->year }} @if ($t->view_count) · 👁 {{ number_format($t->view_count) }} @endif</div>
@@ -129,6 +199,40 @@
         </div>
 
         <div class="mt-5">{{ $titles->links() }}</div>
+
+        {{-- Live import progress overlay --}}
+        <div x-show="running || done" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4">
+            <div class="nx-card w-full max-w-lg p-6">
+                <div class="mb-3 flex items-center justify-between">
+                    <h3 class="text-lg font-bold" x-text="done ? (failed ? 'นำเข้าเสร็จ (มีบางเรื่องล้มเหลว)' : 'นำเข้าเสร็จสิ้น ✓') : 'กำลังนำเข้า…'"></h3>
+                    <span class="text-sm text-cream/60"><span x-text="processed"></span> / <span x-text="total"></span></span>
+                </div>
+                <div class="mb-3 h-3 overflow-hidden rounded-full bg-white/10">
+                    <div class="h-full nx-gradient transition-all duration-300" :style="'width:' + pct + '%'"></div>
+                </div>
+                <div class="mb-4 flex items-center gap-4 text-sm">
+                    <span style="color:#3ecf8e">✓ สำเร็จ <span x-text="ok"></span></span>
+                    <span style="color:#ff6b81" x-show="failed > 0">✗ ล้มเหลว <span x-text="failed"></span></span>
+                    <span class="ml-auto font-semibold text-cream/70" x-text="pct + '%'"></span>
+                </div>
+                <div class="max-h-56 overflow-y-auto rounded-lg bg-black/25 p-2 text-xs">
+                    <template x-for="(row, i) in log" :key="i">
+                        <div class="flex items-center gap-2 border-b border-white/5 py-1">
+                            <span x-text="row.ok ? '✓' : '✗'" :style="row.ok ? 'color:#3ecf8e' : 'color:#ff6b81'"></span>
+                            <span class="truncate" x-text="row.title"></span>
+                            <span class="ml-auto flex-shrink-0 text-cream/40" x-text="row.detail"></span>
+                        </div>
+                    </template>
+                    <div x-show="log.length === 0" class="py-3 text-center text-cream/40">กำลังเริ่ม…</div>
+                </div>
+                <div class="mt-4 flex justify-end gap-2">
+                    <button type="button" x-show="running && !done" @click="cancelled = true"
+                            class="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15">หยุด</button>
+                    <button type="button" x-show="done" @click="window.location.reload()"
+                            class="btn-brand px-5 py-2 text-sm">รีเฟรชรายการ</button>
+                </div>
+            </div>
+        </div>
     </form>
 @endif
 @endsection
