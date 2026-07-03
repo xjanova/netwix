@@ -245,12 +245,41 @@ class BrowseController extends Controller
     public function vertical(Request $request): View
     {
         $profile = $this->profile($request);
+        $animeIds = $this->animeGenreIds();
 
-        $items = Content::published()->type('vertical')
-            ->with(['genres', 'previewEpisode'])->withCount('episodes')->latest()->get();
+        $rows = [];
+
+        // Trending strip first.
+        $trending = Content::published()->type('vertical')->rankedByEngagement()
+            ->with(['genres', 'previewEpisode'])->withCount('episodes')->take(14)->get();
+        if ($trending->isNotEmpty()) {
+            $rows[] = ['title' => 'แนวตั้งมาแรง', 'genre' => null, 'items' => $trending];
+        }
+
+        // One shuffled row per genre.
+        foreach (Genre::orderBy('sort')->get() as $genre) {
+            if (in_array($genre->id, $animeIds, true)) {
+                continue;
+            }
+            $items = Content::published()->type('vertical')
+                ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
+                ->with(['genres', 'previewEpisode'])->withCount('episodes')->inRandomOrder()->take(14)->get();
+            if ($items->count() >= 2) {
+                $rows[] = ['title' => $genre->name, 'genre' => $genre, 'items' => $items];
+            }
+        }
+
+        // Nothing grouped (e.g. no genres assigned) → one catch-all row.
+        if ($rows === [] || count($rows) === 1) {
+            $rows[] = [
+                'title' => 'ทั้งหมด', 'genre' => null,
+                'items' => Content::published()->type('vertical')
+                    ->with(['genres', 'previewEpisode'])->withCount('episodes')->latest()->take(30)->get(),
+            ];
+        }
 
         return view('frontend.vertical', [
-            'items' => $items,
+            'rows' => $rows,
             'myListIds' => $this->myListIds($profile),
         ]);
     }
