@@ -37,6 +37,23 @@ window.nxAttachVideo = async function (video, src) {
             return;
         }
     }
+    // Direct MP4 (rongyok's Discord CDN, our stored clips): request it CORS so a <canvas> frame grab
+    // isn't tainted — this is how we thumbnail each episode without a proxy (Discord reflects our
+    // Origin, so it's allowed). If a source ever refuses CORS the initial load errors once and we
+    // silently retry without it, so playback is never broken (we just skip that thumbnail).
+    try { video.crossOrigin = 'anonymous'; } catch (e) {}
+    let coRetried = false;
+    const onCoErr = function () {
+        if (coRetried || video.readyState >= 1) return;   // only an initial-load CORS failure
+        coRetried = true;
+        video.removeEventListener('error', onCoErr);
+        video.removeAttribute('crossorigin');
+        try { video.crossOrigin = null; } catch (e) {}
+        video.src = src;
+        video.load();
+        video.play?.().catch(() => {});
+    };
+    video.addEventListener('error', onCoErr);
     video.src = src;
 };
 
