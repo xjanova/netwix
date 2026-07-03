@@ -15,10 +15,18 @@ class BrowseController extends Controller
     public function home(Request $request): View
     {
         $profile = $this->profile($request);
+        $animeIds = $this->animeGenreIds();
+        $notAnime = fn ($q) => $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', $animeIds));
 
-        $hero = Content::published()->where('is_featured', true)
-            ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
-            ?? Content::published()->with(['genres', 'previewEpisode'])->latest()->first();
+        // Hero is random (not "the newest"), and prefers a title that actually has a video to play
+        // (YouTube trailer or a stored ep-1 preview) so the hero background isn't a still image.
+        $hero = Content::published()->where('is_featured', true)->where($notAnime)
+                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
+            ?? Content::published()->where($notAnime)
+                ->where(fn ($q) => $q->whereNotNull('trailer_youtube_id')->orWhereHas('previewEpisode'))
+                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
+            ?? Content::published()->where($notAnime)
+                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first();
 
         $rows = [];
 
@@ -53,11 +61,15 @@ class BrowseController extends Controller
             $rows[] = ['title' => 'รายการของฉัน', 'items' => $myList];
         }
 
-        // Per-genre rows
+        // Per-genre rows — anime/cartoon lives on its own /anime page, so it's kept out here
+        // (both the umbrella rows and anime titles bleeding into other genre rows), and shuffled.
         foreach (Genre::orderBy('sort')->get() as $genre) {
-            $items = Content::published()
+            if (in_array($genre->id, $animeIds, true)) {
+                continue;
+            }
+            $items = Content::published()->where($notAnime)
                 ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
-                ->with(['genres', 'previewEpisode'])->latest()->take(14)->get();
+                ->with(['genres', 'previewEpisode'])->inRandomOrder()->take(14)->get();
             if ($items->count() >= 3) {
                 $rows[] = ['title' => $genre->name, 'items' => $items];
             }
@@ -68,8 +80,67 @@ class BrowseController extends Controller
             'rows' => $rows,
             'myListIds' => $this->myListIds($profile),
             'feedSeed' => random_int(1, 999999),
-            'feedGenres' => Genre::orderBy('sort')->get(['id', 'name']),
+            'feedGenres' => Genre::orderBy('sort')->whereNotIn('id', $animeIds)->get(['id', 'name']),
         ]);
+    }
+
+    /** Dedicated อนิเมะ/การ์ตูน page — same browse template, only anime content. */
+    public function anime(Request $request): View
+    {
+        $profile = $this->profile($request);
+        $animeIds = $this->animeGenreIds();
+
+        if ($animeIds === []) {
+            return view('frontend.browse', [
+                'hero' => null, 'rows' => [], 'heading' => 'อนิเมะ / การ์ตูน',
+                'myListIds' => $this->myListIds($profile),
+            ]);
+        }
+        $isAnime = fn ($q) => $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $animeIds));
+
+        $hero = Content::published()->where($isAnime)->where('is_featured', true)
+                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
+            ?? Content::published()->where($isAnime)
+                ->where(fn ($q) => $q->whereNotNull('trailer_youtube_id')->orWhereHas('previewEpisode'))
+                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
+            ?? Content::published()->where($isAnime)->with(['genres', 'previewEpisode'])->inRandomOrder()->first();
+
+        $rows = [[
+            'title' => 'อนิเมะมาแรง', 'ranked' => true,
+            'items' => Content::published()->where($isAnime)->rankedByEngagement()
+                ->with(['genres', 'previewEpisode'])->take(10)->get(),
+        ]];
+
+        foreach (Genre::orderBy('sort')->get() as $genre) {
+            if (in_array($genre->id, $animeIds, true)) {
+                continue; // skip the umbrella genres — group by the real sub-genres instead
+            }
+            $items = Content::published()->where($isAnime)
+                ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
+                ->with(['genres', 'previewEpisode'])->inRandomOrder()->take(14)->get();
+            if ($items->count() >= 3) {
+                $rows[] = ['title' => $genre->name, 'items' => $items];
+            }
+        }
+
+        if (count($rows) <= 1) { // no sub-genre rows filled → one catch-all row
+            $rows[] = [
+                'title' => 'อนิเมะทั้งหมด',
+                'items' => Content::published()->where($isAnime)->with(['genres', 'previewEpisode'])
+                    ->inRandomOrder()->take(24)->get(),
+            ];
+        }
+
+        return view('frontend.browse', [
+            'hero' => $hero, 'rows' => $rows, 'heading' => 'อนิเมะ / การ์ตูน',
+            'myListIds' => $this->myListIds($profile),
+        ]);
+    }
+
+    /** @return int[] genre ids for the anime/cartoon section, kept off the main browse. */
+    private function animeGenreIds(): array
+    {
+        return Genre::whereIn('name', ['อนิเมะ', 'การ์ตูน'])->pluck('id')->all();
     }
 
     /** Personalised infinite-scroll feed page (JSON of rendered cards). */
@@ -107,16 +178,22 @@ class BrowseController extends Controller
     private function grouped(Request $request, string $type, string $heading): View
     {
         $profile = $this->profile($request);
+        $animeIds = $this->animeGenreIds();
+        $notAnime = fn ($q) => $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', $animeIds));
 
-        $hero = Content::published()->type($type)->where('is_featured', true)
-            ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
-            ?? Content::published()->type($type)->with(['genres', 'previewEpisode'])->latest()->first();
+        $hero = Content::published()->type($type)->where('is_featured', true)->where($notAnime)
+                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
+            ?? Content::published()->type($type)->where($notAnime)
+                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first();
 
         $rows = [];
         foreach (Genre::orderBy('sort')->get() as $genre) {
-            $items = Content::published()->type($type)
+            if (in_array($genre->id, $animeIds, true)) {
+                continue;
+            }
+            $items = Content::published()->type($type)->where($notAnime)
                 ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
-                ->with(['genres', 'previewEpisode'])->latest()->take(14)->get();
+                ->with(['genres', 'previewEpisode'])->inRandomOrder()->take(14)->get();
             if ($items->isNotEmpty()) {
                 $rows[] = ['title' => $genre->name, 'items' => $items];
             }

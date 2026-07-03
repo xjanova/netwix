@@ -12,15 +12,16 @@
         io: null,
         playT: null,
         reduced: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-        // Auto-play the preview whenever the card scrolls on screen — no hover
-        // needed, so it works on phones/touch too. A short settle delay means a
-        // fast scroll never fetches a clip that's only passing through.
+        hoverCapable: window.matchMedia('(hover: hover) and (pointer: fine)').matches,
+        // Desktop (mouse): the preview plays only while hovered (see @mouseenter/@mouseleave).
+        // Touch/mobile: it plays for the card the viewer is focused on — i.e. well-centered on
+        // screen — so only one clip plays at a time, not every card that's merely visible.
         initPreview() {
             const v = this.$refs.clip;
-            if (! v || this.reduced) return;
+            if (! v || this.reduced || this.hoverCapable) return;
             this.io = new IntersectionObserver((e) => {
-                (e[0].isIntersecting && e[0].intersectionRatio >= 0.6) ? this.arm() : this.release();
-            }, { threshold: [0, 0.6] });
+                (e[0].isIntersecting && e[0].intersectionRatio >= 0.75) ? this.arm() : this.release();
+            }, { threshold: [0, 0.75] });
             this.io.observe(this.$root);
         },
         arm() {
@@ -53,6 +54,7 @@
         },
     }"
     x-init="$nextTick(() => initPreview())"
+    @mouseenter="hoverCapable && arm()" @mouseleave="hoverCapable && release()"
     class="group relative w-[210px] shrink-0 sm:w-[240px] md:w-[262px]"
 >
     @if ($ranked)

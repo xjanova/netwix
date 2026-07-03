@@ -3,6 +3,7 @@
         ['label' => 'หน้าแรก', 'route' => 'browse'],
         ['label' => 'ซีรี่ส์', 'route' => 'browse.series'],
         ['label' => 'ภาพยนตร์', 'route' => 'browse.movies'],
+        ['label' => 'อนิเมะ', 'route' => 'browse.anime'],
         ['label' => 'ซีรีส์แนวตั้ง', 'route' => 'browse.vertical'],
         ['label' => 'รายการของฉัน', 'route' => 'browse.mylist'],
     ];

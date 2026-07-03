@@ -19,6 +19,10 @@
                 :src="`https://www.youtube.com/embed/{{ $heroYt }}?autoplay=1&mute=${muted ? 1 : 0}&loop=1&playlist={{ $heroYt }}&controls=0&modestbranding=1&rel=0&showinfo=0&playsinline=1`"
                 class="pointer-events-none absolute left-1/2 top-1/2 h-full w-full -translate-x-1/2 -translate-y-1/2 border-0"
                 style="min-width:178vh;min-height:75vw" allow="autoplay; encrypted-media"></iframe>
+        @elseif ($hero->preview_url)
+            {{-- imported title with a stored ep-1 sample → autoplay it muted+looping as the backdrop --}}
+            <video autoplay muted loop playsinline preload="metadata" src="{{ $hero->preview_url }}"
+                   class="pointer-events-none absolute inset-0 h-full w-full object-cover"></video>
         @elseif (! $hero->backdrop_url)
             {{-- no trailer and no image → fill with an animated NetWix logo clip --}}
             @include('partials.logo-fill', ['seed' => $hero->id])
