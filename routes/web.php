@@ -54,11 +54,14 @@ Route::middleware('guest')->group(function () {
 });
 
 // ---- Mobile auth bridge (reuses the web sign-in → issues an app token) --
-// The app opens /app/auth/start in an in-app browser; after the normal web
-// login it lands on /app/auth/issue, which deep-links back with a one-time code.
-Route::get('/app/auth/start', [\App\Http\Controllers\Api\App\AuthController::class, 'start'])
+// The app opens /mauth/start in an in-app browser; after the normal web login
+// it lands on /mauth/issue, which deep-links back with a one-time code.
+// NB: the path is deliberately NOT under /app/… — the root .htaccess 404s the
+// top-level /app/ path (it guards the Laravel source dir), which silently ate
+// the query string on the bridge routes.
+Route::get('/mauth/start', [\App\Http\Controllers\Api\App\AuthController::class, 'start'])
     ->name('app.auth.start');
-Route::get('/app/auth/issue', [\App\Http\Controllers\Api\App\AuthController::class, 'issue'])
+Route::get('/mauth/issue', [\App\Http\Controllers\Api\App\AuthController::class, 'issue'])
     ->middleware('auth')->name('app.auth.issue');
 
 // ---- Authenticated (choose profile) ------------------------------------

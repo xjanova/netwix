@@ -16,9 +16,9 @@ use Illuminate\Support\Str;
  * Mobile auth bridge. The app has no OAuth client of its own — it reuses the
  * web's existing email / Google / LINE sign-in:
  *
- *   1. app opens  GET /app/auth/start?provider=…  in an in-app browser
+ *   1. app opens  GET /mauth/start?provider=…  in an in-app browser
  *   2. user signs in on the web (session) via the normal login / Socialite flow
- *   3. web lands on  GET /app/auth/issue  → mints a ONE-TIME code and redirects
+ *   3. web lands on  GET /mauth/issue  → mints a ONE-TIME code and redirects
  *      to the deep link  netwix://auth?code=…   (no token in the URL)
  *   4. app exchanges the code  POST /api/app/auth/exchange {code}  → bearer token
  *
