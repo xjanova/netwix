@@ -77,6 +77,7 @@ class BrowseController extends Controller
 
         return view('frontend.browse', [
             'hero' => $hero,
+            'heroResolveUrl' => $this->heroResolveUrl($hero),
             'rows' => $rows,
             'myListIds' => $this->myListIds($profile),
             'feedSeed' => random_int(1, 999999),
@@ -132,7 +133,8 @@ class BrowseController extends Controller
         }
 
         return view('frontend.browse', [
-            'hero' => $hero, 'rows' => $rows, 'heading' => 'อนิเมะ / การ์ตูน',
+            'hero' => $hero, 'heroResolveUrl' => $this->heroResolveUrl($hero),
+            'rows' => $rows, 'heading' => 'อนิเมะ / การ์ตูน',
             'myListIds' => $this->myListIds($profile),
         ]);
     }
@@ -141,6 +143,21 @@ class BrowseController extends Controller
     private function animeGenreIds(): array
     {
         return Genre::whereIn('name', ['อนิเมะ', 'การ์ตูน'])->pluck('id')->all();
+    }
+
+    /**
+     * On-demand resolve URL for the hero's first episode, so the hero can stream a live preview
+     * (HLS anime108/wow-drama, or a signed rongyok mp4) muted in the background — no file stored.
+     * Null when the hero has a stored preview clip (used directly) or no playable episode.
+     */
+    private function heroResolveUrl(?Content $hero): ?string
+    {
+        if (! $hero || $hero->preview_url) {
+            return null;   // youtube/backdrop handled in the view; stored clip plays directly
+        }
+        $ep = $hero->episodes()->orderBy('season_id')->orderBy('sort')->orderBy('number')->first();
+
+        return ($ep && $ep->source) ? route('episode.source', $ep) : null;
     }
 
     /** Personalised infinite-scroll feed page (JSON of rendered cards). */
@@ -201,6 +218,7 @@ class BrowseController extends Controller
 
         return view('frontend.browse', [
             'hero' => $hero,
+            'heroResolveUrl' => $this->heroResolveUrl($hero),
             'rows' => $rows,
             'heading' => $heading,
             'myListIds' => $this->myListIds($profile),

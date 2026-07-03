@@ -5,9 +5,10 @@
 @if ($hero)
     @php $heroYt = $hero->youtube_id; @endphp
     <section class="relative h-[62vh] min-h-[440px] w-full overflow-hidden bg-black md:h-[82vh]"
-             @if ($heroYt) x-data="{ muted: true }" @endif>
+             x-data="heroBg({ resolveUrl: @js($heroResolveUrl ?? null), direct: @js($hero->preview_url), yt: @js((bool) $heroYt) })"
+             x-init="init()">
         {{-- gradient/backdrop always underneath, so the hero never shows a black void
-             while the trailer loads (or if the embed fails) --}}
+             while the trailer/stream loads (or if it fails) --}}
         <div class="absolute inset-0" style="background:{{ $hero->gradient }}"></div>
         @if ($hero->backdrop_url)
             <img src="{{ $hero->backdrop_url }}" alt="" aria-hidden="true"
@@ -19,12 +20,14 @@
                 :src="`https://www.youtube.com/embed/{{ $heroYt }}?autoplay=1&mute=${muted ? 1 : 0}&loop=1&playlist={{ $heroYt }}&controls=0&modestbranding=1&rel=0&showinfo=0&playsinline=1`"
                 class="pointer-events-none absolute left-1/2 top-1/2 h-full w-full -translate-x-1/2 -translate-y-1/2 border-0"
                 style="min-width:178vh;min-height:75vw" allow="autoplay; encrypted-media"></iframe>
-        @elseif ($hero->preview_url)
-            {{-- imported title with a stored ep-1 sample → autoplay it muted+looping as the backdrop --}}
-            <video autoplay muted loop playsinline preload="metadata" src="{{ $hero->preview_url }}"
+        @elseif (($heroResolveUrl ?? null) || $hero->preview_url)
+            {{-- stream the first episode muted+looping as the backdrop: a stored clip if we have
+                 one (rongyok), otherwise resolved live on demand (anime108 / wow-drama HLS) — no
+                 file kept. Revealed only once a frame is actually ready, else the backdrop shows. --}}
+            <video x-ref="bg" muted loop playsinline preload="none" x-show="ready" x-cloak
                    class="pointer-events-none absolute inset-0 h-full w-full object-cover"></video>
         @elseif (! $hero->backdrop_url)
-            {{-- no trailer and no image → fill with an animated NetWix logo clip --}}
+            {{-- no trailer, stream, or image → fill with an animated NetWix logo clip --}}
             @include('partials.logo-fill', ['seed' => $hero->id])
         @endif
 
@@ -65,6 +68,33 @@
 @else
     <div class="h-24"></div>
 @endif
+
+@push('scripts')
+<script>
+    function heroBg(cfg) {
+        return {
+            muted: true,
+            ready: false,
+            async init() {
+                if (cfg.yt) return;                       // YouTube handled by the iframe
+                const v = this.$refs.bg;
+                if (!v) return;
+                const play = () => { v.muted = true; this.ready = true; v.play?.().catch(() => {}); };
+                if (cfg.direct) { v.src = cfg.direct; play(); return; }   // stored clip → instant
+                if (!cfg.resolveUrl) return;
+                try {
+                    const r = await fetch(cfg.resolveUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                    const d = await r.json();
+                    if (d && d.ready && d.url && window.nxAttachVideo) {
+                        window.nxAttachVideo(v, d.url);   // hls.js for .m3u8, direct for .mp4
+                        play();
+                    }
+                } catch (e) { /* keep the backdrop image showing */ }
+            },
+        };
+    }
+</script>
+@endpush
 
 <div class="relative z-10 -mt-16 pb-10">
     @isset($heading)
