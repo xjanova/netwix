@@ -53,6 +53,7 @@ class ImportController extends Controller
             'genres' => Genre::orderBy('sort')->get(),
             'agent' => \App\Support\IngestAgent::status(),
             'duplicates' => $this->duplicateHints($titles->getCollection()),
+            'pending' => SourceTitle::where('source', $sourceId)->notImported()->count(),
         ]);
     }
 
@@ -174,6 +175,74 @@ class ImportController extends Controller
             'ok' => collect($results)->where('ok', true)->count(),
             'failed' => collect($results)->where('ok', false)->count(),
             'results' => $results,
+        ]);
+    }
+
+    /**
+     * Auto-import driver: picks the next chunk of NOT-yet-imported titles itself (highest view count
+     * first) and imports them, returning how many are still left. The admin UI calls this in a loop
+     * ("นำเข้าทั้งหมดอัตโนมัติ") until `remaining` hits 0. `exclude` carries ids that already failed this
+     * run so a persistently-broken title is attempted once and then skipped — never an infinite loop.
+     */
+    public function auto(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'source' => ['required', 'string'],
+            'type' => ['nullable', 'in:series,movie,vertical'],
+            'genres' => ['array'],
+            'genres.*' => ['integer', 'exists:genres,id'],
+            'primary_genre' => ['nullable', 'integer'],
+            'publish' => ['sometimes', 'boolean'],
+            'auto_type' => ['sometimes', 'boolean'],
+            'auto_genres' => ['sometimes', 'boolean'],
+            'chunk' => ['nullable', 'integer', 'between:1,8'],
+            'exclude' => ['array'],
+            'exclude.*' => ['integer'],
+        ]);
+        abort_unless($this->registry->has($data['source']), 404);
+
+        @set_time_limit(0);
+
+        $opts = [
+            'type' => $data['type'] ?? $this->registry->get($data['source'])->defaultContentType(),
+            'genres' => $data['genres'] ?? [],
+            'primary_genre' => $data['primary_genre'] ?? null,
+            'publish' => $request->boolean('publish'),
+            'auto_type' => $request->boolean('auto_type'),
+            'auto_genres' => $request->boolean('auto_genres'),
+        ];
+        $exclude = $data['exclude'] ?? [];
+
+        $titles = SourceTitle::where('source', $data['source'])->notImported()
+            ->when($exclude, fn ($w) => $w->whereNotIn('id', $exclude))
+            ->orderByDesc('view_count')->orderByDesc('id')
+            ->limit($data['chunk'] ?? 5)->get();
+
+        $results = [];
+        $failedNow = [];
+        foreach ($titles as $st) {
+            try {
+                $content = $this->importer->import($st, $opts);
+                $results[] = [
+                    'id' => $st->id, 'ok' => true, 'title' => $st->displayTitle(),
+                    'type' => $content->type, 'episodes' => $content->episodes()->count(),
+                ];
+            } catch (\Throwable $e) {
+                $failedNow[] = $st->id;
+                $results[] = ['id' => $st->id, 'ok' => false, 'title' => $st->displayTitle(), 'error' => mb_substr($e->getMessage(), 0, 120)];
+            }
+        }
+
+        // Titles still to go, ignoring everything that has already failed (this run + earlier).
+        $remaining = SourceTitle::where('source', $data['source'])->notImported()
+            ->whereNotIn('id', array_merge($exclude, $failedNow) ?: [0])
+            ->count();
+
+        return response()->json([
+            'ok' => collect($results)->where('ok', true)->count(),
+            'failed' => collect($results)->where('ok', false)->count(),
+            'results' => $results,
+            'remaining' => $remaining,
         ]);
     }
 

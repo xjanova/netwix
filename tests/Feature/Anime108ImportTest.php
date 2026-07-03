@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Content;
 use App\Models\Genre;
 use App\Models\SourceTitle;
+use App\Models\User;
 use App\Services\Import\ImportService;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
@@ -129,5 +130,31 @@ class Anime108ImportTest extends TestCase
             Content::dedupeKey('Perfect World (พากย์ไทย) HD'),
         );
         $this->assertNotSame(Content::dedupeKey('Naruto'), Content::dedupeKey('Bleach'));
+    }
+
+    public function test_auto_import_imports_next_chunk_and_reports_remaining(): void
+    {
+        Http::fake(['www.anime108.com/*' => Http::response('<html>a page with no episode select</html>')]);
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        foreach (['a', 'b', 'c'] as $i => $s) {
+            SourceTitle::create([
+                'source' => 'anime108', 'source_key' => (string) (200 + $i),
+                'title' => "T {$s}", 'clean_title' => "T {$s}",
+                'view_count' => 10 - $i, 'extra' => ['slug' => "t-{$s}"],
+            ]);
+        }
+
+        // First pass imports the top 2 (by view count), 1 left.
+        $this->actingAs($admin)->postJson(route('admin.import.auto'), [
+            'source' => 'anime108', 'type' => 'series', 'publish' => true, 'chunk' => 2,
+        ])->assertOk()->assertJson(['ok' => 2, 'failed' => 0, 'remaining' => 1]);
+        $this->assertSame(2, Content::where('source', 'anime108')->count());
+
+        // Second pass drains the rest — nothing remaining, loop can stop.
+        $this->actingAs($admin)->postJson(route('admin.import.auto'), [
+            'source' => 'anime108', 'type' => 'series', 'publish' => true, 'chunk' => 2,
+        ])->assertOk()->assertJson(['ok' => 1, 'remaining' => 0]);
+        $this->assertSame(3, Content::where('source', 'anime108')->count());
     }
 }

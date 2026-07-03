@@ -17,7 +17,7 @@
 <script>
 window.importer = () => ({
     sel: [],
-    running: false, done: false, cancelled: false,
+    running: false, done: false, cancelled: false, autoMode: false,
     total: 0, processed: 0, ok: 0, failed: 0, log: [],
     chunkSize: 4,
     get pct() { return this.total ? Math.round(this.processed / this.total * 100) : 0; },
@@ -25,29 +25,69 @@ window.importer = () => ({
         const el = document.querySelector('.imp-cb[value="' + id + '"]');
         return el ? el.dataset.title : ('#' + id);
     },
+    baseBody(form) {
+        const fd = new FormData(form);
+        const body = new URLSearchParams();
+        body.set('_token', fd.get('_token'));
+        body.set('source', fd.get('source'));
+        body.set('type', fd.get('type') || '');
+        if (fd.get('publish')) body.set('publish', '1');
+        if (fd.get('auto_type')) body.set('auto_type', '1');
+        if (fd.get('auto_genres')) body.set('auto_genres', '1');
+        if (fd.get('primary_genre')) body.set('primary_genre', fd.get('primary_genre'));
+        [...form.querySelectorAll('input[name="genres[]"]:checked')].forEach(c => body.append('genres[]', c.value));
+        return body;
+    },
+    pushResults(list, onFail) {
+        (list || []).forEach(res => {
+            this.processed++;
+            res.ok ? this.ok++ : (this.failed++, onFail && onFail(res));
+            this.log.unshift({
+                title: res.title, ok: res.ok,
+                detail: res.ok ? ((res.type || '') + ' · ' + (res.episodes || 0) + ' ตอน') : (res.error || 'ผิดพลาด'),
+            });
+        });
+        this.log = this.log.slice(0, 60);
+    },
+    // Auto-import: keep pulling the next un-imported chunk from the server until none remain.
+    async runAuto(form) {
+        if (this.running) return;
+        this.running = true; this.done = false; this.cancelled = false; this.autoMode = true;
+        this.total = 0; this.processed = 0; this.ok = 0; this.failed = 0; this.log = [];
+        const exclude = [];
+        while (!this.cancelled) {
+            const body = this.baseBody(form);
+            body.set('chunk', '5');
+            exclude.forEach(id => body.append('exclude[]', id));
+            let j;
+            try {
+                const r = await fetch('{{ route('admin.import.auto') }}', {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                    body,
+                });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                j = await r.json();
+            } catch (e) {
+                this.log.unshift({ title: 'เชื่อมต่อผิดพลาด — หยุดการนำเข้าอัตโนมัติ', ok: false, detail: '' });
+                break;
+            }
+            this.pushResults(j.results, res => exclude.push(res.id));
+            this.total = this.processed + (j.remaining || 0);
+            if (!(j.results || []).length || j.remaining === 0) break;
+        }
+        this.done = true;
+    },
+    // Import just the checked titles.
     async run(form) {
         if (this.running || this.sel.length === 0) return;
-        this.running = true; this.done = false; this.cancelled = false;
+        this.running = true; this.done = false; this.cancelled = false; this.autoMode = false;
         this.total = this.sel.length; this.processed = 0; this.ok = 0; this.failed = 0; this.log = [];
-
-        const fd = new FormData(form);
-        const token = fd.get('_token');
-        const genres = [...form.querySelectorAll('input[name="genres[]"]:checked')].map(c => c.value);
         const ids = [...this.sel];
-
         for (let i = 0; i < ids.length && !this.cancelled; i += this.chunkSize) {
             const batch = ids.slice(i, i + this.chunkSize);
-            const body = new URLSearchParams();
-            body.set('_token', token);
-            body.set('source', fd.get('source'));
-            body.set('type', fd.get('type') || '');
-            if (fd.get('publish')) body.set('publish', '1');
-            if (fd.get('auto_type')) body.set('auto_type', '1');
-            if (fd.get('auto_genres')) body.set('auto_genres', '1');
-            if (fd.get('primary_genre')) body.set('primary_genre', fd.get('primary_genre'));
-            genres.forEach(g => body.append('genres[]', g));
+            const body = this.baseBody(form);
             batch.forEach(id => body.append('ids[]', id));
-
             try {
                 const r = await fetch('{{ route('admin.import.batch') }}', {
                     method: 'POST',
@@ -55,22 +95,13 @@ window.importer = () => ({
                     body,
                 });
                 if (!r.ok) throw new Error('HTTP ' + r.status);
-                const j = await r.json();
-                (j.results || []).forEach(res => {
-                    this.processed++;
-                    res.ok ? this.ok++ : this.failed++;
-                    this.log.unshift({
-                        title: res.title, ok: res.ok,
-                        detail: res.ok ? ((res.type || '') + ' · ' + (res.episodes || 0) + ' ตอน') : (res.error || 'ผิดพลาด'),
-                    });
-                });
+                this.pushResults((await r.json()).results);
             } catch (e) {
                 batch.forEach(id => {
                     this.processed++; this.failed++;
                     this.log.unshift({ title: this.titleFor(id), ok: false, detail: 'เชื่อมต่อผิดพลาด' });
                 });
             }
-            this.log = this.log.slice(0, 40);
         }
         this.done = true;
     },
@@ -145,8 +176,18 @@ window.importer = () => ({
             <label class="flex items-center gap-2 text-sm" title="ใส่หมวดหมู่ให้อัตโนมัติจากต้นทาง (Anime108) — ถ้าไม่ติ๊กจะใช้หมวดที่เลือกด้านล่าง">
                 <input type="checkbox" name="auto_genres" value="1" class="accent-brand"> หมวดอัตโนมัติจากต้นทาง</label>
 
-            <button type="submit" x-bind:disabled="sel.length === 0"
-                    class="btn-brand ml-auto px-6 py-2.5 text-sm disabled:opacity-40">นำเข้าที่เลือก →</button>
+            <div class="ml-auto flex items-center gap-2">
+                @if ($pending > 0)
+                    <button type="button" x-bind:disabled="running"
+                            @click="if (confirm('นำเข้าทุกเรื่องที่ยังไม่นำเข้าของแหล่งนี้ (~{{ number_format($pending) }} เรื่อง)?\nระบบจะทยอยนำเข้าทีละชุดจนหมด — กดหยุดได้ตลอดเวลา')) runAuto($root)"
+                            class="rounded-lg bg-white/10 px-4 py-2.5 text-sm font-semibold hover:bg-white/15 disabled:opacity-40"
+                            title="วนนำเข้าทุกเรื่องที่ยังไม่นำเข้าโดยอัตโนมัติจนกว่าจะหมด">
+                        ⭮ นำเข้าทั้งหมดอัตโนมัติ <span class="text-cream/50">({{ number_format($pending) }})</span>
+                    </button>
+                @endif
+                <button type="submit" x-bind:disabled="sel.length === 0"
+                        class="btn-brand px-6 py-2.5 text-sm disabled:opacity-40">นำเข้าที่เลือก →</button>
+            </div>
         </div>
 
         {{-- Genre assignment --}}
@@ -204,7 +245,7 @@ window.importer = () => ({
         <div x-show="running || done" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4">
             <div class="nx-card w-full max-w-lg p-6">
                 <div class="mb-3 flex items-center justify-between">
-                    <h3 class="text-lg font-bold" x-text="done ? (failed ? 'นำเข้าเสร็จ (มีบางเรื่องล้มเหลว)' : 'นำเข้าเสร็จสิ้น ✓') : 'กำลังนำเข้า…'"></h3>
+                    <h3 class="text-lg font-bold" x-text="done ? (failed ? 'นำเข้าเสร็จ (มีบางเรื่องล้มเหลว)' : 'นำเข้าเสร็จสิ้น ✓') : (autoMode ? 'นำเข้าทั้งหมดอัตโนมัติ…' : 'กำลังนำเข้า…')"></h3>
                     <span class="text-sm text-cream/60"><span x-text="processed"></span> / <span x-text="total"></span></span>
                 </div>
                 <div class="mb-3 h-3 overflow-hidden rounded-full bg-white/10">
