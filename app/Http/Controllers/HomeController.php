@@ -5,13 +5,15 @@ namespace App\Http\Controllers;
 use App\Models\Announcement;
 use App\Models\Content;
 use App\Models\Setting;
+use App\Models\User;
+use App\Services\AppRelease;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 
 class HomeController extends Controller
 {
-    public function index(): View|RedirectResponse
+    public function index(AppRelease $appRelease): View|RedirectResponse
     {
         if (Auth::check()) {
             return redirect()->route('profiles.index');
@@ -45,8 +47,25 @@ class HomeController extends Controller
             $announcements = collect([
                 (object) ['badge' => 'ใหม่', 'body' => 'ซีรีส์แนวตั้งดูจบไว ปัดขึ้น–ลงเหมือนโซเชียล', 'link' => null],
                 (object) ['badge' => 'ยอดนิยม', 'body' => 'รวมหนังและซีรีส์ใหม่อัปเดตทุกสัปดาห์ ดูได้ไม่จำกัด', 'link' => null],
-                (object) ['badge' => 'แอป', 'body' => 'ดาวน์โหลดแอป NetWix เร็ว ๆ นี้ ทั้ง Android และ iOS', 'link' => null],
+                (object) ['badge' => 'แอป', 'body' => 'ดาวน์โหลดแอป NetWix สำหรับ Android ได้แล้ววันนี้ • iOS เร็ว ๆ นี้', 'link' => null],
             ]);
+        }
+
+        // Live social-proof totals for the landing (real DB values; the view animates
+        // them upward for a "growing platform" feel). Cached briefly so a burst of
+        // guests doesn't re-run the aggregates on every hit.
+        $stats = \Illuminate\Support\Facades\Cache::remember('landing:stats', now()->addMinutes(5), fn () => [
+            'titles' => Content::published()->count(),
+            'members' => User::count(),
+            'views' => (int) Content::sum('views'),
+        ]);
+
+        // Whether the Android app is live (drives the "พร้อมโหลดแล้ววันนี้" state + version pill).
+        // latest() hits the GitHub API on a cold cache — never let a network blip 500 the homepage.
+        try {
+            $app = $appRelease->latest();
+        } catch (\Throwable $e) {
+            $app = null;
         }
 
         return view('frontend.landing', [
@@ -54,6 +73,8 @@ class HomeController extends Controller
             'marquee' => $marquee,
             'announcements' => $announcements,
             'emailReg' => Setting::flag('email_registration_enabled', true),
+            'stats' => $stats,
+            'app' => $app,
         ]);
     }
 }

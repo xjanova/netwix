@@ -133,41 +133,111 @@
         </section>
     @endif
 
-    {{-- ================= DOWNLOAD APP ================= --}}
+    {{-- ================= LIVE STATS + DOWNLOAD APP ================= --}}
+    @php
+        // Real DB totals (from HomeController). Each card animates 0→value on scroll,
+        // then keeps ticking up: views drift the fastest (most alive), members creep
+        // up occasionally, the catalogue count stays put (drift 0) — a title count that
+        // randomly jumps would read as broken, not impressive.
+        $statCards = [
+            ['value' => $stats['titles'], 'label' => 'หนังและซีรีส์', 'suffix' => '+', 'drift' => 0, 'every' => 0,
+             'icon' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5M16 4v5M8 20v-5M16 20v-5"/></svg>'],
+            ['value' => $stats['members'], 'label' => 'สมาชิกที่ร่วมสนุก', 'suffix' => '+', 'drift' => 1, 'every' => 9000,
+             'icon' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>'],
+            ['value' => $stats['views'], 'label' => 'ครั้งการรับชม', 'suffix' => '', 'drift' => 6, 'every' => 1300,
+             'icon' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>'],
+        ];
+    @endphp
     <section class="px-[5vw] py-10">
         <div class="relative overflow-hidden rounded-3xl border border-white/[0.07] px-6 py-10 sm:px-12"
              style="background:linear-gradient(135deg,#1c0f33 0%,#140b26 55%,#0c0817 100%)">
             <div class="pointer-events-none absolute -right-10 -top-16 h-64 w-64 rounded-full opacity-40 blur-3xl" style="background:radial-gradient(circle,#b026ff,transparent 70%)"></div>
-            <div class="relative grid items-center gap-8 lg:grid-cols-[1.3fr_1fr]">
+            <div class="pointer-events-none absolute -left-12 top-24 h-56 w-56 rounded-full opacity-30 blur-3xl" style="background:radial-gradient(circle,#ff2d55,transparent 70%)"></div>
+
+            {{-- live social-proof stats (real totals · animated count-up + gentle live growth) --}}
+            <div class="relative grid gap-3 sm:grid-cols-3">
+                @foreach ($statCards as $s)
+                    <div x-data="nxCounter({{ $s['value'] }}, { drift: {{ $s['drift'] }}, every: {{ $s['every'] }} })"
+                         class="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 text-center backdrop-blur transition hover:border-white/20 hover:bg-white/[0.05]">
+                        <div class="nx-gradient mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl text-white" style="box-shadow:0 8px 22px rgba(176,38,255,0.35)">{!! $s['icon'] !!}</div>
+                        <div class="flex items-baseline justify-center gap-0.5">
+                            <span class="text-3xl font-extrabold tabular-nums tracking-tight sm:text-4xl" x-text="formatted">{{ number_format($s['value']) }}</span>
+                            @if ($s['suffix'] && $s['value'] > 0)<span class="nx-gradient-text text-2xl font-extrabold sm:text-3xl">{{ $s['suffix'] }}</span>@endif
+                        </div>
+                        <div class="mt-1.5 text-[13px] font-medium text-cream/60">{{ $s['label'] }}</div>
+                    </div>
+                @endforeach
+            </div>
+
+            <div class="relative my-9 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent"></div>
+
+            {{-- download app --}}
+            <div class="relative grid items-center gap-10 lg:grid-cols-[1.3fr_1fr]">
                 <div>
-                    <span class="nx-gradient inline-block rounded-full px-3 py-1 text-[11px] font-bold tracking-widest">แอป NETWIX</span>
+                    <span class="nx-gradient inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-bold tracking-widest">
+                        @if ($app)
+                            <span class="relative flex h-1.5 w-1.5"><span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/80"></span><span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-white"></span></span>
+                            พร้อมโหลดแล้ววันนี้
+                        @else
+                            แอป NETWIX
+                        @endif
+                    </span>
                     <h2 class="mt-4 text-2xl font-extrabold sm:text-3xl">พก NetWix ไปได้ทุกที่</h2>
                     <p class="mt-3 max-w-md text-[15px] leading-relaxed text-cream/70">
-                        ดาวน์โหลดตอนไว้ดูออฟไลน์ ปัดชมซีรีส์แนวตั้งลื่นไหล และดูต่อจากที่ค้างไว้ทุกอุปกรณ์ —
-                        แอป NetWix สำหรับ Android และ iOS กำลังจะมาเร็ว ๆ นี้
+                        ดาวน์โหลดตอนไว้ดูออฟไลน์ ปัดชมซีรีส์แนวตั้งลื่นไหล และดูต่อจากที่ค้างไว้ —
+                        บนมือถือ <span class="font-semibold text-cream/90">แท็บเล็ต</span> และเว็บ
+                        @if ($app)
+                            แอป Android <span class="font-semibold text-cream/90">พร้อมให้โหลดแล้ววันนี้</span> (iOS เร็ว ๆ นี้)
+                        @else
+                            แอป NetWix กำลังจะมาเร็ว ๆ นี้
+                        @endif
                     </p>
+
                     <div class="mt-6 flex flex-wrap items-center gap-3">
-                        <a href="{{ route('download') }}" class="flex items-center gap-2.5 rounded-xl border border-white/15 bg-black/40 px-4 py-2.5 transition hover:border-white/35">
-                            <svg viewBox="0 0 24 24" fill="currentColor" class="h-6 w-6"><path d="M3.6 2.3 13 12l-9.4 9.7c-.4-.3-.6-.8-.6-1.4V3.7c0-.6.2-1.1.6-1.4zm11 10.8 2.6 2.6-9 5.2 6.4-7.8zm3.9-2.2 2.3 1.3c.9.5.9 1.9 0 2.4l-2.3 1.3-2.9-2.5 2.9-2.5zM5.6 2 15 7.4l-2.6 2.7L5.6 2z"/></svg>
-                            <span><span class="block text-[10px] text-cream/50">ดาวน์โหลดบน</span><span class="block text-sm font-bold">Google Play</span></span>
-                        </a>
-                        <a href="{{ route('download') }}" class="flex items-center gap-2.5 rounded-xl border border-white/15 bg-black/40 px-4 py-2.5 transition hover:border-white/35">
-                            <svg viewBox="0 0 24 24" fill="currentColor" class="h-6 w-6"><path d="M16.4 12.7c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.9-3-.8c-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7 2-1.1 2.8-2.2c.9-1.3 1.2-2.5 1.3-2.6-.1 0-2.4-1-2.4-3.6zM14.2 5.9c.6-.8 1.1-1.9 1-3-1 0-2.1.6-2.8 1.4-.6.7-1.1 1.8-1 2.9 1.1.1 2.2-.5 2.8-1.3z"/></svg>
-                            <span><span class="block text-[10px] text-cream/50">ดาวน์โหลดบน</span><span class="block text-sm font-bold">App Store</span></span>
-                        </a>
+                        @if ($app)
+                            {{-- APK is live → direct, prominent download (page carries the install guide) --}}
+                            <a href="{{ route('download') }}" class="inline-flex items-center gap-3 rounded-xl bg-cream px-5 py-3 font-bold text-ink shadow-lg transition hover:brightness-90">
+                                <svg viewBox="0 0 24 24" fill="currentColor" class="h-6 w-6"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zM5 18h14v2H5z"/></svg>
+                                <span>ดาวน์โหลดแอป Android<span class="block text-[11px] font-normal opacity-60">เวอร์ชัน {{ $app['version'] }} · ไฟล์ APK</span></span>
+                            </a>
+                            <span class="flex items-center gap-2.5 rounded-xl border border-white/15 bg-black/40 px-4 py-2.5">
+                                <svg viewBox="0 0 24 24" fill="currentColor" class="h-6 w-6"><path d="M16.4 12.7c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.9-3-.8c-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7 2-1.1 2.8-2.2c.9-1.3 1.2-2.5 1.3-2.6-.1 0-2.4-1-2.4-3.6zM14.2 5.9c.6-.8 1.1-1.9 1-3-1 0-2.1.6-2.8 1.4-.6.7-1.1 1.8-1 2.9 1.1.1 2.2-.5 2.8-1.3z"/></svg>
+                                <span><span class="block text-[10px] text-cream/50">เร็ว ๆ นี้บน</span><span class="block text-sm font-bold">App Store</span></span>
+                            </span>
+                        @else
+                            <a href="{{ route('download') }}" class="flex items-center gap-2.5 rounded-xl border border-white/15 bg-black/40 px-4 py-2.5 transition hover:border-white/35">
+                                <svg viewBox="0 0 24 24" fill="currentColor" class="h-6 w-6"><path d="M3.6 2.3 13 12l-9.4 9.7c-.4-.3-.6-.8-.6-1.4V3.7c0-.6.2-1.1.6-1.4zm11 10.8 2.6 2.6-9 5.2 6.4-7.8zm3.9-2.2 2.3 1.3c.9.5.9 1.9 0 2.4l-2.3 1.3-2.9-2.5 2.9-2.5zM5.6 2 15 7.4l-2.6 2.7L5.6 2z"/></svg>
+                                <span><span class="block text-[10px] text-cream/50">เร็ว ๆ นี้บน</span><span class="block text-sm font-bold">Google Play</span></span>
+                            </a>
+                            <span class="flex items-center gap-2.5 rounded-xl border border-white/15 bg-black/40 px-4 py-2.5">
+                                <svg viewBox="0 0 24 24" fill="currentColor" class="h-6 w-6"><path d="M16.4 12.7c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.9-3-.8c-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7 2-1.1 2.8-2.2c.9-1.3 1.2-2.5 1.3-2.6-.1 0-2.4-1-2.4-3.6zM14.2 5.9c.6-.8 1.1-1.9 1-3-1 0-2.1.6-2.8 1.4-.6.7-1.1 1.8-1 2.9 1.1.1 2.2-.5 2.8-1.3z"/></svg>
+                                <span><span class="block text-[10px] text-cream/50">เร็ว ๆ นี้บน</span><span class="block text-sm font-bold">App Store</span></span>
+                            </span>
+                        @endif
                     </div>
                     <a href="{{ route('download') }}" class="mt-4 inline-block text-sm text-cream/60 underline-offset-4 hover:text-cream hover:underline">ดูรายละเอียดแอป ›</a>
                 </div>
 
-                {{-- phone mockup (placeholder screen — swap with real app captures) --}}
+                {{-- device mockups: tablet + phone (works on both) --}}
                 <div class="flex justify-center lg:justify-end">
-                    <div class="relative h-[340px] w-[168px] rounded-[2rem] border-[6px] border-black/70 bg-ink shadow-2xl ring-1 ring-white/10">
-                        <div class="absolute left-1/2 top-2 h-1.5 w-16 -translate-x-1/2 rounded-full bg-black/70"></div>
-                        <div class="flex h-full w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-[1.6rem]"
-                             style="background:radial-gradient(ellipse at 50% 0%, rgba(176,38,255,0.35), transparent 60%), linear-gradient(160deg,#160c28,#0a0713)">
-                            <img src="{{ asset('assets/netwix-icon.png') }}" alt="NetWix" class="h-16 w-16 rounded-2xl shadow-lg">
-                            <span class="text-sm font-bold tracking-wide">NetWix</span>
-                            <span class="rounded-full border border-white/15 px-3 py-1 text-[11px] text-cream/60">เร็ว ๆ นี้</span>
+                    <div class="relative h-[300px] w-[300px] sm:h-[340px] sm:w-[340px]">
+                        {{-- tablet --}}
+                        <div class="absolute left-0 top-3 h-[268px] w-[210px] rotate-[-5deg] rounded-[1.5rem] border-[7px] border-black/70 bg-ink shadow-2xl ring-1 ring-white/10 sm:h-[300px] sm:w-[234px]">
+                            <div class="flex h-full w-full flex-col items-center justify-center gap-2.5 overflow-hidden rounded-[1rem]"
+                                 style="background:radial-gradient(ellipse at 50% 0%, rgba(255,45,85,0.30), transparent 60%), linear-gradient(160deg,#160c28,#0a0713)">
+                                <img src="{{ asset('assets/netwix-icon.png') }}" alt="" class="h-14 w-14 rounded-2xl shadow-lg">
+                                <span class="text-[11px] font-bold tracking-widest text-cream/70">แท็บเล็ต</span>
+                            </div>
+                        </div>
+                        {{-- phone (overlapping, front) --}}
+                        <div class="absolute bottom-0 right-0 h-[224px] w-[112px] rotate-[7deg] rounded-[1.5rem] border-[5px] border-black/80 bg-ink shadow-2xl ring-1 ring-white/10 sm:h-[248px] sm:w-[124px]">
+                            <div class="absolute left-1/2 top-1.5 z-10 h-1 w-10 -translate-x-1/2 rounded-full bg-black/70"></div>
+                            <div class="flex h-full w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-[1.05rem]"
+                                 style="background:radial-gradient(ellipse at 50% 0%, rgba(176,38,255,0.40), transparent 60%), linear-gradient(160deg,#160c28,#0a0713)">
+                                <img src="{{ asset('assets/netwix-icon.png') }}" alt="NetWix" class="h-11 w-11 rounded-xl shadow-lg">
+                                <span class="text-[11px] font-bold tracking-wide">NetWix</span>
+                                <span class="rounded-full border px-2.5 py-0.5 text-[10px] {{ $app ? 'border-emerald-400/40 text-emerald-300' : 'border-white/15 text-cream/60' }}">{{ $app ? 'โหลดได้แล้ว' : 'เร็ว ๆ นี้' }}</span>
+                            </div>
                         </div>
                     </div>
                 </div>

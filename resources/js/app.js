@@ -154,6 +154,66 @@ window.nxRail = () => ({
     },
 });
 
+/**
+ * Landing-page social-proof counter: animates 0 → real value the first time it
+ * scrolls into view, then keeps drifting gently upward so the platform always
+ * feels alive and growing (the "numbers keep ticking up" psychology). The base
+ * value is the real server total; `drift`/`every` control the live growth.
+ *
+ *   x-data="nxCounter(48210, { drift: 5, every: 1400 })"  x-init="init()"
+ *     <span x-text="formatted">48,210</span>
+ *   drift — max random amount added each live tick (0 = count-up only, no growth)
+ *   every — ms between live ticks (jittered ±100% so it never looks robotic)
+ */
+window.nxCounter = (value, opts = {}) => ({
+    target: Math.max(0, Math.round(value) || 0),
+    display: Math.max(0, Math.round(value) || 0),
+    drift: opts.drift ?? 0,
+    every: opts.every ?? 1000,
+    started: false,
+    init() {
+        // Respect users who asked for less motion: show the real number, skip animation.
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            this.display = this.target;
+            if (this.drift > 0) this.live();
+            return;
+        }
+        const io = new IntersectionObserver((entries) => {
+            entries.forEach((e) => {
+                if (e.isIntersecting && !this.started) {
+                    this.started = true;
+                    this.countUp();
+                    io.disconnect();
+                }
+            });
+        }, { threshold: 0.35 });
+        io.observe(this.$el);
+    },
+    countUp() {
+        const to = this.target, dur = 1600, t0 = performance.now();
+        const ease = (t) => 1 - Math.pow(1 - t, 3); // easeOutCubic
+        const step = (now) => {
+            const p = Math.min(1, (now - t0) / dur);
+            this.display = Math.round(to * ease(p));
+            if (p < 1) requestAnimationFrame(step);
+            else this.live();
+        };
+        requestAnimationFrame(step);
+    },
+    live() {
+        if (this.drift <= 0) return;
+        const tick = () => {
+            this.target += Math.floor(Math.random() * this.drift) + 1;
+            this.display = this.target;
+            setTimeout(tick, this.every + Math.random() * this.every);
+        };
+        setTimeout(tick, this.every + Math.random() * this.every);
+    },
+    get formatted() {
+        return this.display.toLocaleString('en-US');
+    },
+});
+
 window.Alpine = Alpine;
 Alpine.start();
 
