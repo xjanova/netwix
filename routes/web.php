@@ -87,6 +87,7 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::get('/movies', [BrowseController::class, 'movies'])->name('browse.movies');
     Route::get('/anime', [BrowseController::class, 'anime'])->name('browse.anime');
     Route::get('/vertical', [BrowseController::class, 'vertical'])->name('browse.vertical');
+    Route::get('/genre/{genre}', [BrowseController::class, 'genre'])->name('browse.genre');
     Route::get('/my-list', [BrowseController::class, 'myList'])->name('browse.mylist');
 
     Route::get('/search', [SearchController::class, 'index'])->name('search');
@@ -134,7 +135,9 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
 
     Route::get('storage', [Admin\StorageController::class, 'index'])->name('storage.index');
 
+    Route::post('contents/reset-all-thumbs', [Admin\ContentController::class, 'resetAllThumbs'])->name('contents.reset-all-thumbs');
     Route::resource('contents', Admin\ContentController::class)->except('show');
+    Route::post('contents/{content}/reset-thumbs', [Admin\ContentController::class, 'resetThumbs'])->name('contents.reset-thumbs');
     Route::post('contents/{content}/episodes', [Admin\EpisodeController::class, 'store'])->name('contents.episodes.store');
     Route::delete('contents/{content}/episodes/{episode}', [Admin\EpisodeController::class, 'destroy'])->name('contents.episodes.destroy');
 

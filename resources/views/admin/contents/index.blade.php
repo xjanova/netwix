@@ -1,6 +1,13 @@
 @extends('layouts.admin')
 @section('page-title', 'จัดการคอนเทนต์')
 @section('page-subtitle', 'ภาพยนตร์ ซีรีส์ และซีรีส์แนวตั้งทั้งหมด')
+@section('action')
+    <form method="POST" action="{{ route('admin.contents.reset-all-thumbs') }}"
+          onsubmit="return confirm('รีเซ็ตปกตอนของทุกเรื่องทั้งหมด? ระบบจะจับภาพใหม่เมื่อมีคนดูแต่ละตอน')">
+        @csrf
+        <button class="rounded-lg bg-white/5 px-4 py-2.5 text-sm hover:bg-white/10" title="ล้างปกตอนที่จับไว้ทั้งระบบ ให้จับใหม่">↺ รีเซ็ตปกตอนทั้งหมด</button>
+    </form>
+@endsection
 
 @section('content')
 @php

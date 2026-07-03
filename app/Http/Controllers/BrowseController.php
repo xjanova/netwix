@@ -71,7 +71,7 @@ class BrowseController extends Controller
                 ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
                 ->with(['genres', 'previewEpisode'])->inRandomOrder()->take(14)->get();
             if ($items->count() >= 3) {
-                $rows[] = ['title' => $genre->name, 'items' => $items];
+                $rows[] = ['title' => $genre->name, 'items' => $items, 'link' => route('browse.genre', $genre)];
             }
         }
 
@@ -120,7 +120,7 @@ class BrowseController extends Controller
                 ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
                 ->with(['genres', 'previewEpisode'])->inRandomOrder()->take(14)->get();
             if ($items->count() >= 3) {
-                $rows[] = ['title' => $genre->name, 'items' => $items];
+                $rows[] = ['title' => $genre->name, 'items' => $items, 'link' => route('browse.genre', $genre)];
             }
         }
 
@@ -212,7 +212,7 @@ class BrowseController extends Controller
                 ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
                 ->with(['genres', 'previewEpisode'])->inRandomOrder()->take(14)->get();
             if ($items->isNotEmpty()) {
-                $rows[] = ['title' => $genre->name, 'items' => $items];
+                $rows[] = ['title' => $genre->name, 'items' => $items, 'link' => route('browse.genre', $genre)];
             }
         }
 
@@ -221,6 +221,23 @@ class BrowseController extends Controller
             'heroResolveUrl' => $this->heroResolveUrl($hero),
             'rows' => $rows,
             'heading' => $heading,
+            'myListIds' => $this->myListIds($profile),
+        ]);
+    }
+
+    /** "ดูทั้งหมด" — every published title in one genre (grid), reached from a genre row heading. */
+    public function genre(Request $request, Genre $genre): View
+    {
+        $profile = $this->profile($request);
+
+        $items = Content::published()
+            ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
+            ->with(['genres', 'previewEpisode'])
+            ->orderByDesc('views')->orderByDesc('id')->get();
+
+        return view('frontend.genre', [
+            'heading' => $genre->name,
+            'items' => $items,
             'myListIds' => $this->myListIds($profile),
         ]);
     }

@@ -1,5 +1,12 @@
 <div class="nx-card p-5">
-    <h3 class="mb-4 text-base font-semibold">ตอน ({{ $content->episodes->count() }})</h3>
+    <div class="mb-4 flex items-center justify-between gap-3">
+        <h3 class="text-base font-semibold">ตอน ({{ $content->episodes->count() }})</h3>
+        <form method="POST" action="{{ route('admin.contents.reset-thumbs', $content) }}"
+              onsubmit="return confirm('รีเซ็ตปกของทุกตอนในเรื่องนี้? ระบบจะจับภาพใหม่จากวิดีโอเมื่อมีคนดูตอนนั้น')">
+            @csrf
+            <button class="rounded-lg bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10" title="ลบปกตอนที่จับไว้ แล้วให้จับใหม่เมื่อมีคนดู">↺ รีเซ็ตปกตอน</button>
+        </form>
+    </div>
 
     @if ($content->episodes->isNotEmpty())
         <div class="mb-5 flex flex-col gap-1.5">

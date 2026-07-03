@@ -1,10 +1,13 @@
-@props(['title', 'items', 'ranked' => false, 'myListIds' => []])
+@props(['title', 'items', 'ranked' => false, 'myListIds' => [], 'link' => null])
 
 @if ($items->isNotEmpty())
     <section class="mt-8" x-data="{ scroll(dir) { $refs.rail.scrollBy({ left: dir * $refs.rail.clientWidth * 0.85, behavior: 'smooth' }); } }">
         <h2 class="mb-2 flex items-center gap-2.5 px-[4vw] text-lg font-semibold sm:text-xl">
             <span class="nx-gradient h-5 w-1 shrink-0 rounded-full sm:h-6" aria-hidden="true"></span>
             <span>{{ $title }}</span>
+            @if ($link)
+                <a href="{{ $link }}" class="ml-auto whitespace-nowrap text-sm font-normal text-cream/50 transition hover:text-brand">ดูทั้งหมด ›</a>
+            @endif
         </h2>
         <div class="group/row relative">
             <button type="button" @click="scroll(-1)"

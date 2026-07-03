@@ -4,10 +4,12 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Content;
+use App\Models\Episode;
 use App\Models\Genre;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
@@ -118,6 +120,36 @@ class ContentController extends Controller
         $content->delete();
 
         return redirect()->route('admin.contents.index')->with('status', 'ลบคอนเทนต์แล้ว');
+    }
+
+    /** Clear captured episode covers for one title — they re-grab a fresh frame on the next watch. */
+    public function resetThumbs(Content $content): RedirectResponse
+    {
+        $n = $this->clearThumbs($content->episodes()->whereNotNull('thumbnail_path')->get());
+
+        return back()->with('status', "รีเซ็ตปกตอนของ \"{$content->title}\" แล้ว ({$n} ตอน) — จะจับภาพใหม่เมื่อมีคนดู");
+    }
+
+    /** Same, for the whole catalogue at once. */
+    public function resetAllThumbs(): RedirectResponse
+    {
+        $n = $this->clearThumbs(Episode::whereNotNull('thumbnail_path')->get());
+
+        return back()->with('status', "รีเซ็ตปกตอนทั้งหมดแล้ว ({$n} ตอน) — จะจับภาพใหม่เมื่อมีคนดู");
+    }
+
+    /** @param  \Illuminate\Support\Collection<int,Episode>  $episodes */
+    private function clearThumbs($episodes): int
+    {
+        foreach ($episodes as $ep) {
+            // only delete frames we captured ourselves — never an externally-set http thumbnail
+            if ($ep->thumbnail_path && str_starts_with($ep->thumbnail_path, 'media/thumbs/')) {
+                Storage::disk('public')->delete($ep->thumbnail_path);
+            }
+            $ep->update(['thumbnail_path' => null]);
+        }
+
+        return $episodes->count();
     }
 
     // ---- helpers -------------------------------------------------------

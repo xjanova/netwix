@@ -162,7 +162,7 @@
     @endisset
 
     @forelse ($rows as $row)
-        <x-content-row :title="$row['title']" :items="$row['items']" :ranked="$row['ranked'] ?? false" :my-list-ids="$myListIds" />
+        <x-content-row :title="$row['title']" :items="$row['items']" :ranked="$row['ranked'] ?? false" :link="$row['link'] ?? null" :my-list-ids="$myListIds" />
     @empty
         <div class="px-[4vw] py-20 text-center text-cream/50">ยังไม่มีคอนเทนต์ในหมวดนี้</div>
     @endforelse
