@@ -11,7 +11,7 @@ use Illuminate\Console\Command;
 class ImportContentCommand extends Command
 {
     protected $signature = 'netwix:import
-        {source : rongyok|wowdrama}
+        {source : rongyok|wowdrama|anime108}
         {--limit=30 : how many titles to import}
         {--type= : content type override (series|movie|vertical)}
         {--genre= : genre slug to assign (default: round-robin across all genres)}

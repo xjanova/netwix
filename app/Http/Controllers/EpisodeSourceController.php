@@ -35,8 +35,8 @@ class EpisodeSourceController extends Controller
             return response()->json(['ready' => false, 'error' => 'no_source'], 404);
         }
 
-        // wow-drama plays through the server-side HLS proxy.
-        if ($episode->source === 'wowdrama') {
+        // wow-drama & anime108 play through the server-side HLS proxy.
+        if (in_array($episode->source, ['wowdrama', 'anime108'], true)) {
             return response()->json([
                 'ready' => true,
                 'kind' => 'hls',

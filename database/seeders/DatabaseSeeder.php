@@ -24,7 +24,7 @@ class DatabaseSeeder extends Seeder
 
     private function seedGenres(): void
     {
-        $defs = ['ดราม่า', 'แอ็กชัน', 'แฟนตาซี & ไซไฟ', 'โรแมนติก', 'สยองขวัญ', 'ตลก', 'อาชญากรรม', 'ผจญภัย'];
+        $defs = ['ดราม่า', 'แอ็กชัน', 'แฟนตาซี & ไซไฟ', 'โรแมนติก', 'สยองขวัญ', 'ตลก', 'อาชญากรรม', 'ผจญภัย', 'อนิเมะ', 'การ์ตูน'];
         foreach ($defs as $i => $name) {
             Genre::updateOrCreate(
                 ['slug' => Str::slug($name) ?: 'genre-'.$i],

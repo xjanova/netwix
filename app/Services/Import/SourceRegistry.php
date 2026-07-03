@@ -3,6 +3,7 @@
 namespace App\Services\Import;
 
 use App\Services\Import\Contracts\MediaSource;
+use App\Services\Import\Sources\Anime108Source;
 use App\Services\Import\Sources\RongYokSource;
 use App\Services\Import\Sources\WowDramaSource;
 
@@ -13,7 +14,7 @@ class SourceRegistry
 
     public function __construct()
     {
-        foreach ([new RongYokSource, new WowDramaSource] as $source) {
+        foreach ([new RongYokSource, new WowDramaSource, new Anime108Source] as $source) {
             $this->sources[$source->id()] = $source;
         }
     }
