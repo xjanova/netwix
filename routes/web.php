@@ -73,11 +73,6 @@ Route::get('/mauth/issue', [\App\Http\Controllers\Api\App\AuthController::class,
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [LoginController::class, 'logout'])->name('logout');
 
-    // Member account: Pro status, coins, referral code + share, redeem a code.
-    Route::get('/account', [\App\Http\Controllers\AccountController::class, 'index'])->name('account');
-    Route::post('/account/redeem', [\App\Http\Controllers\AccountController::class, 'redeem'])
-        ->middleware('throttle:10,1')->name('account.redeem');
-
     Route::get('/profiles', [ProfileSelectionController::class, 'index'])->name('profiles.index');
     Route::post('/profiles', [ProfileSelectionController::class, 'store'])->name('profiles.store');
     Route::post('/profiles/{profile}/select', [ProfileSelectionController::class, 'select'])->name('profiles.select');
@@ -104,6 +99,11 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::post('/api/content/{content}/progress', [InteractionController::class, 'progress'])->name('content.progress');
 
     Route::get('/api/episode/{episode}/source', [EpisodeSourceController::class, 'resolve'])->name('episode.source');
+
+    // Member account: Pro status, coins, referral code + share, redeem a code.
+    Route::get('/account', [\App\Http\Controllers\AccountController::class, 'index'])->name('account');
+    Route::post('/account/redeem', [\App\Http\Controllers\AccountController::class, 'redeem'])
+        ->middleware('throttle:10,1')->name('account.redeem');
 });
 
 // ---- Public streaming proxy (guests can watch) -------------------------
