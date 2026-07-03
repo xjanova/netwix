@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Content;
 use App\Models\Genre;
 use App\Models\Profile;
+use App\Services\Recommender;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
@@ -65,6 +67,30 @@ class BrowseController extends Controller
             'hero' => $hero,
             'rows' => $rows,
             'myListIds' => $this->myListIds($profile),
+            'feedSeed' => random_int(1, 999999),
+            'feedGenres' => Genre::orderBy('sort')->get(['id', 'name']),
+        ]);
+    }
+
+    /** Personalised infinite-scroll feed page (JSON of rendered cards). */
+    public function feed(Request $request, Recommender $recommender): JsonResponse
+    {
+        $profile = $this->profile($request);
+        $seed = (int) $request->query('seed', 1);
+        $page = max(1, (int) $request->query('page', 1));
+        $genre = ($g = $request->query('genre')) ? (int) $g : null;
+        $perPage = 18;
+
+        $items = $recommender->feedQuery($profile, $seed, $genre)
+            ->forPage($page, $perPage)->get();
+
+        return response()->json([
+            'html' => view('frontend.partials.feed-cards', [
+                'items' => $items,
+                'myListIds' => $this->myListIds($profile),
+            ])->render(),
+            'done' => $items->count() < $perPage,
+            'next' => $page + 1,
         ]);
     }
 
