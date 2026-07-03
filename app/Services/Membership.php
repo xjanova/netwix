@@ -2,6 +2,9 @@
 
 namespace App\Services;
 
+use App\Models\CoinTransaction;
+use App\Models\Episode;
+use App\Models\EpisodeUnlock;
 use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Support\Str;
@@ -78,11 +81,108 @@ class Membership
         $u->forceFill(['pro_until' => $base->copy()->addDays($days)])->save();
     }
 
-    public function addCoins(User $u, int $n): void
+    public function addCoins(User $u, int $n, string $kind = 'admin'): void
     {
-        if ($n > 0) {
-            $u->increment('coins', $n);
+        if ($n <= 0) {
+            return;
         }
+        $u->increment('coins', $n);
+        CoinTransaction::create(['user_id' => $u->id, 'kind' => $kind, 'amount' => $n]);
+    }
+
+    public function spendCoins(User $u, int $n, string $kind = 'unlock'): bool
+    {
+        if ($n <= 0) {
+            return true;
+        }
+        if ((int) $u->coins < $n) {
+            return false;
+        }
+        $u->decrement('coins', $n);
+        CoinTransaction::create(['user_id' => $u->id, 'kind' => $kind, 'amount' => -$n]);
+
+        return true;
+    }
+
+    // ---- Earn (daily check-in / watch-reward) --------------------------
+
+    /**
+     * @return array{ok:bool,error?:string,earned?:int,remaining?:?int}
+     */
+    public function earn(User $u, string $kind): array
+    {
+        $earn = $this->config()['earn'];
+
+        if ($kind === 'daily') {
+            if ($this->earnedToday($u, 'daily') > 0) {
+                return ['ok' => false, 'error' => 'วันนี้เช็คอินไปแล้ว'];
+            }
+            $amt = (int) ($earn['daily_checkin_coins'] ?? 0);
+            $this->addCoins($u, $amt, 'daily');
+
+            return ['ok' => true, 'earned' => $amt];
+        }
+
+        if ($kind === 'watch') {
+            $cap = (int) ($earn['watch_reward_daily_cap'] ?? 0);
+            $done = $this->earnedToday($u, 'watch');
+            if ($cap > 0 && $done >= $cap) {
+                return ['ok' => false, 'error' => 'รับรางวัลครบตามจำนวนของวันนี้แล้ว'];
+            }
+            $amt = (int) ($earn['watch_reward_coins'] ?? 0);
+            $this->addCoins($u, $amt, 'watch');
+
+            return ['ok' => true, 'earned' => $amt, 'remaining' => $cap > 0 ? max(0, $cap - $done - 1) : null];
+        }
+
+        return ['ok' => false, 'error' => 'ไม่รู้จักกิจกรรมนี้'];
+    }
+
+    private function earnedToday(User $u, string $kind): int
+    {
+        return CoinTransaction::where('user_id', $u->id)->where('kind', $kind)
+            ->whereDate('created_at', today())->count();
+    }
+
+    // ---- Episode gating (free / coin-unlock / Pro) ---------------------
+
+    /** free | pro | unlocked | locked */
+    public function episodeAccess(User $u, Episode $ep): string
+    {
+        $cfg = $this->config();
+
+        if ($this->isPro($u) && ($cfg['pro']['unlocks_all'] ?? true)) {
+            return 'pro';
+        }
+        if ((int) $ep->number <= (int) $cfg['free_episodes']) {
+            return 'free';
+        }
+        if (EpisodeUnlock::where('user_id', $u->id)->where('episode_id', $ep->id)->exists()) {
+            return 'unlocked';
+        }
+
+        return 'locked';
+    }
+
+    /**
+     * Spend coins to unlock a locked episode (no-op if already playable).
+     * @return array{ok:bool,access?:string,error?:string,need?:int,have?:int,spent?:int}
+     */
+    public function unlockEpisode(User $u, Episode $ep): array
+    {
+        $access = $this->episodeAccess($u, $ep);
+        if ($access !== 'locked') {
+            return ['ok' => true, 'access' => $access];
+        }
+
+        $cost = (int) $this->config()['unlock_cost_coins'];
+        if (! $this->spendCoins($u, $cost, 'unlock')) {
+            return ['ok' => false, 'error' => 'เหรียญไม่พอ', 'need' => $cost, 'have' => (int) $u->coins];
+        }
+
+        EpisodeUnlock::firstOrCreate(['user_id' => $u->id, 'episode_id' => $ep->id]);
+
+        return ['ok' => true, 'access' => 'unlocked', 'spent' => $cost];
     }
 
     // ---- Referral ------------------------------------------------------
@@ -132,9 +232,9 @@ class Membership
 
         $u->forceFill(['referred_by' => $referrer->id])->save();
         $this->grantProDays($u, (int) ($cfg['referee_pro_days'] ?? 0));
-        $this->addCoins($u, (int) ($cfg['referee_coins'] ?? 0));
+        $this->addCoins($u, (int) ($cfg['referee_coins'] ?? 0), 'referral');
         $this->grantProDays($referrer, (int) ($cfg['referrer_pro_days'] ?? 0));
-        $this->addCoins($referrer, (int) ($cfg['referrer_coins'] ?? 0));
+        $this->addCoins($referrer, (int) ($cfg['referrer_coins'] ?? 0), 'referral');
 
         return ['ok' => true];
     }
@@ -152,6 +252,7 @@ class Membership
             'referral_code' => $this->ensureCode($u),
             'referred' => $u->referred_by !== null,
             'referrals_count' => User::where('referred_by', $u->id)->count(),
+            'daily_checkin_available' => $this->earnedToday($u, 'daily') === 0,
         ];
     }
 }

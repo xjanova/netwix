@@ -55,5 +55,10 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
         // Membership: this member's Pro/coins/referral state + redeem a code.
         Route::get('membership', [MembershipController::class, 'me']);
         Route::post('referral/redeem', [MembershipController::class, 'redeem']);
+
+        // Coin economy: earn (daily/watch), episode access map, spend-to-unlock.
+        Route::post('coins/earn', [MembershipController::class, 'earn']);
+        Route::get('content/{content:id}/access', [MembershipController::class, 'access']);
+        Route::post('episodes/{episode}/unlock', [MembershipController::class, 'unlock']);
     });
 });

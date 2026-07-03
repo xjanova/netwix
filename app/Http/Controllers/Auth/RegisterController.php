@@ -50,7 +50,7 @@ class RegisterController extends Controller
         // Membership: own referral code + signup bonus, then redeem a friend's code if present.
         $membership = app(Membership::class);
         $membership->ensureCode($user);
-        $membership->addCoins($user, (int) $membership->config()['signup_bonus_coins']);
+        $membership->addCoins($user, (int) $membership->config()['signup_bonus_coins'], 'signup');
         if (filled($data['ref'] ?? null)) {
             $membership->redeem($user, $data['ref']);
         }
