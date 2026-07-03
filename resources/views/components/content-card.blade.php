@@ -8,30 +8,38 @@
         liked: false,
         busy: false,
         hv: false,
-        hovering: false,
-        hoverT: null,
-        // only true-hover, fine-pointer, non-reduced-motion devices arm the clip
-        canHover: window.matchMedia('(hover: hover) and (pointer: fine)').matches
-                  && ! window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-        playClip() {
-            if (! this.canHover) return;
+        playing: false,
+        io: null,
+        playT: null,
+        reduced: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+        // Auto-play the preview whenever the card scrolls on screen — no hover
+        // needed, so it works on phones/touch too. A short settle delay means a
+        // fast scroll never fetches a clip that's only passing through.
+        initPreview() {
             const v = this.$refs.clip;
-            if (! v) return;
-            this.hovering = true;
-            // hover-intent delay: a fast sweep across a rail never fetches anything
-            this.hoverT = setTimeout(() => {
-                if (! this.hovering) return;
-                if (! v.src) v.src = v.dataset.src;                 // lazy: fetch on real hover only
-                v.play().then(() => { if (this.hovering) this.hv = true; })  // crossfade once a frame paints
-                        .catch(() => {});
-            }, 220);
+            if (! v || this.reduced) return;
+            this.io = new IntersectionObserver((e) => {
+                (e[0].isIntersecting && e[0].intersectionRatio >= 0.6) ? this.arm() : this.release();
+            }, { threshold: [0, 0.6] });
+            this.io.observe(this.$root);
         },
-        stopClip() {
-            this.hovering = false;
-            clearTimeout(this.hoverT);
+        arm() {
+            if (this.playing) return;
+            this.playing = true;
+            const v = this.$refs.clip;
+            this.playT = setTimeout(() => {
+                if (! this.playing) return;
+                if (! v.src) v.src = v.dataset.src;                 // lazy: fetch only once shown
+                v.play().then(() => { if (this.playing) this.hv = true; })  // crossfade once a frame paints
+                        .catch(() => {});
+            }, 180);
+        },
+        release() {
+            this.playing = false;
+            clearTimeout(this.playT);
             this.hv = false;
             const v = this.$refs.clip;
-            if (v) { v.pause(); v.removeAttribute('src'); v.load(); } // release the buffer, don't just pause
+            if (v) { v.pause(); v.removeAttribute('src'); v.load(); } // free the buffer off-screen
         },
         async toggleList() {
             if (this.busy) return; this.busy = true;
@@ -44,6 +52,7 @@
             finally { this.busy = false; }
         },
     }"
+    x-init="$nextTick(() => initPreview())"
     class="group relative w-[210px] shrink-0 sm:w-[240px] md:w-[262px]"
 >
     @if ($ranked)
@@ -64,8 +73,7 @@
             $hoverClip = $preview ?: (! $content->backdrop_url ? $logoClip : null);
         @endphp
         <div class="relative aspect-video overflow-hidden rounded-lg ring-1 ring-white/5 transition duration-200 group-hover:ring-2 group-hover:ring-white/25"
-             style="background:{{ $content->backdrop_url ? '#0e0a17' : $content->gradient }}"
-             @if ($hoverClip) @mouseenter="playClip()" @mouseleave="stopClip()" @endif>
+             style="background:{{ $content->backdrop_url ? '#0e0a17' : $content->gradient }}">
             @if ($content->backdrop_url)
                 <img src="{{ $content->backdrop_url }}" alt="{{ $content->title }}" loading="lazy"
                      referrerpolicy="no-referrer" onerror="this.style.display='none'"
@@ -79,9 +87,10 @@
                 </div>
             @endif
 
-            {{-- silent auto-preview on hover: ep1 clip over the cover (or logo).
-                 No controls, muted, loops. Lazy — src is only fetched on a real
-                 hover (see playClip), so nothing downloads while scrolling a rail. --}}
+            {{-- silent auto-preview: the ep1 clip plays over the cover (or logo)
+                 whenever the card is on screen — muted, looping, no controls.
+                 Lazy — src is only fetched once visible (see initPreview/arm), so
+                 nothing downloads for cards that never scroll into view. --}}
             @if ($hoverClip)
                 <video x-ref="clip" aria-hidden="true" data-src="{{ $hoverClip }}"
                        muted loop playsinline preload="none"
