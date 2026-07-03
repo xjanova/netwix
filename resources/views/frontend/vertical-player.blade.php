@@ -62,8 +62,8 @@
                @click="togglePlay()"
                @timeupdate="onTime()"
                @play="playing = true" @pause="playing = false"
-               @waiting="buffering = true" @stalled="buffering = true"
-               @playing="buffering = false; maybeCapture()" @canplay="buffering = false" x-on:error="buffering = false"
+               @waiting="stall()" @stalled="stall()"
+               @playing="resume(); maybeCapture()" @canplay="resume()" @loadeddata="resume()" x-on:error="resume()"
                class="h-full w-full bg-black object-contain"></video>
 
         {{-- prominent tap-to-unmute (only while muted) — the whole reason people say "no sound" --}}
@@ -146,6 +146,7 @@
             preparing: false,
             epMenu: false,
             _poll: null,
+            _stallT: null,
 
             // transport state
             muted: true,
@@ -212,7 +213,7 @@
 
             attach(url) {
                 this.preparing = false;
-                this.buffering = true;
+                this.stall();   // show the loader only if the stream takes >700ms to start
                 const v = this.$refs.video;
                 window.nxAttachVideo(v, url);
                 v.muted = this.muted;
@@ -232,6 +233,18 @@
                 this.cur = v.currentTime || 0;
                 this.dur = v.duration || 0;
                 this.progress = this.dur ? (this.cur / this.dur) * 100 : 0;
+                this.resume();   // frames are advancing → definitely not stalled, hide the loader
+            },
+
+            // Show the "connecting" loader only for a stall that actually lasts (>700ms), and hide it
+            // the instant playback resumes — so it never sticks over a video that's already playing.
+            stall() {
+                clearTimeout(this._stallT);
+                this._stallT = setTimeout(() => { this.buffering = true; }, 700);
+            },
+            resume() {
+                clearTimeout(this._stallT);
+                this.buffering = false;
             },
 
             seek(pct) {
