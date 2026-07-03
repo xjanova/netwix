@@ -15,6 +15,7 @@
     // filters carried across the type tabs + pagination
     $activeFilters = array_filter([
         'q' => $q, 'genre' => $genre, 'maturity' => $maturity, 'min_rating' => $minRating,
+        'sort' => ($sort ?? 'latest') !== 'latest' ? $sort : null,
     ], fn ($v) => $v !== null && $v !== '');
 @endphp
 
@@ -47,6 +48,11 @@
         <option value="">ทุกคะแนน</option>
         @foreach ([9, 8, 7, 6, 5] as $r)
             <option value="{{ $r }}" @selected((string) $minRating === (string) $r)>★ {{ $r }}+ ขึ้นไป</option>
+        @endforeach
+    </select>
+    <select name="sort" onchange="this.form.submit()" class="rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-sm outline-none focus:border-brand">
+        @foreach (['latest' => 'ใหม่ล่าสุด', 'views' => 'ยอดวิวสูงสุด', 'rating' => 'คะแนนสูงสุด', 'likes' => 'ถูกใจมากสุด'] as $k => $lbl)
+            <option value="{{ $k }}" @selected(($sort ?? 'latest') === $k)>เรียง: {{ $lbl }}</option>
         @endforeach
     </select>
     <button type="submit" class="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15">กรอง</button>

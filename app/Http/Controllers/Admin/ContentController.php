@@ -22,6 +22,7 @@ class ContentController extends Controller
         $genre = $request->query('genre');
         $maturity = $request->query('maturity');
         $minRating = $request->query('min_rating');
+        $sort = $request->query('sort', 'latest');
 
         $contents = Content::query()
             ->when($type && $type !== 'all', fn ($w) => $w->where('type', $type))
@@ -32,7 +33,10 @@ class ContentController extends Controller
             ->with('genres')
             ->withCount(['episodes', 'likedBy', 'comments'])
             ->withAvg('ratings', 'stars')
-            ->latest()
+            ->when($sort === 'views', fn ($w) => $w->orderByDesc('views'))
+            ->when($sort === 'rating', fn ($w) => $w->orderByDesc('rating'))
+            ->when($sort === 'likes', fn ($w) => $w->orderByDesc('liked_by_count'))
+            ->when(! in_array($sort, ['views', 'rating', 'likes'], true), fn ($w) => $w->latest())
             ->paginate(12)
             ->withQueryString();
 
@@ -43,6 +47,7 @@ class ContentController extends Controller
             'genre' => $genre,
             'maturity' => $maturity,
             'minRating' => $minRating,
+            'sort' => $sort,
             'genres' => Genre::orderBy('sort')->get(),
             'maturities' => Content::query()->whereNotNull('maturity')->where('maturity', '!=', '')
                 ->distinct()->orderBy('maturity')->pluck('maturity'),

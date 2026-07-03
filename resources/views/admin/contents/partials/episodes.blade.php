@@ -1,11 +1,21 @@
 <div class="nx-card p-5">
-    <div class="mb-4 flex items-center justify-between gap-3">
+    @php $canMirror = in_array($content->source, ['rongyok'], true); @endphp
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h3 class="text-base font-semibold">ตอน ({{ $content->episodes->count() }})</h3>
-        <form method="POST" action="{{ route('admin.contents.reset-thumbs', $content) }}"
-              onsubmit="return confirm('รีเซ็ตปกของทุกตอนในเรื่องนี้? ระบบจะจับภาพใหม่จากวิดีโอเมื่อมีคนดูตอนนั้น')">
-            @csrf
-            <button class="rounded-lg bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10" title="ลบปกตอนที่จับไว้ แล้วให้จับใหม่เมื่อมีคนดู">↺ รีเซ็ตปกตอน</button>
-        </form>
+        <div class="flex flex-wrap items-center gap-2">
+            @if ($canMirror)
+                <form method="POST" action="{{ route('admin.storage.mirror-content', $content) }}"
+                      onsubmit="return confirm('ดาวน์โหลดทุกตอนที่ยังไม่เก็บ มาไว้ที่เซิร์ฟเวอร์? อาจใช้เวลาสักครู่')">
+                    @csrf
+                    <button class="rounded-lg bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10" title="ดาวน์โหลดทุกตอนมาเก็บ เพื่อเล่นจากไฟล์ในเซิร์ฟเวอร์ (ไม่ต้องขอลิงก์สด)">⬇ โหลดทั้งเรื่อง</button>
+                </form>
+            @endif
+            <form method="POST" action="{{ route('admin.contents.reset-thumbs', $content) }}"
+                  onsubmit="return confirm('รีเซ็ตปกของทุกตอนในเรื่องนี้? ระบบจะจับภาพใหม่จากวิดีโอเมื่อมีคนดูตอนนั้น')">
+                @csrf
+                <button class="rounded-lg bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10" title="ลบปกตอนที่จับไว้ แล้วให้จับใหม่เมื่อมีคนดู">↺ รีเซ็ตปกตอน</button>
+            </form>
+        </div>
     </div>
 
     @if ($content->episodes->isNotEmpty())
@@ -26,6 +36,17 @@
                         <span class="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-cream/50" title="ยังไม่ได้ดาวน์โหลดมาเก็บ">○ ต้นทาง</span>
                     @endif
                     <span class="text-xs text-cream/45">{{ $ep->duration_label }}</span>
+                    @if ($ep->is_mirrored)
+                        <form method="POST" action="{{ route('admin.storage.unmirror', $ep) }}" onsubmit="return confirm('ลบไฟล์ตอนนี้ออกจากเซิร์ฟเวอร์? (กลับไปสตรีมสด)')">
+                            @csrf @method('DELETE')
+                            <button class="rounded-md bg-white/5 px-2.5 py-1 text-xs hover:bg-white/10" title="ลบไฟล์ที่เก็บไว้ในเซิร์ฟเวอร์">ลบไฟล์</button>
+                        </form>
+                    @elseif ($ep->source && $canMirror)
+                        <form method="POST" action="{{ route('admin.storage.mirror', $ep) }}">
+                            @csrf
+                            <button class="rounded-md bg-brand/15 px-2.5 py-1 text-xs text-brand hover:bg-brand/25" title="ดาวน์โหลดตอนนี้มาเก็บที่เซิร์ฟเวอร์">⬇ โหลดเก็บ</button>
+                        </form>
+                    @endif
                     <form method="POST" action="{{ route('admin.contents.episodes.destroy', [$content, $ep]) }}" onsubmit="return confirm('ลบตอนนี้?')">
                         @csrf @method('DELETE')
                         <button class="rounded-md bg-[#e5484d]/15 px-2.5 py-1 text-xs text-[#ff6b81] hover:bg-[#e5484d]/25">ลบ</button>
