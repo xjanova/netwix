@@ -29,31 +29,36 @@ class StreamController extends Controller
             abort(404);
         }
 
-        $body = Http::withHeaders($this->headers($stream->referer))->timeout(30)->get($stream->url)->body();
-        $base = $this->baseUrl($stream->url);
+        // Rewriting the upstream playlist means fetching a big (100k+) manifest and signing every one
+        // of its ~700 segment URLs — slow (several seconds) on a cold hit. Cache the finished playlist
+        // briefly so re-plays / seeks start instantly; segment signatures stay valid far longer.
+        $out = Cache::remember("ep_manifest:{$episode->id}", now()->addMinutes(10), function () use ($episode, $stream) {
+            $body = Http::withHeaders($this->headers($stream->referer))->timeout(30)->get($stream->url)->body();
+            $base = $this->baseUrl($stream->url);
 
-        $out = collect(preg_split('/\r?\n/', $body))->map(function (string $line) use ($base, $episode, $stream) {
-            $trim = trim($line);
-            if ($trim === '') {
-                return $line;
-            }
-            // #EXT-X-KEY / media URIs inside tags
-            if (str_starts_with($trim, '#')) {
-                return preg_replace_callback('/URI="([^"]+)"/', function ($m) use ($base, $episode, $stream) {
-                    return 'URI="'.$this->proxyUrl($episode, $this->absolute($m[1], $base), $stream->referer).'"';
-                }, $line);
-            }
-            // a segment or sub-playlist URI
-            $abs = $this->absolute($trim, $base);
+            return collect(preg_split('/\r?\n/', $body))->map(function (string $line) use ($base, $episode, $stream) {
+                $trim = trim($line);
+                if ($trim === '') {
+                    return $line;
+                }
+                // #EXT-X-KEY / media URIs inside tags
+                if (str_starts_with($trim, '#')) {
+                    return preg_replace_callback('/URI="([^"]+)"/', function ($m) use ($base, $episode, $stream) {
+                        return 'URI="'.$this->proxyUrl($episode, $this->absolute($m[1], $base), $stream->referer).'"';
+                    }, $line);
+                }
+                // a segment or sub-playlist URI
+                $abs = $this->absolute($trim, $base);
 
-            return str_ends_with(strtolower(parse_url($abs, PHP_URL_PATH) ?? ''), '.m3u8')
-                ? route('stream.manifest', $episode) // nested playlist → re-proxy through manifest
-                : $this->proxyUrl($episode, $abs, $stream->referer);
-        })->implode("\n");
+                return str_ends_with(strtolower(parse_url($abs, PHP_URL_PATH) ?? ''), '.m3u8')
+                    ? route('stream.manifest', $episode) // nested playlist → re-proxy through manifest
+                    : $this->proxyUrl($episode, $abs, $stream->referer);
+            })->implode("\n");
+        });
 
         return response($out, 200)->withHeaders([
             'Content-Type' => 'application/vnd.apple.mpegurl',
-            'Cache-Control' => 'no-store',
+            'Cache-Control' => 'public, max-age=300',
         ]);
     }
 
