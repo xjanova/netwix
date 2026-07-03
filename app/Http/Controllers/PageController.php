@@ -2,14 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AppRelease;
 use Illuminate\View\View;
 
 class PageController extends Controller
 {
     /** App download / install landing page. */
-    public function download(): View
+    public function download(AppRelease $release): View
     {
-        return view('frontend.download');
+        return view('frontend.download', ['release' => $release->latest()]);
     }
 
     /** Help centre — routes the user to the NetWix LINE Official Account. */

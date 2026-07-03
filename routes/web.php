@@ -25,6 +25,8 @@ Route::get('/sitemap.xml', \App\Http\Controllers\SitemapController::class)->name
 
 // ---- Public info pages (guests + members) ------------------------------
 Route::get('/download', [PageController::class, 'download'])->name('download');
+Route::get('/download/apk', [\App\Http\Controllers\AppDownloadController::class, 'apk'])
+    ->middleware('throttle:30,1')->name('download.apk');
 Route::get('/help', [PageController::class, 'help'])->name('help');
 Route::get('/privacy', [PageController::class, 'privacy'])->name('privacy');
 Route::get('/terms', [PageController::class, 'terms'])->name('terms');

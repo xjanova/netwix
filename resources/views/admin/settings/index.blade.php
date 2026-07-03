@@ -124,6 +124,61 @@
         <p class="mt-3 text-[12px] text-cream/40">ลิงก์ LINE OA เอาจากแอป LINE Official Account Manager → โปรไฟล์ → “เพิ่มเพื่อน” (Basic ID เช่น @netwix) หรือลิงก์ lin.ee</p>
     </div>
 
+    {{-- ============ APP (APK) FROM GITHUB ============ --}}
+    <div class="nx-card p-6">
+        <div class="mb-4 flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+                <span class="flex h-6 w-6 items-center justify-center rounded-md bg-white/10"><svg class="h-4 w-4 text-cream" viewBox="0 0 24 24" fill="currentColor"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zM5 18h14v2H5z"/></svg></span>
+                <h3 class="text-base font-bold">แอปมือถือ (APK) — อัปเดตจาก GitHub</h3>
+            </div>
+            @if ($appRelease)
+                <span class="rounded-full bg-success/15 px-2.5 py-1 text-[11px] font-semibold text-success">● พบเวอร์ชัน {{ $appRelease['version'] }}</span>
+            @elseif (filled($app_github_repo))
+                <span class="rounded-full bg-gold/15 px-2.5 py-1 text-[11px] font-semibold text-gold">! ยังไม่พบ release ที่มีไฟล์ .apk</span>
+            @else
+                <span class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-cream/50">○ ยังไม่ตั้งค่า</span>
+            @endif
+        </div>
+
+        <div class="flex flex-col gap-3">
+            <label class="text-[13px] text-cream/60">GitHub repo ของแอป (owner/repo)
+                <input name="app_github_repo" value="{{ old('app_github_repo', $app_github_repo) }}" placeholder="เช่น xjanova/hivedownload" class="nx-input mt-1">
+            </label>
+            <div x-data="{ show: false }">
+                <label class="text-[13px] text-cream/60">GitHub Token <span class="text-cream/35">(ไม่บังคับ — ใส่ถ้า repo เป็น private หรือชน rate limit)</span></label>
+                <div class="mt-1 flex gap-2">
+                    <input :type="show ? 'text' : 'password'" name="app_github_token" autocomplete="new-password"
+                           placeholder="{{ $hasAppToken ? '•••••• บันทึกไว้แล้ว — เว้นว่างเพื่อคงค่าเดิม' : 'ghp_… (ไม่บังคับ)' }}" class="nx-input flex-1">
+                    <button type="button" @click="show = !show" class="rounded-md bg-white/5 px-3 text-xs hover:bg-white/10" x-text="show ? 'ซ่อน' : 'แสดง'"></button>
+                </div>
+                @if ($hasAppToken)
+                    <label class="mt-2 flex items-center gap-2 text-[12px] text-cream/45">
+                        <input type="checkbox" name="app_github_token_clear" value="1" class="h-3.5 w-3.5 accent-brand"> ล้าง Token ที่บันทึกไว้
+                    </label>
+                @endif
+            </div>
+        </div>
+
+        @if ($appRelease)
+            <div class="mt-4 flex items-start gap-3 rounded-lg border border-success/20 bg-success/[0.06] p-3.5 text-[12.5px]">
+                <span class="text-success">✓</span>
+                <div class="text-cream/70">พร้อมให้ลูกค้าดาวน์โหลด: <strong class="text-cream">{{ $appRelease['apk_name'] }}</strong> · {{ number_format($appRelease['size'] / 1048576, 1) }} MB · เวอร์ชัน {{ $appRelease['version'] }}
+                    <a href="{{ route('download') }}" target="_blank" rel="noopener" class="ml-1 text-brand-2 underline">เปิดหน้าดาวน์โหลด ›</a>
+                </div>
+            </div>
+        @endif
+
+        <div class="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3.5 text-[12.5px] leading-relaxed text-cream/55">
+            <div class="mb-1.5 font-semibold text-cream/70">วิธีอัปเดตเวอร์ชัน:</div>
+            <ol class="ml-4 list-decimal space-y-1">
+                <li>ไปที่ repo ของแอปบน GitHub → <strong>Releases → Draft a new release</strong></li>
+                <li>แนบไฟล์ <strong>.apk</strong> ของเวอร์ชันใหม่ ใส่ tag (เช่น v1.2.0) และ release notes</li>
+                <li>กด <strong>Publish release</strong> — เว็บจะดึงเวอร์ชันล่าสุดมาให้ลูกค้าโหลดผ่าน netwix.online อัตโนมัติ (แคช ~30 นาที)</li>
+            </ol>
+            <p class="mt-2 text-cream/40">ลูกค้าดาวน์โหลดผ่านโดเมนเราเท่านั้น ไม่ต้องเข้า GitHub เอง</p>
+        </div>
+    </div>
+
     <div class="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.02] px-5 py-4">
         <p class="text-[12.5px] text-cream/45">ค่าลับถูกเข้ารหัสก่อนบันทึก และไม่ถูกแสดงซ้ำในหน้านี้</p>
         <button class="btn-brand px-8 py-2.5">บันทึกการตั้งค่า</button>

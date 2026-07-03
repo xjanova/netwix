@@ -21,8 +21,22 @@
                     ดาวน์โหลดตอนไว้ดูออฟไลน์ ดูต่อจากที่ค้างไว้ข้ามอุปกรณ์ และรับการแจ้งเตือนเมื่อมีตอนใหม่
                 </p>
 
-                {{-- store buttons --}}
-                <div class="mt-7 flex flex-wrap items-center gap-3">
+                {{-- APK download (Android) — appears once a GitHub release with an .apk exists --}}
+                @isset($release)
+                    <div class="mt-7 flex flex-col items-start gap-3">
+                        <a href="{{ route('download.apk') }}"
+                           class="inline-flex items-center gap-3 rounded-xl bg-cream px-6 py-3.5 font-bold text-ink shadow-lg transition hover:brightness-90">
+                            <svg viewBox="0 0 24 24" fill="currentColor" class="h-6 w-6"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zM5 18h14v2H5z"/></svg>
+                            <span>ดาวน์โหลดแอป Android
+                                <span class="block text-[11px] font-normal opacity-60">เวอร์ชัน {{ $release['version'] }} · {{ number_format($release['size'] / 1048576, 1) }} MB · ไฟล์ APK</span>
+                            </span>
+                        </a>
+                        <a href="#install" class="text-[13px] text-cream/60 underline-offset-4 hover:text-cream hover:underline">วิธีติดตั้งไฟล์ APK (นอก Play Store) ›</a>
+                    </div>
+                @endisset
+
+                {{-- store buttons (coming soon) --}}
+                <div class="mt-5 flex flex-wrap items-center gap-3">
                     <span class="flex items-center gap-3 rounded-xl border border-white/15 bg-black/40 px-5 py-3">
                         <svg viewBox="0 0 24 24" fill="currentColor" class="h-7 w-7"><path d="M3.6 2.3 13 12l-9.4 9.7c-.4-.3-.6-.8-.6-1.4V3.7c0-.6.2-1.1.6-1.4zm11 10.8 2.6 2.6-9 5.2 6.4-7.8zm3.9-2.2 2.3 1.3c.9.5.9 1.9 0 2.4l-2.3 1.3-2.9-2.5 2.9-2.5zM5.6 2 15 7.4l-2.6 2.7L5.6 2z"/></svg>
                         <span><span class="block text-[10px] text-cream/50">เร็ว ๆ นี้บน</span><span class="block text-base font-bold">Google Play</span></span>
@@ -32,7 +46,7 @@
                         <span><span class="block text-[10px] text-cream/50">เร็ว ๆ นี้บน</span><span class="block text-base font-bold">App Store</span></span>
                     </span>
                 </div>
-                <p class="mt-4 text-[13px] text-cream/50">ระหว่างรอแอป รับชมผ่านเว็บได้เลยที่ <a href="{{ route('home') }}" class="text-cream/80 underline underline-offset-4">netwix.online</a></p>
+                <p class="mt-4 text-[13px] text-cream/50">iPhone/iPad และ Play Store เร็ว ๆ นี้ — ระหว่างนี้รับชมผ่านเว็บได้เลยที่ <a href="{{ route('home') }}" class="text-cream/80 underline underline-offset-4">netwix.online</a></p>
             </div>
 
             {{-- app screenshot slider (placeholder frames — swap with real captures) --}}
@@ -86,6 +100,41 @@
             @endforeach
         </div>
     </section>
+
+    {{-- install guide (sideload APK) --}}
+    @isset($release)
+    <section id="install" class="px-[5vw] py-10">
+        <div class="mx-auto max-w-3xl">
+            <div class="flex items-center gap-2.5">
+                <span class="nx-gradient inline-block rounded-full px-3 py-1 text-[11px] font-bold tracking-widest">ติดตั้ง</span>
+                <span class="text-[12px] text-cream/45">เวอร์ชัน {{ $release['version'] }}</span>
+            </div>
+            <h2 class="mt-4 text-xl font-bold sm:text-2xl">วิธีติดตั้งแอป NetWix บน Android</h2>
+            <p class="mt-2 text-sm text-cream/60">แอปยังไม่อยู่บน Play Store จึงติดตั้งจากไฟล์ APK โดยตรง — ปลอดภัย ดาวน์โหลดจาก netwix.online เท่านั้น ใช้เวลาไม่ถึงนาที</p>
+            @php
+                $steps = [
+                    ['กดปุ่ม “ดาวน์โหลดแอป Android”', 'แตะปุ่มดาวน์โหลดด้านบนของหน้านี้ รอไฟล์ .apk ดาวน์โหลดจนเสร็จ'],
+                    ['เปิดไฟล์ที่ดาวน์โหลด', 'แตะที่แถบแจ้งเตือนการดาวน์โหลด หรือเปิดแอป “ไฟล์/Files” → โฟลเดอร์ Downloads แล้วแตะไฟล์ NetWix .apk'],
+                    ['อนุญาตการติดตั้ง (ครั้งแรกเท่านั้น)', 'Android จะถามเรื่องความปลอดภัย — แตะ “ตั้งค่า” แล้วเปิด “อนุญาตจากแหล่งนี้” (Allow from this source) ให้เบราว์เซอร์หรือแอปไฟล์ที่ใช้อยู่'],
+                    ['แตะ “ติดตั้ง” (Install)', 'ย้อนกลับมาแล้วแตะติดตั้ง รอสักครู่จนเสร็จ — หาก Play Protect เตือน แตะ “ติดตั้งต่อไป” ได้เลย ไฟล์มาจาก netwix.online'],
+                    ['เปิดแอปแล้วเข้าสู่ระบบ', 'แตะ “เปิด” เข้าสู่ระบบด้วยบัญชี NetWix (หรือ Google/LINE) แล้วเริ่มดูได้ทันที'],
+                ];
+            @endphp
+            <ol class="mt-6 flex flex-col gap-3">
+                @foreach ($steps as $i => [$t, $d])
+                    <li class="flex gap-4 rounded-2xl border border-white/[0.06] p-4" style="background:linear-gradient(150deg,#160d29,#0d0918)">
+                        <span class="nx-gradient flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold">{{ $i + 1 }}</span>
+                        <div>
+                            <div class="font-semibold">{{ $t }}</div>
+                            <p class="mt-1 text-sm leading-relaxed text-cream/60">{{ $d }}</p>
+                        </div>
+                    </li>
+                @endforeach
+            </ol>
+            <p class="mt-5 text-[12px] text-cream/40">* iPhone/iPad ยังไม่รองรับการติดตั้งนอก App Store — ระหว่างนี้รับชมผ่านเว็บ netwix.online ได้เลย · เมื่อมีเวอร์ชันใหม่ ปุ่มดาวน์โหลดจะอัปเดตให้อัตโนมัติ</p>
+        </div>
+    </section>
+    @endisset
 
     {{-- supported devices --}}
     <section id="devices" class="px-[5vw] py-10">

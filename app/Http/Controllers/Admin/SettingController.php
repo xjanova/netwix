@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Setting;
+use App\Services\AppRelease;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -21,6 +22,10 @@ class SettingController extends Controller
             'hasGoogleSecret' => filled(Setting::get('google_client_secret')),
             'hasLineSecret' => filled(Setting::get('line_client_secret')),
             'callbackBase' => rtrim(config('app.url'), '/'),
+            // App (APK) auto-update from GitHub Releases
+            'app_github_repo' => Setting::get('app_github_repo'),
+            'hasAppToken' => filled(Setting::get('app_github_token')),
+            'appRelease' => app(AppRelease::class)->latest(),
         ]);
     }
 
@@ -33,14 +38,17 @@ class SettingController extends Controller
             'line_client_secret' => ['nullable', 'string', 'max:255'],
             'support_line_url' => ['nullable', 'url:http,https', 'max:255'],
             'support_email' => ['nullable', 'email', 'max:255'],
+            'app_github_repo' => ['nullable', 'string', 'max:255', 'regex:/^[\w.-]+\/[\w.-]+$/'],
+            'app_github_token' => ['nullable', 'string', 'max:255'],
         ], [
             'support_line_url.url' => 'ลิงก์ LINE ต้องเป็น URL ที่ขึ้นต้นด้วย http/https',
             'support_email.email' => 'อีเมลไม่ถูกต้อง',
+            'app_github_repo.regex' => 'รูปแบบต้องเป็น owner/repo เช่น xjanova/hivedownload',
         ]);
 
         // Plain (non-secret) fields are pre-filled in the form, so they resubmit
         // their real value — safe to write as-is (null clears them).
-        foreach (['google_client_id', 'line_client_id', 'support_line_url', 'support_email'] as $field) {
+        foreach (['google_client_id', 'line_client_id', 'support_line_url', 'support_email', 'app_github_repo'] as $field) {
             Setting::write($field, $data[$field] ?? null);
         }
 
@@ -49,13 +57,16 @@ class SettingController extends Controller
         // blank submit must be treated as "keep the existing secret", NOT a wipe.
         // (brain: SlipOK/Stripe key-wiped-on-save — check blank(), not === '')
         // An explicit "ล้างค่า" checkbox is the only way to clear a stored secret.
-        foreach (['google_client_secret', 'line_client_secret'] as $field) {
+        foreach (['google_client_secret', 'line_client_secret', 'app_github_token'] as $field) {
             if ($request->boolean($field.'_clear')) {
                 Setting::write($field, null);
             } elseif (filled($data[$field] ?? null)) {
                 Setting::write($field, $data[$field]);
             }
         }
+
+        // A repo/token change should reflect on the download page right away.
+        AppRelease::forget();
 
         return back()->with('status', 'บันทึกการตั้งค่าแล้ว');
     }
