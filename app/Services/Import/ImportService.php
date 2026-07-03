@@ -75,7 +75,7 @@ class ImportService
                 'is_published' => (bool) ($opts['publish'] ?? true),
                 'poster_path' => $st->poster_url,
                 'backdrop_path' => $st->poster_url,
-                'views' => $st->view_count,
+                'views' => $st->view_count ?? 0,
             ],
         );
 
