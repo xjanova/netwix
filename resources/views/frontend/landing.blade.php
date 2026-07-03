@@ -64,12 +64,9 @@
             <h1 class="text-[clamp(32px,5.5vw,60px)] font-extrabold leading-[1.12]">
                 ภาพยนตร์ ซีรีส์ และ<span class="nx-gradient-text">ซีรีส์แนวตั้ง</span><br>ไม่จำกัด
             </h1>
-            <p class="mt-4 text-lg font-medium text-cream/85">เริ่มต้นที่ 99 บาท/เดือน ยกเลิกได้ทุกเมื่อ</p>
-            <p class="mt-6 text-[15px] text-cream/65">พร้อมรับชมแล้วหรือยัง? กรอกอีเมลเพื่อสมัครสมาชิก</p>
-            <form method="GET" action="{{ route('register') }}" class="mx-auto mt-4 flex max-w-xl flex-col gap-3 sm:flex-row">
-                <input type="email" name="email" required placeholder="ที่อยู่อีเมล" class="nx-input flex-1 py-4 text-base">
-                <button type="submit" class="btn-brand whitespace-nowrap px-8 py-4 text-lg">เริ่มกันเลย ›</button>
-            </form>
+            <p class="mt-4 text-lg font-medium text-cream/85">แค่ชวนเพื่อน รับสิทธิ์ <span class="nx-gradient-text font-bold">Pro ฟรี</span> และของรางวัลอีกมากมาย 🎁</p>
+            <p class="mt-6 text-[15px] text-cream/65">พร้อมรับชมแล้วหรือยัง? เริ่มดูฟรีได้เลยวันนี้</p>
+            @include('frontend.partials.cta-start')
         </div>
 
         {{-- auto-scrolling poster marquee (real covers, drifting left) --}}
@@ -210,10 +207,10 @@
     @php
         $faqs = [
             ['NetWix คืออะไร?', 'NetWix คือบริการสตรีมมิ่งที่รวมภาพยนตร์ ซีรีส์ และซีรีส์แนวตั้งหลากหลายแนว ดูได้ไม่จำกัดบนอุปกรณ์ที่เชื่อมต่ออินเทอร์เน็ต ทั้งทีวี มือถือ แท็บเล็ต และคอมพิวเตอร์'],
-            ['NetWix ราคาเท่าไหร่?', 'เริ่มต้นเพียง 99 บาท/เดือน (Basic) — Standard 199 บาท และ Premium 349 บาท ไม่มีค่าธรรมเนียมเพิ่มเติม ไม่มีสัญญาผูกมัด'],
+            ['ชวนเพื่อนได้สิทธิ์อะไร?', 'ทุกครั้งที่เพื่อนสมัครด้วยโค้ดแนะนำของคุณ ทั้งคุณและเพื่อนรับสิทธิ์ Pro ฟรี พร้อมเหรียญสะสมไว้แลกของรางวัล — ยิ่งชวนมาก ยิ่งได้มาก!'],
             ['ดูได้ที่ไหนบ้าง?', 'ดูได้ทุกที่ทุกเวลา — เข้าสู่ระบบผ่านเว็บ netwix.online บนอุปกรณ์ใดก็ได้ รองรับทั้งวิดีโอแบบปกติและ HLS สตรีมมิ่ง'],
             ['ซีรีส์แนวตั้งคืออะไร?', 'ซีรีส์สั้นแบบจอตั้ง (9:16) ตอนละไม่กี่นาที ปัดขึ้น–ลงเพื่อดูตอนถัดไปได้ทันทีเหมือนเล่นโซเชียล เหมาะกับการดูระหว่างเดินทาง'],
-            ['ยกเลิกได้อย่างไร?', 'ยกเลิกได้ทุกเมื่อด้วยการคลิกเดียว ไม่มีค่าปรับ ไม่ต้องโทรหาใคร — สมัครใหม่เมื่อไหร่ก็ได้'],
+            ['ต้องเสียเงินไหม?', 'เริ่มดูได้ฟรี ไม่ต้องผูกบัตร และปลดล็อกสิทธิ์ Pro เพิ่มได้ฟรี ๆ แค่ชวนเพื่อนหรือร่วมกิจกรรมสะสมเหรียญ'],
             ['เหมาะกับเด็กไหม?', 'สร้างโปรไฟล์ KIDS แยกให้เด็กได้ฟรี พร้อมเรตอายุกำกับทุกเรื่อง เพื่อให้ผู้ปกครองมั่นใจ'],
         ];
     @endphp
@@ -234,11 +231,8 @@
 
         {{-- closing CTA --}}
         <div class="mx-auto mt-10 max-w-xl text-center">
-            <p class="text-[15px] text-cream/65">พร้อมรับชมแล้วหรือยัง? กรอกอีเมลเพื่อสมัครสมาชิก</p>
-            <form method="GET" action="{{ route('register') }}" class="mt-4 flex flex-col gap-3 sm:flex-row">
-                <input type="email" name="email" required placeholder="ที่อยู่อีเมล" class="nx-input flex-1 py-4 text-base">
-                <button type="submit" class="btn-brand whitespace-nowrap px-8 py-4 text-lg">เริ่มกันเลย ›</button>
-            </form>
+            <p class="text-[15px] text-cream/65">ชวนเพื่อนวันนี้ รับสิทธิ์ Pro ฟรีและของรางวัลมากมาย</p>
+            @include('frontend.partials.cta-start')
         </div>
     </section>
 

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\Membership;
 use Illuminate\Http\RedirectResponse;
@@ -16,11 +17,19 @@ class RegisterController extends Controller
 {
     public function show(): View
     {
-        return view('auth.register');
+        return view('auth.register', [
+            'emailReg' => Setting::flag('email_registration_enabled', true),
+        ]);
     }
 
     public function register(Request $request): RedirectResponse
     {
+        // Email/password sign-up can be switched off (social-only) from admin settings.
+        if (! Setting::flag('email_registration_enabled', true)) {
+            return redirect()->route('register')
+                ->withErrors(['email' => 'ขณะนี้เปิดรับสมัครผ่าน Google และ LINE เท่านั้น']);
+        }
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],

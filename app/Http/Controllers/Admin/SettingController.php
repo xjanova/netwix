@@ -26,6 +26,7 @@ class SettingController extends Controller
             'app_github_repo' => Setting::get('app_github_repo'),
             'hasAppToken' => filled(Setting::get('app_github_token')),
             'appRelease' => app(AppRelease::class)->latest(),
+            'emailRegEnabled' => Setting::flag('email_registration_enabled', true),
         ]);
     }
 
@@ -51,6 +52,9 @@ class SettingController extends Controller
         foreach (['google_client_id', 'line_client_id', 'support_line_url', 'support_email', 'app_github_repo'] as $field) {
             Setting::write($field, $data[$field] ?? null);
         }
+
+        // Registration mode toggle (checkbox → keep email/password sign-up or go social-only).
+        Setting::write('email_registration_enabled', $request->boolean('email_registration_enabled') ? '1' : '0');
 
         // Secret fields are masked and never echoed, so the form ALWAYS submits them
         // empty. Laravel's ConvertEmptyStringsToNull turns that '' into null — so a

@@ -179,6 +179,17 @@
         </div>
     </div>
 
+    {{-- ============ REGISTRATION MODE ============ --}}
+    <div class="nx-card p-6">
+        <h3 class="mb-1 text-base font-bold">การสมัครสมาชิก</h3>
+        <p class="mb-4 text-[13px] text-cream/50">เลือกว่าจะให้สมัครด้วยอีเมล/รหัสผ่านได้ไหม หรือเหลือเฉพาะ Google / LINE</p>
+        <label class="flex cursor-pointer items-center gap-3">
+            <input type="checkbox" name="email_registration_enabled" value="1" @checked($emailRegEnabled) class="h-5 w-5 accent-brand">
+            <span class="text-sm">เปิดสมัครด้วยอีเมล + รหัสผ่าน</span>
+        </label>
+        <p class="mt-3 text-[12px] text-cream/40">ปิดช่องนี้ = หน้าสมัครและหน้าแรกจะเหลือเฉพาะปุ่มสมัครด้วย Google/LINE (สมาชิกอีเมลเดิมยังเข้าสู่ระบบได้ปกติ) — ต้องตั้งค่า Google/LINE ด้านบนให้เสร็จก่อน ไม่งั้นจะไม่มีช่องทางสมัครใหม่</p>
+    </div>
+
     <div class="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.02] px-5 py-4">
         <p class="text-[12.5px] text-cream/45">ค่าลับถูกเข้ารหัสก่อนบันทึก และไม่ถูกแสดงซ้ำในหน้านี้</p>
         <button class="btn-brand px-8 py-2.5">บันทึกการตั้งค่า</button>

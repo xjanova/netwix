@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Announcement;
 use App\Models\Content;
+use App\Models\Setting;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
@@ -47,6 +48,7 @@ class HomeController extends Controller
             'trending' => $trending,
             'marquee' => $marquee,
             'announcements' => $announcements,
+            'emailReg' => Setting::flag('email_registration_enabled', true),
         ]);
     }
 }

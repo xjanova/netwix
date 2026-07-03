@@ -46,6 +46,14 @@ class Setting extends Model
         return $raw;
     }
 
+    /** Read a boolean flag setting. Absent → $default. */
+    public static function flag(string $key, bool $default = false): bool
+    {
+        $v = static::get($key);
+
+        return $v === null ? $default : in_array((string) $v, ['1', 'true', 'on', 'yes'], true);
+    }
+
     /** Write a setting (encrypting secret keys) and invalidate the cache. */
     public static function write(string $key, ?string $value): void
     {
