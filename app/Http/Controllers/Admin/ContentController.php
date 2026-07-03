@@ -27,7 +27,8 @@ class ContentController extends Controller
             ->when($maturity, fn ($w) => $w->where('maturity', $maturity))
             ->when($minRating !== null && $minRating !== '', fn ($w) => $w->where('rating', '>=', (float) $minRating))
             ->with('genres')
-            ->withCount('episodes')
+            ->withCount(['episodes', 'likedBy', 'comments'])
+            ->withAvg('ratings', 'stars')
             ->latest()
             ->paginate(12)
             ->withQueryString();

@@ -57,7 +57,7 @@
                     <th class="px-4 py-3 font-medium">ประเภท</th>
                     <th class="px-4 py-3 font-medium">หมวด</th>
                     <th class="px-4 py-3 font-medium">ตอน</th>
-                    <th class="px-4 py-3 font-medium">ผู้ชม</th>
+                    <th class="px-4 py-3 font-medium">สถิติ</th>
                     <th class="px-4 py-3 font-medium">สถานะ</th>
                     <th class="px-4 py-3 font-medium"></th>
                 </tr>
@@ -77,7 +77,12 @@
                         <td class="px-4 py-3 text-cream/70">{{ ['series' => 'ซีรี่ส์', 'movie' => 'ภาพยนตร์', 'vertical' => 'แนวตั้ง'][$c->type] }}</td>
                         <td class="px-4 py-3 text-cream/60">{{ $c->genres->pluck('name')->take(2)->join(', ') }}</td>
                         <td class="px-4 py-3 text-cream/70">{{ $c->episodes_count }}</td>
-                        <td class="px-4 py-3 text-cream/70">{{ number_format($c->views) }}</td>
+                        <td class="px-4 py-3">
+                            <div class="flex flex-col gap-0.5 text-xs text-cream/55">
+                                <span>👁 {{ number_format($c->views) }}</span>
+                                <span>♥ {{ $c->liked_by_count }} · 💬 {{ $c->comments_count }} · ⭐ {{ $c->ratings_avg_stars ? round($c->ratings_avg_stars, 1) : '–' }}</span>
+                            </div>
+                        </td>
                         <td class="px-4 py-3">
                             @if ($c->is_published)
                                 <span class="rounded-full bg-success/15 px-2.5 py-0.5 text-xs text-success">เผยแพร่</span>

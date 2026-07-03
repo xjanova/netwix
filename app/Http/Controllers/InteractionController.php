@@ -54,6 +54,46 @@ class InteractionController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    /** Post a comment on a title (members only). */
+    public function comment(Request $request, Content $content): JsonResponse
+    {
+        $data = $request->validate(['body' => ['required', 'string', 'max:500']]);
+        $profile = $this->profile($request);
+
+        $comment = $content->comments()->create([
+            'profile_id' => $profile->id,
+            'body' => trim($data['body']),
+        ]);
+
+        return response()->json([
+            'comment' => [
+                'author' => $profile->name,
+                'avatar_color' => $profile->avatar_color,
+                'initial' => $profile->initial,
+                'text' => $comment->body,
+                'ago' => $comment->created_at->diffForHumans(),
+            ],
+            'count' => $content->comments()->count(),
+        ]);
+    }
+
+    /** Rate a title 1-5 stars (one per profile; updates on re-rate). */
+    public function rate(Request $request, Content $content): JsonResponse
+    {
+        $data = $request->validate(['stars' => ['required', 'integer', 'between:1,5']]);
+
+        $content->ratings()->updateOrCreate(
+            ['profile_id' => $this->profile($request)->id],
+            ['stars' => $data['stars']],
+        );
+
+        return response()->json([
+            'my_rating' => $data['stars'],
+            'avg' => round((float) $content->ratings()->avg('stars'), 1),
+            'count' => $content->ratings()->count(),
+        ]);
+    }
+
     private function profile(Request $request): Profile
     {
         return $request->attributes->get('profile');

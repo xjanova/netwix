@@ -97,6 +97,8 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::post('/api/content/{content}/list', [InteractionController::class, 'toggleMyList'])->name('content.list');
     Route::post('/api/content/{content}/like', [InteractionController::class, 'toggleLike'])->name('content.like');
     Route::post('/api/content/{content}/progress', [InteractionController::class, 'progress'])->name('content.progress');
+    Route::post('/api/content/{content}/comment', [InteractionController::class, 'comment'])->middleware('throttle:30,1')->name('content.comment');
+    Route::post('/api/content/{content}/rate', [InteractionController::class, 'rate'])->name('content.rate');
 
     Route::get('/api/episode/{episode}/source', [EpisodeSourceController::class, 'resolve'])->name('episode.source');
 
@@ -139,6 +141,9 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('announcements', [Admin\AnnouncementController::class, 'store'])->name('announcements.store');
     Route::put('announcements/{announcement}', [Admin\AnnouncementController::class, 'update'])->name('announcements.update');
     Route::delete('announcements/{announcement}', [Admin\AnnouncementController::class, 'destroy'])->name('announcements.destroy');
+
+    Route::get('comments', [Admin\CommentController::class, 'index'])->name('comments.index');
+    Route::delete('comments/{comment}', [Admin\CommentController::class, 'destroy'])->name('comments.destroy');
 
     Route::get('users', [Admin\UserController::class, 'index'])->name('users.index');
     Route::put('users/{user}', [Admin\UserController::class, 'update'])->name('users.update');

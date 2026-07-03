@@ -143,5 +143,7 @@
                 ซีรีส์แนวตั้ง {{ $content->episodes->count() }} ตอน · ปัดขึ้น–ลงเพื่อดูตอนถัดไป
             </div>
         @endif
+
+        @include('frontend.partials.title-feedback')
     </div>
 </div>

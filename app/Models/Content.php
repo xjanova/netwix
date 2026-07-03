@@ -84,6 +84,18 @@ class Content extends Model
         return $q->where('type', $type);
     }
 
+    /**
+     * Rank by an engagement score so comments / ratings / likes actually move the
+     * charts, not just raw view count. Weights: views + likes×10 + comments×5 +
+     * avgStars×20.
+     */
+    public function scopeRankedByEngagement(Builder $q): Builder
+    {
+        return $q->withCount(['likedBy', 'comments'])
+            ->withAvg('ratings', 'stars')
+            ->orderByRaw('(views + liked_by_count * 10 + comments_count * 5 + COALESCE(ratings_avg_stars, 0) * 20) desc');
+    }
+
     // ---- Accessors -----------------------------------------------------
 
     public function primaryGenre(): ?Genre

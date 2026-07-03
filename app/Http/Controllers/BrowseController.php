@@ -42,7 +42,7 @@ class BrowseController extends Controller
         $rows[] = [
             'title' => 'มาแรงตอนนี้',
             'ranked' => true,
-            'items' => Content::published()->orderByDesc('views')->with(['genres', 'previewEpisode'])->take(10)->get(),
+            'items' => Content::published()->rankedByEngagement()->with(['genres', 'previewEpisode'])->take(10)->get(),
         ];
 
         // My list

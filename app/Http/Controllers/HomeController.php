@@ -18,7 +18,7 @@ class HomeController extends Controller
 
         // Real catalog data powers the logged-out landing (Netflix-style Top 10).
         $trending = Content::published()
-            ->orderByDesc('views')
+            ->rankedByEngagement()
             ->with('genres')
             ->take(10)
             ->get();
