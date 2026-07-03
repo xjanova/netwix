@@ -9,6 +9,7 @@
         source: @js($source),
         resolveUrl: @js($resolveUrl ?? null),
         youtube: @js($youtubeId),
+        hasMedia: @js((bool) ($youtubeId || $source || $resolveUrl)),
      })"
      x-init="init()">
 
@@ -34,11 +35,14 @@
 
     @if ($youtubeId)
         <iframe src="https://www.youtube.com/embed/{{ $youtubeId }}?autoplay=1&rel=0&modestbranding=1&playsinline=1"
+                @load="loading = false"
                 class="h-full w-full border-0" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>
     @elseif ($source || $resolveUrl)
         <video x-ref="video" controls autoplay playsinline
                @timeupdate.throttle.10000ms="saveProgress()"
                @ended="saveProgress(100)"
+               @waiting="loading = true" @stalled="loading = true"
+               @playing="loading = false" @canplay="loading = false" @error="loading = false"
                class="h-full w-full bg-black object-contain"></video>
         <div x-show="err" x-cloak class="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-cream/70">
             <span x-text="err"></span>
@@ -48,6 +52,11 @@
             ยังไม่มีไฟล์วิดีโอสำหรับตอนนี้ — เพิ่มลิงก์วิดีโอได้ในแผงผู้ดูแล
         </div>
     @endif
+
+    {{-- branded "connecting to server" loader (until the stream can play) --}}
+    <div x-show="loading && ! err" x-cloak class="pointer-events-none absolute inset-0 z-40">
+        @include('partials.player-loading')
+    </div>
 </div>
 
 @push('scripts')
@@ -56,6 +65,7 @@
         return {
             err: '',
             fs: false,
+            loading: cfg.hasMedia,
             async init() {
                 document.addEventListener('fullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
                 document.addEventListener('webkitfullscreenchange', () => { this.fs = window.nxFullscreenActive(); });

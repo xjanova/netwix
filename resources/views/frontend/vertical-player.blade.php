@@ -28,6 +28,8 @@
                @click="togglePlay()"
                @timeupdate="onTime()"
                @play="playing = true" @pause="playing = false"
+               @waiting="buffering = true" @stalled="buffering = true"
+               @playing="buffering = false" @canplay="buffering = false" @error="buffering = false"
                class="h-full w-full bg-black object-contain"></video>
 
         {{-- prominent tap-to-unmute (only while muted) — the whole reason people say "no sound" --}}
@@ -45,6 +47,11 @@
             <div class="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-brand"></div>
             <div class="text-lg font-semibold">กำลังเตรียมไฟล์ไว้…</div>
             <div class="max-w-xs text-sm text-cream/60">ตอนนี้กำลังเตรียมพร้อมให้รับชม อีกสักครู่ — เมื่อพร้อมจะเล่นอัตโนมัติ</div>
+        </div>
+
+        {{-- branded "connecting to server" loader (buffering, when not preparing) --}}
+        <div x-show="buffering && !preparing" x-cloak class="pointer-events-none absolute inset-0 z-20">
+            @include('partials.player-loading')
         </div>
 
         {{-- caption --}}
@@ -114,6 +121,7 @@
             progress: 0,
             ui: true,
             fs: false,
+            buffering: false,
             _hideT: null,
 
             init() {
@@ -169,6 +177,7 @@
 
             attach(url) {
                 this.preparing = false;
+                this.buffering = true;
                 const v = this.$refs.video;
                 window.nxAttachVideo(v, url);
                 v.muted = this.muted;
