@@ -135,6 +135,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
 
     Route::get('storage', [Admin\StorageController::class, 'index'])->name('storage.index');
     Route::post('episodes/{episode}/mirror', [Admin\StorageController::class, 'mirror'])->name('storage.mirror');
+    Route::post('episodes/{episode}/thumb', [Admin\StorageController::class, 'setThumb'])->name('storage.set-thumb');
     Route::delete('episodes/{episode}/mirror', [Admin\StorageController::class, 'unmirror'])->name('storage.unmirror');
     Route::post('contents/{content}/mirror-all', [Admin\StorageController::class, 'mirrorContent'])->name('storage.mirror-content');
 

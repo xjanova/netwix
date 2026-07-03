@@ -1,4 +1,4 @@
-<div class="nx-card p-5">
+<div class="nx-card p-5" x-data="thumbPicker()">
     @php $canMirror = in_array($content->source, ['rongyok'], true); @endphp
     <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h3 class="text-base font-semibold">ตอน ({{ $content->episodes->count() }})</h3>
@@ -36,6 +36,17 @@
                         <span class="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-cream/50" title="ยังไม่ได้ดาวน์โหลดมาเก็บ">○ ต้นทาง</span>
                     @endif
                     <span class="text-xs text-cream/45">{{ $ep->duration_label }}</span>
+                    @php
+                        $thumbSrc = $ep->video_url
+                            ?: ($ep->source
+                                ? (in_array($ep->source, ['wowdrama', 'anime108'], true) ? route('stream.manifest', $ep) : route('stream.mp4', $ep))
+                                : null);
+                    @endphp
+                    @if ($thumbSrc)
+                        <button type="button"
+                                @click="open({ num: {{ $ep->number }}, src: @js($thumbSrc), hls: @js(str_ends_with($thumbSrc, '.m3u8') || str_contains($thumbSrc, '/index.m3u8')), post: @js(route('admin.storage.set-thumb', $ep)) })"
+                                class="rounded-md bg-white/5 px-2.5 py-1 text-xs hover:bg-white/10" title="เลือกปกจากเฟรมในวิดีโอ">🖼 เลือกปก</button>
+                    @endif
                     @if ($ep->is_mirrored)
                         <form method="POST" action="{{ route('admin.storage.unmirror', $ep) }}" onsubmit="return confirm('ลบไฟล์ตอนนี้ออกจากเซิร์ฟเวอร์? (กลับไปสตรีมสด)')">
                             @csrf @method('DELETE')
@@ -69,4 +80,61 @@
         <div><label class="mb-1 block text-xs text-cream/60">วิดีโอ (mp4 / m3u8 / YouTube)</label><input name="video_url" class="nx-input"></div>
         <div class="col-span-full"><button class="rounded-lg bg-white/10 px-5 py-2.5 text-sm font-semibold hover:bg-white/15">+ เพิ่มตอน</button></div>
     </form>
+
+    {{-- Thumbnail picker: play the episode, scrub to a frame, use it as the cover --}}
+    <div x-show="ep" x-cloak @keydown.escape.window="close()" @click.self="close()"
+         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
+        <div class="nx-card w-full max-w-2xl p-5" @click.stop>
+            <div class="mb-3 flex items-center justify-between">
+                <h3 class="text-base font-semibold">เลือกปกจากวิดีโอ · ตอนที่ <span x-text="ep?.num"></span></h3>
+                <button type="button" @click="close()" class="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 hover:bg-white/20">✕</button>
+            </div>
+            <video x-ref="vid" controls playsinline class="mb-3 max-h-[58vh] w-full rounded-lg bg-black"></video>
+            <div class="flex flex-wrap items-center gap-3">
+                <button type="button" @click="capture()" x-bind:disabled="saving"
+                        class="btn-brand px-5 py-2.5 text-sm disabled:opacity-50" x-text="saving ? 'กำลังบันทึก…' : '📸 ใช้เฟรมนี้เป็นปก'"></button>
+                <span class="text-sm" :class="ok ? 'text-success' : 'text-[#ff6b81]'" x-text="msg"></span>
+                <span class="ml-auto text-xs text-cream/40">เล่น/เลื่อนแถบไปยังเฟรมที่ต้องการ แล้วกดปุ่ม</span>
+            </div>
+        </div>
+    </div>
+
+    @push('scripts')
+    <script>
+        function thumbPicker() {
+            return {
+                ep: null, saving: false, ok: false, msg: '',
+                open(ep) {
+                    this.ep = ep; this.msg = ''; this.ok = false;
+                    this.$nextTick(() => {
+                        const v = this.$refs.vid;
+                        window.nxAttachVideo ? window.nxAttachVideo(v, ep.src) : (v.src = ep.src);
+                        v.play?.().catch(() => {});
+                    });
+                },
+                close() {
+                    const v = this.$refs.vid;
+                    if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
+                    this.ep = null;
+                },
+                async capture() {
+                    const v = this.$refs.vid;
+                    if (!v || !v.videoWidth) { this.ok = false; this.msg = 'วิดีโอยังไม่พร้อม รอสักครู่'; return; }
+                    this.saving = true; this.msg = '';
+                    try {
+                        const w = 480, h = Math.round(w * v.videoHeight / v.videoWidth) || 270;
+                        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+                        cv.getContext('2d').drawImage(v, 0, 0, w, h);
+                        const img = cv.toDataURL('image/jpeg', 0.72);
+                        const r = await window.nxPost(this.ep.post, { image: img });
+                        if (r && r.ok) { this.ok = true; this.msg = 'บันทึกปกใหม่แล้ว ✓ กำลังรีเฟรช…'; setTimeout(() => location.reload(), 700); }
+                        else { this.ok = false; this.msg = 'บันทึกไม่สำเร็จ'; }
+                    } catch (e) {
+                        this.ok = false; this.msg = 'จับเฟรมไม่ได้ (วิดีโออาจข้ามโดเมนโดยไม่มี CORS)';
+                    } finally { this.saving = false; }
+                },
+            };
+        }
+    </script>
+    @endpush
 </div>

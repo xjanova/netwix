@@ -7,7 +7,10 @@ use App\Models\Content;
 use App\Models\Episode;
 use App\Services\MediaMirror;
 use App\Support\MediaUsage;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 class StorageController extends Controller
@@ -68,6 +71,33 @@ class StorageController extends Controller
         $mirror->delete($episode);
 
         return back()->with('status', "ลบไฟล์ตอนที่ {$episode->number} แล้ว — กลับไปสตรีมสดตามเดิม");
+    }
+
+    /** Admin: set an episode's cover to a JPEG frame the admin grabbed in the picker (overwrites). */
+    public function setThumb(Request $request, Episode $episode): JsonResponse
+    {
+        $data = $request->validate(['image' => ['required', 'string', 'max:800000']]);
+
+        $prefix = 'data:image/jpeg;base64,';
+        if (! str_starts_with($data['image'], $prefix)) {
+            return response()->json(['ok' => false, 'error' => 'format'], 422);
+        }
+        $bin = base64_decode(substr($data['image'], strlen($prefix)), true);
+        if ($bin === false || strlen($bin) < 500 || strlen($bin) > 500_000 || substr($bin, 0, 3) !== "\xFF\xD8\xFF") {
+            return response()->json(['ok' => false, 'error' => 'invalid'], 422);
+        }
+        if (function_exists('getimagesizefromstring')) {
+            $info = @getimagesizefromstring($bin);
+            if (! $info || ($info['mime'] ?? '') !== 'image/jpeg' || $info[0] < 40 || $info[0] > 1920 || $info[1] < 40 || $info[1] > 1920) {
+                return response()->json(['ok' => false, 'error' => 'invalid'], 422);
+            }
+        }
+
+        $path = "media/thumbs/{$episode->id}.jpg";
+        Storage::disk('public')->put($path, $bin);
+        $episode->update(['thumbnail_path' => $path]);
+
+        return response()->json(['ok' => true, 'url' => Storage::disk('public')->url($path).'?t='.now()->timestamp]);
     }
 
     /** Admin: download every not-yet-stored episode of a title (progressive sources only). */
