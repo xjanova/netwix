@@ -69,6 +69,11 @@ class Anime108Source implements MediaSource
         return false;   // HLS — streams through the server proxy, no stored preview needed
     }
 
+    public function umbrellaGenre(): ?string
+    {
+        return 'อนิเมะ';   // every anime108 title is always filed under the อนิเมะ genre
+    }
+
     private function http(): PendingRequest
     {
         return Http::withHeaders([

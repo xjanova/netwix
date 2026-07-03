@@ -80,11 +80,29 @@ class ImportService
         );
 
         $this->syncGenres($content, $this->resolveGenreOpts($st, $opts));
+        $this->ensureUmbrella($content, $source);
         $count = $this->importEpisodes($source, $st, $content, $type);
 
         $st->update(['content_id' => $content->id, 'episodes_count' => $count]);
 
         return $content;
+    }
+
+    /**
+     * Always keep every title in its source's umbrella genre (e.g. anime108 → "อนิเมะ"), on top of
+     * whatever else was assigned — so the /anime page never misses an import, no checkbox required.
+     */
+    private function ensureUmbrella(Content $content, MediaSource $source): void
+    {
+        $name = $source->umbrellaGenre();
+        if (! $name) {
+            return;
+        }
+        $genre = Genre::firstOrCreate(
+            ['name' => $name],
+            ['slug' => Str::slug($name) ?: 'genre-'.Str::lower(Str::random(6)), 'sort' => 99],
+        );
+        $content->genres()->syncWithoutDetaching([$genre->id]);
     }
 
     /** Movie titles auto-split to type=movie when auto_type is on; otherwise the chosen/default type. */

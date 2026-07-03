@@ -43,6 +43,11 @@ class RongYokSource implements MediaSource
         return true;   // rongyok serves plain Discord-CDN MP4s
     }
 
+    public function umbrellaGenre(): ?string
+    {
+        return null;
+    }
+
     private function http(): PendingRequest
     {
         return Http::withHeaders([

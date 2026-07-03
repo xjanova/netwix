@@ -21,6 +21,9 @@ interface MediaSource
      */
     public function isProgressive(): bool;
 
+    /** An umbrella genre every title from this source is always filed under (e.g. "อนิเมะ"), or null. */
+    public function umbrellaGenre(): ?string;
+
     /**
      * Fetch the remote catalogue, invoking $onBatch(RemoteSeries[]) per page/chunk so callers
      * can persist incrementally (a timeout still keeps earlier pages). Returns total emitted.

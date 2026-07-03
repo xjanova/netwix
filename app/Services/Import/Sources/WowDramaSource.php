@@ -44,6 +44,11 @@ class WowDramaSource implements MediaSource
         return false;   // HLS — streams through the server proxy, no stored preview needed
     }
 
+    public function umbrellaGenre(): ?string
+    {
+        return null;
+    }
+
     private function http(): PendingRequest
     {
         return Http::withHeaders([
