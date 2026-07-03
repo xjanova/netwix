@@ -38,6 +38,11 @@ class RongYokSource implements MediaSource
         return 'vertical';
     }
 
+    public function isProgressive(): bool
+    {
+        return true;   // rongyok serves plain Discord-CDN MP4s
+    }
+
     private function http(): PendingRequest
     {
         return Http::withHeaders([

@@ -39,6 +39,11 @@ class WowDramaSource implements MediaSource
         return 'series';
     }
 
+    public function isProgressive(): bool
+    {
+        return false;   // HLS — streams through the server proxy, no stored preview needed
+    }
+
     private function http(): PendingRequest
     {
         return Http::withHeaders([

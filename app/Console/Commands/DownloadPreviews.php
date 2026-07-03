@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Content;
+use App\Services\Import\SourceRegistry;
 use App\Services\PreviewDownloader;
 use Illuminate\Console\Command;
 
@@ -16,10 +17,14 @@ class DownloadPreviews extends Command
 
     protected $description = 'Download episode 1 of imported titles as a local preview (instant first play + hover)';
 
-    public function handle(PreviewDownloader $downloader): int
+    public function handle(PreviewDownloader $downloader, SourceRegistry $registry): int
     {
+        // Only progressive-MP4 sources get a cached preview; HLS sources (wow-drama) stream through
+        // the server proxy and would just be resolved-then-skipped every run.
+        $progressive = collect($registry->all())->filter(fn ($s) => $s->isProgressive())->keys()->all();
+
         $titles = Content::query()
-            ->whereNotNull('source')
+            ->whereIn('source', $progressive)
             ->whereNotNull('source_key')
             ->when($this->option('source'), fn ($w) => $w->where('source', $this->option('source')))
             ->whereHas('episodes', fn ($e) => $e->where('number', 1)->whereNull('video_url'))

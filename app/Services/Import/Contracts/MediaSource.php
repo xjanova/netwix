@@ -16,6 +16,12 @@ interface MediaSource
     public function defaultContentType(): string;
 
     /**
+     * True if this source serves a progressive MP4 that's worth caching a local ep-1 preview for.
+     * HLS sources stream through the server-side proxy instead and need no stored preview file.
+     */
+    public function isProgressive(): bool;
+
+    /**
      * Fetch the remote catalogue, invoking $onBatch(RemoteSeries[]) per page/chunk so callers
      * can persist incrementally (a timeout still keeps earlier pages). Returns total emitted.
      */
