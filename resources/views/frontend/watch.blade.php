@@ -103,6 +103,8 @@
         </div>
     @endif
 
+    @include('partials.player-watermark')
+
     {{-- branded "connecting to server" loader (only for a real stall) --}}
     <div x-show="loading && ! err" x-cloak class="pointer-events-none absolute inset-0 z-40">
         @include('partials.player-loading')

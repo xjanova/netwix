@@ -91,6 +91,8 @@
             @include('partials.player-loading')
         </div>
 
+        @include('partials.player-watermark')
+
         {{-- caption --}}
         <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 to-transparent px-5 pb-24 pt-5">
             <div class="text-lg font-bold">{{ $content->title }}</div>
