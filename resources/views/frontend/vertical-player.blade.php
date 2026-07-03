@@ -73,7 +73,11 @@
                     <button @click="toggleMute()" class="text-lg leading-none" x-text="muted ? '🔇' : '🔊'"></button>
                     <input type="range" min="0" max="1" step="0.05" x-model="volume"
                            @input="setVol($event.target.value)"
-                           class="nx-range w-24">
+                           class="nx-range w-20 sm:w-24">
+                    <button @click="toggleFs()" class="leading-none" title="เต็มจอ" aria-label="เต็มจอ">
+                        <svg x-show="!fs" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3"/></svg>
+                        <svg x-show="fs" x-cloak class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3m8 0v-3a2 2 0 0 1 2-2h3"/></svg>
+                    </button>
                 </div>
             </div>
         </div>
@@ -109,9 +113,12 @@
             dur: 0,
             progress: 0,
             ui: true,
+            fs: false,
             _hideT: null,
 
             init() {
+                document.addEventListener('fullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
+                document.addEventListener('webkitfullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
                 // remember the viewer's sound choice across episodes / visits
                 this.muted = localStorage.getItem('nx_unmuted') !== '1';
                 const v = parseFloat(localStorage.getItem('nx_volume'));
@@ -208,6 +215,11 @@
 
             unmute() {
                 if (this.muted) this.toggleMute();
+            },
+
+            toggleFs() {
+                window.nxToggleFullscreen(this.$root, this.$refs.video, null);
+                this.poke();
             },
 
             setVol(x) {

@@ -22,6 +22,14 @@
                 <div class="text-xs text-cream/60">{{ $episode->title }}</div>
             @endif
         </div>
+
+        @unless ($youtubeId)
+            <button type="button" @click="toggleFs()" title="เต็มจอ" aria-label="เต็มจอ"
+                    class="ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-white/10 backdrop-blur hover:bg-white/20">
+                <svg x-show="!fs" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3"/></svg>
+                <svg x-show="fs" x-cloak class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3m8 0v-3a2 2 0 0 1 2-2h3"/></svg>
+            </button>
+        @endunless
     </div>
 
     @if ($youtubeId)
@@ -47,7 +55,10 @@
     function watchPlayer(cfg) {
         return {
             err: '',
+            fs: false,
             async init() {
+                document.addEventListener('fullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
+                document.addEventListener('webkitfullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
                 if (!this.$refs.video || cfg.youtube) return;
                 if (cfg.source) {
                     window.nxAttachVideo(this.$refs.video, cfg.source);
@@ -64,6 +75,9 @@
                         this.err = 'ไม่สามารถโหลดวิดีโอจากแหล่งต้นทางได้ในขณะนี้';
                     }
                 }
+            },
+            toggleFs() {
+                window.nxToggleFullscreen(this.$root, this.$refs.video, 'landscape');
             },
             saveProgress(force = null) {
                 const v = this.$refs.video;

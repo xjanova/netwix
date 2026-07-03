@@ -40,5 +40,36 @@ window.nxAttachVideo = async function (video, src) {
     video.src = src;
 };
 
+/**
+ * Toggle real fullscreen on a player *container* (keeps our custom overlay UI,
+ * unlike the native <video> fullscreen which drops it). Best-effort locks
+ * orientation, and falls back to the iOS-only video.webkitEnterFullscreen when
+ * element-fullscreen isn't available.
+ */
+window.nxToggleFullscreen = function (container, video, orientation) {
+    const d = document;
+    if (d.fullscreenElement || d.webkitFullscreenElement) {
+        (d.exitFullscreen || d.webkitExitFullscreen || function () {}).call(d);
+        try { screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); } catch (e) {}
+        return;
+    }
+    const req = container.requestFullscreen || container.webkitRequestFullscreen;
+    if (req) {
+        Promise.resolve(req.call(container)).then(function () {
+            if (orientation && screen.orientation && screen.orientation.lock) {
+                try { screen.orientation.lock(orientation).catch(function () {}); } catch (e) {}
+            }
+        }).catch(function () {
+            if (video && video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+        });
+    } else if (video && video.webkitEnterFullscreen) {
+        video.webkitEnterFullscreen(); // iOS Safari: only the <video> itself can go fullscreen
+    }
+};
+
+window.nxFullscreenActive = function () {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement);
+};
+
 window.Alpine = Alpine;
 Alpine.start();
