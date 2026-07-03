@@ -24,7 +24,13 @@ class EpisodeSourceController extends Controller
     {
         // Never hand out a playable URL for unpublished/embargoed content — the public mobile
         // endpoint (/api/app/…) shares this resolver, and the rest of the app gates on this too.
+        // ($episode->content is null for a kids profile on an adult title — the global scope hides it.)
         abort_unless((bool) $episode->content?->is_published, 404);
+
+        // Adult (18+/20+) titles are Pro-only — don't resolve a stream for a non-Pro web viewer.
+        if ($episode->content->requires_pro && ! auth()->user()?->isProMember()) {
+            return response()->json(['ready' => false, 'error' => 'pro_required'], 403);
+        }
 
         if ($episode->video_url) {
             return response()->json([

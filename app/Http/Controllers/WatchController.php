@@ -13,6 +13,12 @@ class WatchController extends Controller
     {
         abort_unless($content->is_published, 404);
 
+        // Adult (18+/20+) titles need Pro. Kids profiles never get here — the maturity global scope
+        // 404s the route binding for them; an adult profile without Pro sees the upgrade wall instead.
+        if ($content->requires_pro && ! $request->user()?->isProMember()) {
+            return view('frontend.locked-pro', ['content' => $content]);
+        }
+
         $content->load(['episodes' => fn ($q) => $q->orderBy('season_id')->orderBy('number')]);
 
         // Vertical short-drama gets its own swipeable player.

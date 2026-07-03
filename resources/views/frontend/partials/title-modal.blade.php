@@ -10,6 +10,9 @@
     $previewResolve = ($previewEp && ! $previewSrc && $previewEp->source && $previewEp->source_ref)
         ? route('episode.source', $previewEp) : null;
     $hasHeroPreview = $previewSrc || $previewResolve;
+
+    // Adult (18+/20+) titles need Pro — swap the play button for an upgrade CTA when the viewer isn't Pro.
+    $needsPro = $content->requires_pro && ! auth()->user()?->isProMember();
 @endphp
 <div x-data="{
         inList: @js($inMyList),
@@ -78,9 +81,15 @@
 
     <div class="p-6 sm:p-8">
         <div class="flex flex-wrap items-center gap-3">
-            <a href="{{ route('watch', $content) }}" class="flex items-center gap-2 rounded-md bg-cream px-6 py-2.5 font-bold text-ink hover:brightness-90">
-                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> เล่น
-            </a>
+            @if ($needsPro)
+                <a href="{{ route('account') }}" class="flex items-center gap-2 rounded-md bg-gradient-to-r from-gold to-[#ffcf5a] px-6 py-2.5 font-bold text-black hover:brightness-95" title="เนื้อหาผู้ใหญ่ — เฉพาะสมาชิก Pro">
+                    👑 ปลดล็อกด้วย Pro
+                </a>
+            @else
+                <a href="{{ route('watch', $content) }}" class="flex items-center gap-2 rounded-md bg-cream px-6 py-2.5 font-bold text-ink hover:brightness-90">
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> เล่น
+                </a>
+            @endif
             <button type="button" @click="toggleList" class="flex h-11 w-11 items-center justify-center rounded-full border border-cream/50 text-xl hover:border-cream" title="รายการของฉัน">
                 <span x-text="inList ? '✓' : '+'"></span>
             </button>
@@ -92,7 +101,10 @@
                 <div class="mb-2 flex flex-wrap items-center gap-3 text-sm text-cream/75">
                     <span class="font-bold text-success">{{ $content->match_score }}% ตรงใจ</span>
                     <span>{{ $content->year }}</span>
-                    <span class="rounded border border-cream/40 px-1.5 py-px text-xs">{{ $content->maturity }}</span>
+                    <span class="rounded border px-1.5 py-px text-xs {{ $content->is_adult ? 'border-gold/60 font-semibold text-gold' : 'border-cream/40' }}">{{ $content->maturity }}</span>
+                    @if ($content->requires_pro)
+                        <span class="inline-flex items-center gap-0.5 rounded bg-gold/90 px-1.5 py-px text-xs font-bold text-black" title="ต้องเป็นสมาชิก Pro">👑 PRO</span>
+                    @endif
                     <span class="text-gold">★ {{ $content->rating }}</span>
                 </div>
                 <p class="text-[15px] leading-relaxed text-cream/85">{{ $content->synopsis }}</p>

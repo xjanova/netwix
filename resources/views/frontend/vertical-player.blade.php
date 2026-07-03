@@ -24,6 +24,13 @@
     @mousemove="poke()"
     class="relative flex h-[100dvh] select-none items-center justify-center overflow-hidden bg-black"
 >
+    {{-- Ambient glow (Ambilight): a heavily-blurred, upscaled copy of the current frame bleeds out
+         around the 9:16 video, so the black bars fill with the clip's own colours. Follows the
+         playing image, faintly — a soft halo rather than a hard border. --}}
+    <canvas x-ref="ambi" width="54" height="96" aria-hidden="true"
+            class="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-60"
+            style="object-fit:cover;filter:blur(72px) saturate(1.7);transform:scale(1.25)"></canvas>
+
     <a href="{{ route('browse.vertical') }}" class="absolute left-4 top-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-lg backdrop-blur hover:bg-white/20">✕</a>
 
     {{-- open the episode grid --}}
@@ -58,7 +65,8 @@
         </div>
     </div>
 
-    <div class="relative h-full max-h-[100dvh] w-auto" style="aspect-ratio:9/16">
+    <div class="relative z-[1] h-full max-h-[100dvh] w-auto overflow-hidden rounded-2xl ring-1 ring-white/10"
+         style="aspect-ratio:9/16;box-shadow:0 24px 70px -12px rgba(0,0,0,0.75)">
         <video x-ref="video" playsinline autoplay
                :muted="muted"
                @click="togglePlay()"
@@ -164,6 +172,7 @@
             fs: false,
             buffering: false,
             _hideT: null,
+            _ambi: null,
 
             init() {
                 document.addEventListener('fullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
@@ -173,7 +182,23 @@
                 const v = parseFloat(localStorage.getItem('nx_volume'));
                 if (!isNaN(v)) this.volume = Math.min(1, Math.max(0, v));
                 if (this.episodes.length) this.load();
+                this.startAmbi();
                 this.poke();
+            },
+
+            // Ambilight: repaint the ambient canvas from the current frame a few times a second. Uses
+            // the already-playing <video> as the source (no extra download); a cross-origin frame just
+            // taints the canvas, which is fine — we only ever display it, never read its pixels.
+            startAmbi() {
+                if (this._ambi) return;
+                const c = this.$refs.ambi;
+                const ctx = c ? c.getContext('2d') : null;
+                if (!ctx) return;
+                this._ambi = setInterval(() => {
+                    const v = this.$refs.video;
+                    if (!v || v.readyState < 2) return;
+                    try { ctx.drawImage(v, 0, 0, c.width, c.height); } catch (e) {}
+                }, 140);
             },
 
             // show controls on activity, auto-hide while playing

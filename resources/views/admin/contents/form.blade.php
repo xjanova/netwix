@@ -206,7 +206,17 @@
             <h3 class="mb-3 text-base font-semibold">การตั้งค่า</h3>
             <div class="grid grid-cols-2 gap-4">
                 <div><label class="mb-1.5 block text-xs text-cream/60">ปี</label><input name="year" type="number" value="{{ $val('year', 2025) }}" class="nx-input"></div>
-                <div><label class="mb-1.5 block text-xs text-cream/60">เรตอายุ</label><input name="maturity" value="{{ $val('maturity', '13+') }}" class="nx-input"></div>
+                <div>
+                    <label class="mb-1.5 block text-xs text-cream/60">เรตอายุ</label>
+                    @php $curMat = $val('maturity', '13+'); $matOpts = \App\Support\Maturity::OPTIONS; @endphp
+                    <select name="maturity" class="nx-input">
+                        @unless (in_array($curMat, $matOpts, true))<option value="{{ $curMat }}" selected>{{ $curMat }}</option>@endunless
+                        @foreach ($matOpts as $mat)
+                            <option value="{{ $mat }}" @selected($curMat === $mat)>{{ $mat }} @if (in_array($mat, \App\Support\Maturity::ADULT, true))· ผู้ใหญ่ + Pro @endif</option>
+                        @endforeach
+                    </select>
+                    <p class="mt-1 text-[11px] leading-tight text-cream/40">18+/20+ = เฉพาะโปรไฟล์ผู้ใหญ่ และต้องเป็นสมาชิก Pro (โปรไฟล์เด็กจะไม่เห็น)</p>
+                </div>
                 <div><label class="mb-1.5 block text-xs text-cream/60">% ตรงใจ</label><input name="match_score" type="number" min="0" max="100" value="{{ $val('match_score', 96) }}" class="nx-input"></div>
                 <div><label class="mb-1.5 block text-xs text-cream/60">คะแนน (0-10)</label><input name="rating" type="number" step="0.1" min="0" max="10" value="{{ $val('rating', 8.5) }}" class="nx-input"></div>
                 <div class="col-span-2"><label class="mb-1.5 block text-xs text-cream/60">ความยาว (นาที) — เฉพาะหนัง</label><input name="duration_minutes" type="number" value="{{ $val('duration_minutes') }}" class="nx-input"></div>

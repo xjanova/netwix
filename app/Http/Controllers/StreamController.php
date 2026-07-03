@@ -23,6 +23,7 @@ class StreamController extends Controller
 
     public function manifest(Episode $episode, SourceRegistry $registry)
     {
+        $this->gateAdult($episode);
         $stream = $this->resolve($episode, $registry);
         if (! $stream || $stream->kind !== RemoteStream::KIND_HLS) {
             abort(404);
@@ -82,6 +83,7 @@ class StreamController extends Controller
 
     public function mp4(Episode $episode, Request $request, SourceRegistry $registry): StreamedResponse
     {
+        $this->gateAdult($episode);
         $stream = $this->resolve($episode, $registry);
         abort_if(! $stream, 404);
 
@@ -111,6 +113,19 @@ class StreamController extends Controller
     }
 
     // ------------------------------------------------------------- helpers
+
+    /**
+     * This proxy is public (guests + the app stream non-adult content without a session). Adult
+     * (18+/20+) titles, however, are Pro-only — so block them here too, or the gate on the web player
+     * and the resolver could be side-stepped by hitting the proxy directly with an episode id.
+     */
+    private function gateAdult(Episode $episode): void
+    {
+        $content = $episode->content;
+        if ($content && $content->requires_pro && ! auth()->user()?->isProMember()) {
+            abort(403);
+        }
+    }
 
     private function resolve(Episode $episode, SourceRegistry $registry): ?RemoteStream
     {

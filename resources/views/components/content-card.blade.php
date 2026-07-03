@@ -100,10 +100,15 @@
                        :class="hv ? '{{ $preview ? 'opacity-100' : 'opacity-90' }}' : 'opacity-0'"></video>
             @endif
 
-            @if ($content->is_original)
-                <span class="nx-gradient absolute left-2 top-2 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest">NETWIX</span>
-            @endif
-            <span class="absolute right-2 top-2 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-semibold">{{ $content->maturity }}</span>
+            <div class="absolute left-2 top-2 z-10 flex flex-col items-start gap-1">
+                @if ($content->is_original)
+                    <span class="nx-gradient rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest">NETWIX</span>
+                @endif
+                @if ($content->requires_pro)
+                    <span class="flex items-center gap-0.5 rounded bg-gradient-to-r from-gold to-[#ffcf5a] px-1.5 py-0.5 text-[9px] font-extrabold tracking-wide text-black shadow" title="ต้องเป็นสมาชิก Pro">👑 PRO</span>
+                @endif
+            </div>
+            <span class="absolute right-2 top-2 z-10 rounded px-1.5 py-0.5 text-[10px] font-semibold {{ $content->is_adult ? 'bg-gold text-black' : 'bg-black/55' }}">{{ $content->maturity }}</span>
 
             {{-- hover action bar --}}
             <div class="absolute inset-x-0 bottom-0 flex translate-y-1 items-center justify-between bg-gradient-to-t from-black/85 to-transparent p-2 opacity-0 transition duration-200 group-hover:translate-y-0 group-hover:opacity-100">

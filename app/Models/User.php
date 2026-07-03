@@ -68,4 +68,10 @@ class User extends Authenticatable
     {
         return $this->role === 'admin';
     }
+
+    /** Pro membership (paid plan or an active time-limited grant). Delegates to the Membership rules. */
+    public function isProMember(): bool
+    {
+        return app(\App\Services\Membership::class)->isPro($this);
+    }
 }

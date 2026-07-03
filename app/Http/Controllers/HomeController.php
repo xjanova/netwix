@@ -18,7 +18,11 @@ class HomeController extends Controller
         }
 
         // Real catalog data powers the logged-out landing (Netflix-style Top 10).
+        // Adult (18+/20+) titles are kept off the public landing — they're for signed-in adults only.
+        $notAdult = fn ($q) => $q->whereNotIn('maturity', \App\Support\Maturity::ADULT);
+
         $trending = Content::published()
+            ->where($notAdult)
             ->rankedByEngagement()
             ->with('genres')
             ->take(10)
@@ -28,6 +32,7 @@ class HomeController extends Controller
         // Posters with real artwork come first; the rest fall back to the
         // deterministic gradient placeholder in the view.
         $marquee = Content::published()
+            ->where($notAdult)
             ->orderByRaw('CASE WHEN poster_path IS NULL THEN 1 ELSE 0 END')
             ->inRandomOrder()
             ->take(24)

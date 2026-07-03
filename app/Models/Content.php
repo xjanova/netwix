@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\MaturityScope;
+use App\Support\Maturity;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -11,6 +13,12 @@ use Illuminate\Support\Facades\Storage;
 
 class Content extends Model
 {
+    protected static function booted(): void
+    {
+        // Kids profiles never see adult (18+/20+) titles, anywhere (listings + direct URL binding).
+        static::addGlobalScope(new MaturityScope);
+    }
+
     protected $fillable = [
         'title', 'slug', 'source', 'source_key', 'type', 'synopsis', 'year', 'maturity',
         'match_score', 'rating', 'is_original', 'is_featured', 'is_published',
@@ -168,6 +176,18 @@ class Content extends Model
     public function getMatchLabelAttribute(): string
     {
         return $this->match_score.'% ตรงใจ';
+    }
+
+    /** Adult rating (18+/20+): adults-only + Pro-gated. */
+    public function getIsAdultAttribute(): bool
+    {
+        return Maturity::isAdult($this->maturity);
+    }
+
+    /** Whether watching this title needs a Pro membership (adult ratings do). */
+    public function getRequiresProAttribute(): bool
+    {
+        return $this->is_adult;
     }
 
     /** Best-effort YouTube id from either the trailer field or a video_url. */

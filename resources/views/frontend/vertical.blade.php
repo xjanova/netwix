@@ -41,9 +41,14 @@
                                         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                                     </span>
                                 </div>
-                                @if ($content->is_original)
-                                    <span class="nx-gradient absolute left-2 top-2 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest">NETWIX</span>
-                                @endif
+                                <div class="absolute left-2 top-2 z-10 flex flex-col items-start gap-1">
+                                    @if ($content->is_original)
+                                        <span class="nx-gradient rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest">NETWIX</span>
+                                    @endif
+                                    @if ($content->requires_pro)
+                                        <span class="flex items-center gap-0.5 rounded bg-gradient-to-r from-gold to-[#ffcf5a] px-1.5 py-0.5 text-[9px] font-extrabold tracking-wide text-black shadow" title="ต้องเป็นสมาชิก Pro">👑 PRO</span>
+                                    @endif
+                                </div>
                                 <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-2.5">
                                     <div class="truncate text-[13px] font-semibold">{{ $content->title }}</div>
                                     <div class="text-[11px] text-cream/60">{{ $content->episodes_count ?? $content->episodes->count() }} ตอน</div>
