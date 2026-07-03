@@ -1,6 +1,15 @@
 @php
     $heroYt = $content->youtube_id;
     $firstSeason = $content->seasons->first();
+
+    // Hero auto-preview: play episode 1's stream in the header. Use the stored
+    // clip when we have it, else resolve one on demand (rongyok/wow-drama). The
+    // server also queues an ep1 download in the background (see TitleController).
+    $previewEp = $content->episodes->first();
+    $previewSrc = $previewEp?->video_url;
+    $previewResolve = ($previewEp && ! $previewSrc && $previewEp->source && $previewEp->source_ref)
+        ? route('episode.source', $previewEp) : null;
+    $hasHeroPreview = $previewSrc || $previewResolve;
 @endphp
 <div x-data="{
         inList: @js($inMyList),
@@ -25,6 +34,29 @@
             <iframe src="https://www.youtube.com/embed/{{ $heroYt }}?autoplay=1&mute=1&loop=1&playlist={{ $heroYt }}&controls=0&modestbranding=1&rel=0&playsinline=1"
                     class="pointer-events-none absolute left-1/2 top-1/2 h-full w-full -translate-x-1/2 -translate-y-1/2 border-0"
                     style="min-width:178%;min-height:178%" allow="autoplay; encrypted-media"></iframe>
+        @elseif ($hasHeroPreview)
+            {{-- no trailer → auto-play episode 1 as the header preview (muted, looping),
+                 streaming the stored clip or an on-demand resolved source. --}}
+            <div class="absolute inset-0" x-data="{
+                    async initHero() {
+                        const v = this.$refs.hero;
+                        if (!v) return;
+                        let url = @js($previewSrc);
+                        @if ($previewResolve)
+                            if (!url) {
+                                try {
+                                    const r = await fetch(@js($previewResolve), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                                    const d = await r.json();
+                                    if (d && d.ready && d.url) url = d.url;
+                                } catch (e) {}
+                            }
+                        @endif
+                        if (url) { window.nxAttachVideo(v, url); v.muted = true; v.play?.().catch(() => {}); }
+                    }
+                }" x-init="initHero()">
+                <video x-ref="hero" muted loop playsinline preload="none" aria-hidden="true"
+                       class="absolute inset-0 h-full w-full object-cover"></video>
+            </div>
         @elseif (! $content->backdrop_url)
             {{-- no trailer and no image → fill with an animated NetWix logo clip --}}
             @include('partials.logo-fill', ['seed' => $content->id])
