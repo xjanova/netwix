@@ -123,6 +123,11 @@
             loading: cfg.hasMedia,
             _stallT: null,
             _poll: null,
+            _url: '',
+            _reloads: 0,
+            _lastT: 0,
+            _stuck: 0,
+            _watch: null,
 
             // loader shows only for a stall that lasts (>700ms) and hides the moment playback resumes
             stall() { clearTimeout(this._stallT); this._stallT = setTimeout(() => { this.loading = true; }, 700); },
@@ -133,9 +138,42 @@
                 document.addEventListener('webkitfullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
                 if (cfg.youtube || !this.$refs.video) return;
                 if (this.episodes.length) this.load();
+                // watch for a mid-episode freeze that never recovers on its own (see watchdog())
+                this._watch = setInterval(() => this.watchdog(), 6000);
             },
 
             stopPoll() { if (this._poll) { clearInterval(this._poll); this._poll = null; } },
+
+            // Fix for the #1 landscape complaint "เล่นแล้วค้างกลางเรื่อง": if playback is supposed to be
+            // running but currentTime hasn't advanced for ~12s (a buffer stall hls.js couldn't nudge
+            // past, with no lower rendition to drop to on single-rendition wowdrama/HLS), hard re-attach
+            // the same source and seek back. Budget of 3 per stuck stretch; refills once frames advance.
+            watchdog() {
+                const v = this.$refs.video;
+                if (!v || v.paused || v.ended || !v.duration) { this._stuck = 0; return; }
+                if (v.currentTime > this._lastT + 0.25) {          // advancing → healthy
+                    this._lastT = v.currentTime; this._stuck = 0; this._reloads = 0; return;
+                }
+                this._stuck++;                                     // not moving while it should be
+                if (this._stuck >= 2 && this._reloads < 3) {       // ~12s genuinely stuck
+                    this._stuck = 0; this._reloads++;
+                    this.hardReload();
+                }
+            },
+            hardReload() {
+                const v = this.$refs.video;
+                if (!v || !this._url) return;
+                const t = v.currentTime || 0;
+                this.stall();                                      // show the connecting loader
+                window.nxAttachVideo(v, this._url);
+                const seekBack = () => {
+                    v.removeEventListener('loadedmetadata', seekBack);
+                    try { if (t > 1 && isFinite(v.duration)) v.currentTime = Math.max(0, t - 1); } catch (e) {}
+                    v.play?.().catch(() => {});
+                };
+                v.addEventListener('loadedmetadata', seekBack);
+                v.play?.().catch(() => {});
+            },
 
             async load() {
                 this.stopPoll();
@@ -164,6 +202,8 @@
                 } catch (e) { return null; }
             },
             attach(url) {
+                this._url = url;
+                this._reloads = 0; this._lastT = 0; this._stuck = 0;   // fresh recovery budget per source
                 this.stall();
                 const v = this.$refs.video;
                 window.nxAttachVideo(v, url);

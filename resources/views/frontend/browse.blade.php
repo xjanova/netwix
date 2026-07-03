@@ -107,54 +107,64 @@
     {{-- Personalised infinite-scroll feed (learns your genres, mixes in the rest,
          positions shuffled per session). Rails below stay as they were. --}}
     @isset($feedSeed)
-        <section class="px-[4vw] pt-6" x-data="recFeed({ seed: {{ $feedSeed }}, url: '{{ route('browse.feed') }}' })" x-init="start()">
-            <div class="mb-3 flex items-center gap-2.5">
-                <span class="nx-gradient h-6 w-1.5 shrink-0 rounded-full" aria-hidden="true"></span>
-                <h2 class="text-lg font-bold sm:text-xl">แนะนำสำหรับคุณ <span class="text-sm font-normal text-cream/40">For You</span></h2>
-            </div>
-            <div class="nx-rail mb-4 pb-1">
+        <section class="pt-6" x-data="recFeed({ seed: {{ $feedSeed }}, url: '{{ route('browse.feed') }}' })" x-init="start()">
+            <h2 class="mb-2 flex items-center gap-2 px-[4vw] text-lg font-semibold sm:text-xl">
+                <span class="nx-gradient h-5 w-1 shrink-0 rounded-full sm:h-6" aria-hidden="true"></span>
+                <span>แนะนำสำหรับคุณ <span class="text-[14px] font-normal text-cream/40">For You</span></span>
+            </h2>
+            <div class="nx-rail mb-3 px-[4vw] pb-1">
                 <button type="button" @click="pick(null)" :class="genre === null ? 'nx-gradient font-semibold' : 'bg-white/5 text-cream/60 hover:text-cream'" class="shrink-0 rounded-full px-4 py-1.5 text-sm transition">ทั้งหมด <span class="opacity-50">All</span></button>
                 @foreach ($feedGenres as $g)
                     <button type="button" @click="pick({{ $g->id }})" :class="genre === {{ $g->id }} ? 'nx-gradient font-semibold' : 'bg-white/5 text-cream/60 hover:text-cream'" class="shrink-0 whitespace-nowrap rounded-full px-4 py-1.5 text-sm transition">{{ $g->name }}@if ($g->name_en)<span class="opacity-50"> {{ $g->name_en }}</span>@endif</button>
                 @endforeach
             </div>
-            <div x-ref="grid" class="flex flex-wrap gap-x-4 gap-y-6"></div>
-            <div x-show="loading" x-cloak class="py-6 text-center text-sm text-cream/50">กำลังโหลด…</div>
-            <div x-show="done && !loading" x-cloak class="py-6 text-center text-sm text-cream/35">— ครบแล้ว —</div>
-            <div x-ref="sentinel" class="h-4"></div>
+
+            {{-- single-row rail like every other row: slide to browse, arrows on hover, and
+                 hovering near an edge glides the row the opposite way (faster the closer to the edge) --}}
+            <div class="group/row relative">
+                <button type="button" @click="scroll(-1)"
+                        class="absolute left-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-r from-ink/80 to-transparent text-2xl opacity-0 transition group-hover/row:opacity-100 lg:flex">‹</button>
+                <div x-ref="rail" class="nx-rail px-[4vw] pb-2" @mousemove="edgeMove($event)" @mouseleave="edgeLeave()" @scroll.passive="onScroll()"></div>
+                <button type="button" @click="scroll(1)"
+                        class="absolute right-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-l from-ink/80 to-transparent text-2xl opacity-0 transition group-hover/row:opacity-100 lg:flex">›</button>
+            </div>
+            <div x-show="loading" x-cloak class="px-[4vw] py-2 text-sm text-cream/50">กำลังโหลด…</div>
+            <div x-show="done && !loading" x-cloak class="px-[4vw] py-2 text-sm text-cream/35">— ครบแล้ว —</div>
         </section>
 
         @push('scripts')
         <script>
             function recFeed(cfg) {
                 return {
-                    seed: cfg.seed, url: cfg.url, page: 1, genre: null, loading: false, done: false, io: null,
+                    seed: cfg.seed, url: cfg.url, page: 1, genre: null, loading: false, done: false,
+                    _vel: 0, _raf: null,
                     // Cache what's loaded in this tab session so coming back to browse is instant
                     // (survives clicking a title and pressing Back) — keyed per genre filter.
                     ckey() { return 'nxfeed:' + (this.genre ?? 'all'); },
                     cache() {
                         try {
-                            const html = this.$refs.grid.innerHTML;
+                            const html = this.$refs.rail.innerHTML;
                             if (html.length < 2000000) sessionStorage.setItem(this.ckey(), JSON.stringify({ seed: this.seed, page: this.page, done: this.done, html }));
                         } catch (e) {}
                     },
                     restore() {
                         try {
                             const c = JSON.parse(sessionStorage.getItem(this.ckey()) || 'null');
-                            if (c && c.html) { this.seed = c.seed; this.page = c.page; this.done = c.done; this.$refs.grid.innerHTML = c.html; return true; }
+                            if (c && c.html) { this.seed = c.seed; this.page = c.page; this.done = c.done; this.$refs.rail.innerHTML = c.html; return true; }
                         } catch (e) {}
                         return false;
                     },
                     start() {
                         if (!this.restore()) this.load();
-                        this.io = new IntersectionObserver((e) => { if (e[0].isIntersecting) this.load(); }, { rootMargin: '700px' });
-                        this.io.observe(this.$refs.sentinel);
+                        else this.$nextTick(() => this.fill());
                     },
                     pick(g) {
                         if (this.genre === g) return;
                         this.genre = g; this.page = 1; this.done = false;
-                        this.$refs.grid.innerHTML = '';
+                        this.$refs.rail.scrollLeft = 0;
+                        this.$refs.rail.innerHTML = '';
                         if (!this.restore()) this.load();
+                        else this.$nextTick(() => this.fill());
                     },
                     async load() {
                         if (this.loading || this.done) return;
@@ -166,12 +176,49 @@
                             if (this.genre) u.searchParams.set('genre', this.genre);
                             const r = await fetch(u, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
                             const d = await r.json();
-                            this.$refs.grid.insertAdjacentHTML('beforeend', d.html);
+                            this.$refs.rail.insertAdjacentHTML('beforeend', d.html);
                             this.page = d.next; this.done = d.done;
                             this.cache();
                         } catch (e) { /* keep the feed alive on a transient error */ } finally {
                             this.loading = false;
+                            this.$nextTick(() => this.fill());
                         }
+                    },
+                    // Keep pulling pages until the row actually overflows (so a single row is never a
+                    // near-empty stub), then rely on horizontal scroll to fetch the rest.
+                    fill() {
+                        const r = this.$refs.rail;
+                        if (!r || this.loading || this.done) return;
+                        if (r.scrollWidth <= r.clientWidth + 240) this.load();
+                    },
+                    // Load the next page as the viewer nears the right end (via drag, wheel, or edge-glide).
+                    onScroll() {
+                        const r = this.$refs.rail;
+                        if (r && r.scrollLeft + r.clientWidth >= r.scrollWidth - 800) this.load();
+                    },
+
+                    // --- rail controls (same behaviour as the shared nxRail component) ---
+                    scroll(dir) {
+                        const r = this.$refs.rail;
+                        if (r) r.scrollBy({ left: dir * r.clientWidth * 0.85, behavior: 'smooth' });
+                    },
+                    edgeMove(e) {
+                        if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return; // desktop only
+                        const r = this.$refs.rail.getBoundingClientRect();
+                        const frac = (e.clientX - r.left) / r.width;
+                        const zone = 0.16;
+                        let v = 0;
+                        if (frac < zone) v = -(1 - frac / zone);
+                        else if (frac > 1 - zone) v = (frac - (1 - zone)) / zone;
+                        this._vel = Math.max(-1, Math.min(1, v));
+                        if (this._vel && !this._raf) this._loop();
+                    },
+                    edgeLeave() { this._vel = 0; },
+                    _loop() {
+                        this._raf = requestAnimationFrame(() => {
+                            if (this._vel && this.$refs.rail) { this.$refs.rail.scrollLeft += this._vel * 26; this.onScroll(); this._loop(); }
+                            else { this._raf = null; }
+                        });
                     },
                 };
             }
