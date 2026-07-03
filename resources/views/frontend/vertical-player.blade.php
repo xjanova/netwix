@@ -57,10 +57,11 @@
     </div>
 
     <div class="relative h-full max-h-[100dvh] w-auto" style="aspect-ratio:9/16">
-        <video x-ref="video" playsinline autoplay loop
+        <video x-ref="video" playsinline autoplay
                :muted="muted"
                @click="togglePlay()"
                @timeupdate="onTime()"
+               @ended="next()"
                @play="playing = true" @pause="playing = false"
                @waiting="stall()" @stalled="stall()"
                @playing="resume(); maybeCapture()" @canplay="resume()" @loadeddata="resume()" x-on:error="resume()"

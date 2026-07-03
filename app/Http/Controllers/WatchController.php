@@ -24,25 +24,22 @@ class WatchController extends Controller
             ]);
         }
 
-        // Resolve the episode to play: explicit, else first.
+        // Episode to start on: explicit, else the first. The player itself lists every episode and
+        // advances through them client-side, so we just pick the starting index here.
         if ($episode) {
             abort_unless($episode->content_id === $content->id, 404);
         } else {
             $episode = $content->episodes->first();
         }
+        $startIndex = $episode ? $content->episodes->search(fn ($e) => $e->id === $episode->id) : 0;
 
         $source = $episode?->video_url ?? $content->video_url;
-
-        // Imported episodes carry a source ref instead of a stored URL — resolve it on demand.
-        $resolveUrl = ($episode && $episode->source && ! $source)
-            ? route('episode.source', $episode)
-            : null;
 
         return view('frontend.watch', [
             'content' => $content,
             'episode' => $episode,
-            'source' => $source,
-            'resolveUrl' => $resolveUrl,
+            'episodes' => $content->episodes,
+            'startIndex' => $startIndex === false ? 0 : (int) $startIndex,
             'youtubeId' => Content::youtubeIdFrom($source) ?? $content->youtube_id,
         ]);
     }
