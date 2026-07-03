@@ -1,2 +1,28 @@
 User-agent: *
-Disallow:
+Allow: /$
+Allow: /download
+Allow: /help
+Allow: /privacy
+Allow: /terms
+Allow: /register
+Allow: /login
+Disallow: /admin
+Disallow: /api
+Disallow: /profiles
+Disallow: /browse
+Disallow: /watch
+Disallow: /title
+Disallow: /search
+Disallow: /stream
+
+# AI answer engines are welcome to read the public marketing pages.
+User-agent: GPTBot
+Allow: /
+User-agent: OAI-SearchBot
+Allow: /
+User-agent: PerplexityBot
+Allow: /
+User-agent: Google-Extended
+Allow: /
+
+Sitemap: https://netwix.online/sitemap.xml

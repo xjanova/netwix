@@ -1,5 +1,6 @@
 @extends('layouts.guest')
 @section('title', 'ดูหนัง ซีรีส์ และซีรีส์แนวตั้งไม่จำกัด')
+@section('meta_description', 'ดูหนัง ซีรีส์ และซีรีส์แนวตั้งออนไลน์ที่ NetWix สตรีมไม่จำกัด เริ่มต้น 99 บาท/เดือน สมัครง่าย ยกเลิกได้ทุกเมื่อ รับชมได้ทั้งมือถือ แท็บเล็ต และทีวี')
 
 @section('content')
 <div class="bg-ink text-cream">

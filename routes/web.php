@@ -20,6 +20,9 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', [HomeController::class, 'index'])->name('home');
 
+// ---- SEO ---------------------------------------------------------------
+Route::get('/sitemap.xml', \App\Http\Controllers\SitemapController::class)->name('sitemap');
+
 // ---- Public info pages (guests + members) ------------------------------
 Route::get('/download', [PageController::class, 'download'])->name('download');
 Route::get('/help', [PageController::class, 'help'])->name('help');
