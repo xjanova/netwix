@@ -133,10 +133,14 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::delete('debug', [Admin\DebugLogController::class, 'clear'])->name('debug.clear');
 
     // Batch episode-cover generation (ffmpeg → WebP), with a live progress bar.
+    // fpm can't run ffmpeg, so the page enqueues GenerateEpisodeThumb jobs onto
+    // the `thumbs` queue (drained by the scheduled CLI worker) and polls progress.
     Route::get('thumbs', [Admin\ThumbController::class, 'index'])->name('thumbs.index');
     Route::get('thumbs/search', [Admin\ThumbController::class, 'search'])->name('thumbs.search');
-    Route::post('thumbs/count', [Admin\ThumbController::class, 'count'])->name('thumbs.count');
-    Route::post('thumbs/run', [Admin\ThumbController::class, 'run'])->name('thumbs.run');
+    Route::post('thumbs/begin', [Admin\ThumbController::class, 'begin'])->name('thumbs.begin');
+    Route::post('thumbs/enqueue', [Admin\ThumbController::class, 'enqueue'])->name('thumbs.enqueue');
+    Route::get('thumbs/progress', [Admin\ThumbController::class, 'progress'])->name('thumbs.progress');
+    Route::post('thumbs/stop', [Admin\ThumbController::class, 'stop'])->name('thumbs.stop');
 
     Route::get('import', [Admin\ImportController::class, 'index'])->name('import.index');
     Route::post('import/sync', [Admin\ImportController::class, 'sync'])->name('import.sync');

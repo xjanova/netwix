@@ -53,7 +53,7 @@
 
         <label class="flex items-center gap-2.5">
             <input type="radio" value="all" x-model="scope" class="h-4 w-4 accent-brand"> ทั้งเว็บ
-            <span class="text-[12px] text-cream/40">(ตอนเยอะมาก ใช้เวลานาน — พัก/หยุดได้)</span>
+            <span class="text-[12px] text-cream/40">(ตอนเยอะมาก ใช้เวลานาน — หยุดได้)</span>
         </label>
 
         <label class="flex items-center gap-2.5 pt-1">
@@ -62,15 +62,17 @@
         </label>
     </div>
 
+    {{-- How it works (queue) --}}
+    <p class="mt-4 rounded-lg border border-white/5 bg-white/[0.02] px-3.5 py-2.5 text-[12px] leading-relaxed text-cream/45">
+        ระบบจะส่งงานเข้าคิวแล้วให้เซิร์ฟเวอร์ทยอยสร้างปกในเบื้องหลัง (ffmpeg ทำงานฝั่ง CLI) —
+        ปกจะค่อย ๆ ขึ้นตามแถบด้านล่าง ปิดหน้านี้แล้วงานก็ยังทำต่อได้
+    </p>
+
     {{-- Controls --}}
     <div class="mt-5 flex flex-wrap items-center gap-2.5">
         <button @click="start()" :disabled="running || (scope==='title' && !contentId)"
                 class="nx-gradient rounded-lg px-5 py-2.5 text-sm font-semibold disabled:opacity-40"
                 style="box-shadow:0 8px 22px rgba(176,38,255,0.32)">เริ่มสร้างปก</button>
-        <button x-show="running" @click="paused = !paused" x-cloak
-                class="rounded-lg border border-white/15 px-4 py-2.5 text-sm hover:bg-white/5">
-            <span x-text="paused ? '▶ ทำต่อ' : '⏸ พัก'"></span>
-        </button>
         <button x-show="running" @click="stop()" x-cloak
                 class="rounded-lg bg-[#e5484d]/15 px-4 py-2.5 text-sm text-[#ff6b81] hover:bg-[#e5484d]/25">■ หยุด</button>
     </div>
@@ -83,7 +85,7 @@
         <div class="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-cream/60">
             <span class="font-semibold" x-text="phaseText"></span>
             <span>· <b x-text="processed"></b> / <span x-text="total"></span> (<span x-text="pct"></span>%)</span>
-            <span>· สำเร็จ <span class="text-success" x-text="done"></span></span>
+            <span>· สำเร็จ <span class="text-success" x-text="processed - failed"></span></span>
             <span>· พลาด <span class="text-[#ff6b81]" x-text="failed"></span></span>
         </div>
 
@@ -107,13 +109,13 @@ function thumbGen() {
         scope: 'title', genreId: '{{ $genres->first()->id ?? '' }}',
         titleQ: '', titleResults: [], contentId: null, contentLabel: '',
         skipExisting: true,
-        running: false, paused: false, stopped: false, phase: 'idle',
-        total: 0, processed: 0, done: 0, failed: 0, after: 0, log: [],
+        running: false, stopped: false, phase: 'idle', batch: null,
+        total: 0, processed: 0, failed: 0, after: 0, log: [],
 
         get force() { return !this.skipExisting; },
         get pct() { return this.total ? Math.min(100, Math.round(this.processed / this.total * 100)) : 0; },
         get phaseText() {
-            return { counting: 'กำลังนับตอน…', running: 'กำลังสร้าง…', paused: '⏸ พักอยู่',
+            return { counting: 'กำลังนับตอน…', queuing: 'กำลังส่งเข้าคิว…', running: 'กำลังสร้างปก…',
                      done: '✅ เสร็จแล้ว', stopped: '■ หยุดแล้ว' }[this.phase] || '';
         },
 
@@ -136,39 +138,57 @@ function thumbGen() {
         clearTitle() { this.contentId = null; this.contentLabel = ''; this.titleQ = ''; },
         reasonText(r) {
             return { no_source: 'แหล่งวิดีโอหมดอายุ/ไม่พร้อม', download_failed: 'ดาวน์โหลดไม่ได้',
-                     ffmpeg_failed: 'แปลงภาพไม่ได้', error: 'ผิดพลาด' }[r] || r;
+                     ffmpeg_failed: 'แปลงภาพไม่ได้', stopped: 'หยุดแล้ว', error: 'ผิดพลาด' }[r] || r;
         },
 
         async start() {
             if (this.running) return;
-            this.running = true; this.paused = false; this.stopped = false;
-            this.processed = 0; this.done = 0; this.failed = 0; this.after = 0; this.log = [];
-            this.phase = 'counting';
-            try { const c = await this.post('{{ route('admin.thumbs.count') }}', this.scopeBody()); this.total = c.total || 0; }
-            catch (e) { this.total = 0; }
-            this.phase = 'running';
+            this.running = true; this.stopped = false;
+            this.processed = 0; this.failed = 0; this.after = 0; this.log = []; this.batch = null;
 
+            // 1) Open the batch (snapshot the denominator).
+            this.phase = 'counting';
+            let begin;
+            try { begin = await this.post('{{ route('admin.thumbs.begin') }}', this.scopeBody()); }
+            catch (e) { this.phase = 'idle'; this.running = false; return; }
+            this.batch = begin.batch; this.total = begin.total || 0;
+            if (!this.total) { this.phase = 'done'; this.running = false; return; }
+
+            // 2) Enqueue every episode in the scope (fast — just DB inserts).
+            this.phase = 'queuing';
             while (!this.stopped) {
-                while (this.paused && !this.stopped) { this.phase = 'paused'; await sleep(300); }
-                if (this.stopped) break;
-                this.phase = 'running';
                 let res;
-                try { res = await this.post('{{ route('admin.thumbs.run') }}', this.scopeBody({ after_id: this.after })); }
+                try { res = await this.post('{{ route('admin.thumbs.enqueue') }}', this.scopeBody({ batch: this.batch, after_id: this.after })); }
                 catch (e) { await sleep(1500); continue; }
-                const items = res.items || [];
-                if (!items.length) break; // finished
-                for (const it of items) {
-                    this.processed++; it.ok ? this.done++ : this.failed++;
-                    const why = it.ok ? '' : ' — ' + this.reasonText(it.reason);
-                    this.log.unshift({ ok: it.ok, text: `${it.title} · ตอน ${it.number}${why}` });
-                }
-                if (this.log.length > 60) this.log.length = 60;
                 this.after = res.next_after;
+                if (res.done) break;
+            }
+
+            // 3) Poll progress while the CLI worker drains the queue.
+            this.phase = 'running';
+            let lastText = '';
+            while (!this.stopped) {
+                let p;
+                try { p = await this.req('{{ route('admin.thumbs.progress') }}?batch=' + this.batch, {}); }
+                catch (e) { await sleep(2000); continue; }
+                this.processed = p.processed || 0;
+                this.failed = p.failed || 0;
+                if (p.last && p.last.text && p.last.text !== lastText) {
+                    lastText = p.last.text;
+                    const why = p.last.ok ? '' : ' — ' + this.reasonText(p.last.reason);
+                    this.log.unshift({ ok: p.last.ok, text: p.last.text + why });
+                    if (this.log.length > 60) this.log.length = 60;
+                }
+                if (this.processed >= this.total) break;
+                await sleep(2000);
             }
             this.phase = this.stopped ? 'stopped' : 'done';
-            this.running = false; this.paused = false;
+            this.running = false;
         },
-        stop() { this.stopped = true; this.paused = false; },
+        stop() {
+            this.stopped = true;
+            if (this.batch) { try { this.post('{{ route('admin.thumbs.stop') }}', { batch: this.batch }); } catch (e) {} }
+        },
     };
 }
 </script>

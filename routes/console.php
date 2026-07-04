@@ -26,3 +26,12 @@ Schedule::command('netwix:previews --limit=40')
 // Drains DownloadPreviewJob (queued when a viewer opens an un-mirrored title).
 Schedule::command('queue:work --stop-when-empty --max-time=55')
     ->everyMinute()->withoutOverlapping();
+
+// Dedicated worker for the admin "สร้างปกตอน" cover generation (GenerateEpisodeThumb).
+// It lives on its OWN queue so heavy download+ffmpeg work never delays the
+// user-facing preview downloads on the default queue. Crucially this runs in
+// CLI (proc_open enabled) — php-fpm has proc_open/exec DISABLED, so ffmpeg can
+// only be spawned here, not in the admin web request. runInBackground() lets it
+// run alongside the default worker within the same scheduler minute.
+Schedule::command('queue:work --queue=thumbs --stop-when-empty --max-time=50 --timeout=150 --memory=256 --tries=2')
+    ->everyMinute()->withoutOverlapping()->runInBackground();

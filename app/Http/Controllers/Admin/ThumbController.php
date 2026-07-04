@@ -3,25 +3,29 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\GenerateEpisodeThumb;
 use App\Models\Content;
 use App\Models\Episode;
 use App\Models\Genre;
-use App\Support\EpisodeThumbnailer;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 /**
- * Batch episode-cover generation with a live progress bar. The catalogue has
- * 240k+ episodes, so we DON'T ship ids to the browser: the client just walks a
- * server-side cursor (id > after) a couple at a time, so it can show a live log,
- * a moving count, and pause/stop — and the covers land as WebP via
- * [EpisodeThumbnailer] (download-then-ffmpeg, no queue worker needed).
+ * Batch episode-cover generation with a live progress bar.
+ *
+ * ffmpeg CANNOT run in this (php-fpm) request — proc_open/exec are disabled for
+ * the web SAPI. So we don't generate here: we DISPATCH one [GenerateEpisodeThumb]
+ * per episode onto the `thumbs` queue, which the scheduled CLI worker drains
+ * (where ffmpeg works). The browser walks a server-side cursor to enqueue in
+ * chunks, then polls a per-batch cache counter for progress + the current title.
  */
 class ThumbController extends Controller
 {
-    private const BATCH = 2; // episodes generated per request (each ~10-15s)
+    private const CHUNK = 400; // episodes enqueued per request (just DB inserts — fast)
 
     public function index(): View
     {
@@ -49,44 +53,67 @@ class ThumbController extends Controller
         return response()->json(['items' => $items]);
     }
 
-    /** How many episodes the chosen scope will process (the progress denominator). */
-    public function count(Request $request): JsonResponse
+    /** Open a batch: snapshot the denominator + reset the progress counters. */
+    public function begin(Request $request): JsonResponse
     {
-        return response()->json(['total' => $this->scoped($request)->count()]);
+        $total = $this->scoped($request)->count();
+        $batch = 'g'.Str::random(10);
+        $ttl = now()->addHours(6);
+
+        Cache::put("thumbs:{$batch}:total", $total, $ttl);
+        Cache::put("thumbs:{$batch}:proc", 0, $ttl);
+        Cache::put("thumbs:{$batch}:fail", 0, $ttl);
+        Cache::forget("thumbs:{$batch}:stop");
+
+        return response()->json(['batch' => $batch, 'total' => $total]);
     }
 
-    /** Generate the next BATCH episodes after the cursor; returns per-episode results. */
-    public function run(Request $request, EpisodeThumbnailer $thumbnailer): JsonResponse
+    /** Dispatch the next CHUNK of episodes (after the cursor) onto the thumbs queue. */
+    public function enqueue(Request $request): JsonResponse
     {
-        @set_time_limit(0);
         $after = (int) $request->input('after_id', 0);
         $force = $request->boolean('force');
+        $batch = (string) $request->input('batch');
 
         $episodes = $this->scoped($request)
             ->where('episodes.id', '>', $after)
             ->orderBy('episodes.id')
-            ->with('content:id,title')
-            ->take(self::BATCH)
-            ->get();
+            ->take(self::CHUNK)
+            ->get(['episodes.id']);
 
-        $items = [];
-        $next = $after;
-        foreach ($episodes as $i => $ep) {
-            if ($i > 0) {
-                usleep(400_000); // be gentle on the CDN between big downloads
-            }
-            $status = $thumbnailer->generate($ep, $force);
-            $items[] = [
-                'id' => $ep->id,
-                'title' => $ep->content?->title ?? '—',
-                'number' => (int) $ep->number,
-                'ok' => in_array($status, ['ok', 'exists'], true),
-                'reason' => $status,
-            ];
-            $next = $ep->id;
+        foreach ($episodes as $ep) {
+            GenerateEpisodeThumb::dispatch($ep->id, $force, $batch)->onQueue('thumbs');
         }
 
-        return response()->json(['items' => $items, 'next_after' => $next, 'done' => count($items) > 0]);
+        return response()->json([
+            'queued' => $episodes->count(),
+            'next_after' => $episodes->last()?->id ?? $after,
+            'done' => $episodes->count() < self::CHUNK, // last (short) chunk
+        ]);
+    }
+
+    /** Poll batch progress — works for skip-existing AND force/regenerate runs. */
+    public function progress(Request $request): JsonResponse
+    {
+        $batch = (string) $request->query('batch', (string) $request->input('batch'));
+
+        return response()->json([
+            'total' => (int) Cache::get("thumbs:{$batch}:total", 0),
+            'processed' => (int) Cache::get("thumbs:{$batch}:proc", 0),
+            'failed' => (int) Cache::get("thumbs:{$batch}:fail", 0),
+            'last' => Cache::get("thumbs:{$batch}:last"),
+        ]);
+    }
+
+    /** Hard-stop: queued-but-unprocessed jobs skip their work on pickup. */
+    public function stop(Request $request): JsonResponse
+    {
+        $batch = (string) $request->input('batch');
+        if ($batch !== '') {
+            Cache::put("thumbs:{$batch}:stop", true, now()->addHours(6));
+        }
+
+        return response()->json(['ok' => true]);
     }
 
     /** Episodes matching the requested scope (+ "skip existing" unless force). */
