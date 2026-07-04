@@ -24,6 +24,7 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
     Route::get('home', [CatalogController::class, 'home']);
     Route::get('titles', [CatalogController::class, 'titles']);
     Route::get('titles/{slug}', [CatalogController::class, 'show']);
+    Route::get('genres', [CatalogController::class, 'genres']);
     Route::get('search', [CatalogController::class, 'search']);
     Route::get('episodes/{episode}/source', [SourceController::class, 'source']);
 

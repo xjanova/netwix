@@ -21,31 +21,49 @@ class CatalogController extends Controller
         return response()->json(['success' => true, 'data' => $data], $status);
     }
 
-    /** GET /api/app/home — hero + rails (public). */
+    /** GET /api/app/home — hero + rails (public). Mirrors the web BrowseController:
+     * anime/cartoon is kept out of the hero and the genre rails (it has its own
+     * rail + Anime category) so it doesn't bleed into everything. */
     public function home(): JsonResponse
     {
-        $hero = Content::published()->where('is_featured', true)
+        $animeIds = $this->animeGenreIds();
+        $notAnime = fn ($q) => $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', $animeIds));
+
+        $hero = Content::published()->where('is_featured', true)->where($notAnime)
             ->with('genres')->withCount('episodes')->inRandomOrder()->first()
-            ?? Content::published()->with('genres')->withCount('episodes')->latest()->first();
+            ?? Content::published()->where($notAnime)->with('genres')->withCount('episodes')->latest()->first();
 
         $rails = [];
 
-        $originals = Content::published()->where('is_original', true)
+        $originals = Content::published()->where('is_original', true)->where($notAnime)
             ->with('genres')->withCount('episodes')->latest()->take(14)->get();
         if ($originals->isNotEmpty()) {
             $rails[] = ['key' => 'originals', 'title' => 'NETWIX Originals', 'ranked' => false,
                 'items' => ContentResource::collection($originals)];
         }
 
-        $trending = Content::published()->with('genres')->withCount('episodes')
+        $trending = Content::published()->where($notAnime)->with('genres')->withCount('episodes')
             ->orderByDesc('views')->take(10)->get();
         if ($trending->isNotEmpty()) {
             $rails[] = ['key' => 'trending', 'title' => 'มาแรงตอนนี้', 'ranked' => true,
                 'items' => ContentResource::collection($trending)];
         }
 
-        foreach (Genre::orderBy('sort')->get() as $genre) {
-            $items = Content::published()->whereHas('genres', fn ($q) => $q->whereKey($genre->id))
+        // Dedicated anime/cartoon rail (its own bucket, like the web /anime page).
+        if ($animeIds !== []) {
+            $anime = Content::published()
+                ->whereHas('genres', fn ($q) => $q->whereIn('genres.id', $animeIds))
+                ->with('genres')->withCount('episodes')->orderByDesc('views')->take(14)->get();
+            if ($anime->isNotEmpty()) {
+                $rails[] = ['key' => 'anime', 'title' => 'อนิเมะ & การ์ตูน', 'ranked' => false,
+                    'items' => ContentResource::collection($anime)];
+            }
+        }
+
+        // Per-genre rails — anime genres excluded (umbrella + bleed-through).
+        foreach (Genre::orderBy('sort')->whereNotIn('id', $animeIds ?: [0])->get() as $genre) {
+            $items = Content::published()->where($notAnime)
+                ->whereHas('genres', fn ($q) => $q->whereKey($genre->id))
                 ->with('genres')->withCount('episodes')->latest()->take(14)->get();
             if ($items->count() >= 3) {
                 $rails[] = ['key' => 'genre:'.$genre->slug, 'title' => $genre->name, 'ranked' => false,
@@ -59,15 +77,31 @@ class CatalogController extends Controller
         ]);
     }
 
-    /** GET /api/app/titles?type=series|movie|vertical&page=N&per=24 */
+    /**
+     * GET /api/app/titles?type=series|movie|vertical&genre=<slug>&anime=1&page=N&per=24
+     *
+     * `type` narrows the media type; `genre` narrows to one genre (by slug);
+     * `anime=1` returns the anime/cartoon bucket. When neither `genre` nor
+     * `anime` is set, anime is EXCLUDED (mirrors the web browse — anime lives in
+     * its own bucket so it doesn't flood the general lists).
+     */
     public function titles(Request $request): JsonResponse
     {
         $type = $request->query('type');
         $per = (int) min(48, max(6, (int) $request->query('per', 24)));
+        $animeIds = $this->animeGenreIds();
 
         $q = Content::published()->with('genres')->withCount('episodes')->latest();
         if (in_array($type, ['series', 'movie', 'vertical'], true)) {
             $q->where('type', $type);
+        }
+
+        if ($request->boolean('anime')) {
+            $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $animeIds ?: [0]));
+        } elseif ($slug = $request->query('genre')) {
+            $q->whereHas('genres', fn ($g) => $g->where('slug', $slug));
+        } elseif ($animeIds !== []) {
+            $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', $animeIds));
         }
 
         $p = $q->paginate($per);
@@ -79,6 +113,27 @@ class CatalogController extends Controller
             'total' => $p->total(),
             'has_more' => $p->hasMorePages(),
         ]);
+    }
+
+    /** GET /api/app/genres — the genre taxonomy for the app's category chips. */
+    public function genres(): JsonResponse
+    {
+        $animeIds = $this->animeGenreIds();
+
+        $items = Genre::orderBy('sort')->get()->map(fn ($g) => [
+            'name' => $g->name,
+            'name_en' => $g->name_en,
+            'slug' => $g->slug,
+            'is_anime' => in_array($g->id, $animeIds, true),
+        ])->values();
+
+        return $this->ok(['items' => $items]);
+    }
+
+    /** @return int[] genre ids for the anime/cartoon bucket (kept off the general lists). */
+    private function animeGenreIds(): array
+    {
+        return Genre::whereIn('name', ['อนิเมะ', 'การ์ตูน'])->pluck('id')->all();
     }
 
     /** GET /api/app/titles/{slug} — detail + episodes + related. */
