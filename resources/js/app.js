@@ -315,6 +315,30 @@ window.heroPreview = (cfg) => ({
         v.muted = this.muted;
         if (!this.muted) v.play?.().catch(() => {});            // unmute is a user gesture → sound OK
     },
+    // Alpine calls this when the element is removed (modal close/replace) — stop + free the video and
+    // disconnect the observer so nothing lingers/buffers in the background.
+    destroy() {
+        if (this._io) { this._io.disconnect(); this._io = null; }
+        const v = this.$refs.hero;
+        if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
+    },
+});
+
+/**
+ * Pause every playing <video> while the tab is hidden and resume them on return. A tab left open in
+ * the background keeps decoding looping previews/players otherwise, and that resource buildup is what
+ * makes the page hang / go blank after a long time. Remembering what was playing keeps it seamless.
+ */
+document.addEventListener('visibilitychange', () => {
+    const hidden = document.hidden;
+    document.querySelectorAll('video').forEach((v) => {
+        if (hidden) {
+            if (!v.paused && !v.ended) { v.dataset.nxResume = '1'; v.pause(); }
+        } else if (v.dataset.nxResume) {
+            delete v.dataset.nxResume;
+            v.play?.().catch(() => {});
+        }
+    });
 });
 
 window.Alpine = Alpine;

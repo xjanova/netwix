@@ -52,6 +52,10 @@
                 close() {
                     this.visible = false;
                     document.body.style.overflow = '';
+                    // tear down the injected content so its hero <video> stops buffering/playing and its
+                    // IntersectionObserver disconnects — otherwise every opened title leaks a background
+                    // video + observer and the tab eventually hangs after a long session.
+                    this.html = '';
                 },
             };
         }
