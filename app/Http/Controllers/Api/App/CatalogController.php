@@ -81,9 +81,10 @@ class CatalogController extends Controller
      * GET /api/app/titles?type=series|movie|vertical&genre=<slug>&anime=1&page=N&per=24
      *
      * `type` narrows the media type; `genre` narrows to one genre (by slug);
-     * `anime=1` returns the anime/cartoon bucket. When neither `genre` nor
-     * `anime` is set, anime is EXCLUDED (mirrors the web browse — anime lives in
-     * its own bucket so it doesn't flood the general lists).
+     * `anime=1` returns the anime/cartoon bucket. With no genre/anime param the
+     * full catalogue is returned (this list also backs the app's offline cache).
+     * Anime stays separated where it matters — the home genre rails and the
+     * dedicated Anime category.
      */
     public function titles(Request $request): JsonResponse
     {
@@ -100,8 +101,6 @@ class CatalogController extends Controller
             $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $animeIds ?: [0]));
         } elseif ($slug = $request->query('genre')) {
             $q->whereHas('genres', fn ($g) => $g->where('slug', $slug));
-        } elseif ($animeIds !== []) {
-            $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', $animeIds));
         }
 
         $p = $q->paginate($per);
