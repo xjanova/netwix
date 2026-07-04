@@ -109,7 +109,7 @@ function thumbGen() {
         scope: 'title', genreId: '{{ $genres->first()->id ?? '' }}',
         titleQ: '', titleResults: [], contentId: null, contentLabel: '',
         skipExisting: true,
-        running: false, stopped: false, phase: 'idle', batch: null,
+        running: false, stopped: false, phase: 'idle', batch: null, priority: false,
         total: 0, processed: 0, failed: 0, after: 0, log: [],
 
         get force() { return !this.skipExisting; },
@@ -153,12 +153,14 @@ function thumbGen() {
             catch (e) { this.phase = 'idle'; this.running = false; return; }
             this.batch = begin.batch; this.total = begin.total || 0;
             if (!this.total) { this.phase = 'done'; this.running = false; return; }
+            // Small runs get the fast lane so they never queue behind a big backlog.
+            this.priority = this.total <= 500;
 
             // 2) Enqueue every episode in the scope (fast — just DB inserts).
             this.phase = 'queuing';
             while (!this.stopped) {
                 let res;
-                try { res = await this.post('{{ route('admin.thumbs.enqueue') }}', this.scopeBody({ batch: this.batch, after_id: this.after })); }
+                try { res = await this.post('{{ route('admin.thumbs.enqueue') }}', this.scopeBody({ batch: this.batch, after_id: this.after, priority: this.priority })); }
                 catch (e) { await sleep(1500); continue; }
                 this.after = res.next_after;
                 if (res.done) break;

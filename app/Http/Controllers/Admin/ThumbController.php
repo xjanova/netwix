@@ -74,6 +74,8 @@ class ThumbController extends Controller
         $after = (int) $request->input('after_id', 0);
         $force = $request->boolean('force');
         $batch = (string) $request->input('batch');
+        // Small on-demand runs jump ahead of any big bulk backlog (see routes/console.php).
+        $queue = $request->boolean('priority') ? 'thumbs-now' : 'thumbs';
 
         $episodes = $this->scoped($request)
             ->where('episodes.id', '>', $after)
@@ -82,7 +84,7 @@ class ThumbController extends Controller
             ->get(['episodes.id']);
 
         foreach ($episodes as $ep) {
-            GenerateEpisodeThumb::dispatch($ep->id, $force, $batch)->onQueue('thumbs');
+            GenerateEpisodeThumb::dispatch($ep->id, $force, $batch)->onQueue($queue);
         }
 
         return response()->json([
