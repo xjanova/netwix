@@ -31,5 +31,11 @@ class DatabaseSeeder extends Seeder
                 ['name' => $name, 'sort' => $i],
             );
         }
+
+        // Vertical short-drama genres (added 2026-07-04) — explicit slugs so a fresh seed matches
+        // the live catalogue that VerticalGenre guesses into. See App\Support\VerticalGenre.
+        foreach (['ย้อนยุค' => 'period', 'เกิดใหม่ / ทะลุมิติ' => 'rebirth'] as $name => $slug) {
+            Genre::updateOrCreate(['slug' => $slug], ['name' => $name, 'sort' => 50]);
+        }
     }
 }

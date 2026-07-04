@@ -6,6 +6,7 @@ use App\Models\Content;
 use App\Models\Genre;
 use App\Models\SourceTitle;
 use App\Services\Import\Contracts\MediaSource;
+use App\Support\VerticalGenre;
 use Illuminate\Support\Str;
 
 class ImportService
@@ -81,6 +82,7 @@ class ImportService
 
         $this->syncGenres($content, $this->resolveGenreOpts($st, $opts));
         $this->ensureUmbrella($content, $source);
+        $this->ensureVerticalGenre($content, $title);
         $count = $this->importEpisodes($source, $st, $content, $type);
 
         $st->update(['content_id' => $content->id, 'episodes_count' => $count]);
@@ -103,6 +105,21 @@ class ImportService
             ['slug' => Str::slug($name) ?: 'genre-'.Str::lower(Str::random(6)), 'sort' => 99],
         );
         $content->genres()->syncWithoutDetaching([$genre->id]);
+    }
+
+    /**
+     * Vertical short-dramas (rongyok) carry no genre metadata from the source, so if nothing else
+     * assigned one, guess it from the Thai title (keyword match) — otherwise the whole vertical
+     * catalogue lands genre-less. Never overrides a manual/umbrella genre.
+     */
+    private function ensureVerticalGenre(Content $content, string $title): void
+    {
+        if ($content->type !== 'vertical' || $content->genres()->exists()) {
+            return;
+        }
+        if ($gid = VerticalGenre::guessId($title)) {
+            $content->genres()->syncWithoutDetaching([$gid => ['is_primary' => true]]);
+        }
     }
 
     /** Movie titles auto-split to type=movie when auto_type is on; otherwise the chosen/default type. */
