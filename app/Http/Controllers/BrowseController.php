@@ -245,7 +245,7 @@ class BrowseController extends Controller
         $ids = $profile->watchProgress()
             ->whereBetween('percent', [1, 94])
             ->orderByDesc('last_watched_at')
-            ->limit(24)
+            ->limit(20)
             ->pluck('content_id')->all();
         if ($ids === []) {
             return null;

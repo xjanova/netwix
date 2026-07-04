@@ -252,7 +252,9 @@
                 const v = this.$refs.video;
                 if (!v || !v.duration) return;
                 const ep = this.episodes[this.index];
-                const percent = force ?? Math.round((v.currentTime / v.duration) * 100);
+                // floor to 1 while playing so a brief watch of a long title still lands in "ดูต่อ"
+                // (a few seconds of a 2-hour movie used to round to 0% → excluded from continue).
+                const percent = force ?? Math.max(1, Math.round((v.currentTime / v.duration) * 100));
                 nxPost(cfg.progressUrl, {
                     percent: Math.min(100, Math.max(0, percent)),
                     position_seconds: Math.round(v.currentTime),

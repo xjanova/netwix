@@ -5,6 +5,7 @@
 @php
     $eps = $episodes->map(fn ($e) => [
         'n' => $e->number,
+        'id' => $e->id,
         'title' => $e->title,
         'url' => $e->video_url,
         'resolve' => ($e->source && ! $e->video_url) ? route('episode.source', $e) : null,
@@ -17,7 +18,7 @@
 
 @section('content')
 <div
-    x-data="verticalPlayer({ episodes: @js($eps), start: {{ $start }} })"
+    x-data="verticalPlayer({ episodes: @js($eps), start: {{ $start }}, progressUrl: '{{ route('content.progress', $content) }}' })"
     x-init="init()"
     @wheel.prevent="onWheel($event)"
     @touchstart.passive="onTouchStart($event)"
@@ -176,6 +177,7 @@
             buffering: false,
             _hideT: null,
             _ambi: null,
+            _lastSave: 0,
 
             init() {
                 document.addEventListener('fullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
@@ -267,6 +269,24 @@
                 this.dur = v.duration || 0;
                 this.progress = this.dur ? (this.cur / this.dur) * 100 : 0;
                 this.resume();   // frames are advancing → definitely not stalled, hide the loader
+                this.saveProgress();
+            },
+
+            // Remember the short you're watching so it lands in "ดูต่อ" — the vertical player never
+            // recorded progress before, so nothing you watched here was remembered. Throttled ~10s;
+            // percent clamped to 1..94 so an episodic series always reads as in-progress (not 0/done).
+            saveProgress() {
+                const v = this.$refs.video;
+                if (!v || !v.duration || !cfg.progressUrl || !window.nxPost) return;
+                const now = performance.now();
+                if (now - this._lastSave < 10000) return;
+                this._lastSave = now;
+                const ep = this.episodes[this.index];
+                nxPost(cfg.progressUrl, {
+                    percent: Math.min(94, Math.max(1, Math.round((v.currentTime / v.duration) * 100))),
+                    position_seconds: Math.round(v.currentTime),
+                    episode_id: ep && ep.id ? ep.id : null,
+                }).catch(() => {});
             },
 
             // Show the "connecting" loader only for a stall that actually lasts (>700ms), and hide it
