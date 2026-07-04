@@ -13,6 +13,11 @@
 
     // Adult (18+/20+) titles need Pro — swap the play button for an upgrade CTA when the viewer isn't Pro.
     $needsPro = $content->requires_pro && ! auth()->user()?->isProMember();
+
+    // In the pop-up modal, pin the video header and scroll the body inside — so the preview stays
+    // put at the top while you scroll down to pick an episode (owner's request). The full title page
+    // (modal=false) scrolls normally.
+    $isModal = $modal ?? true;
 @endphp
 <div x-data="{
         inList: @js($inMyList),
@@ -23,9 +28,9 @@
             try { this.inList = (await nxPost('{{ route('content.list', $content) }}')).in_list; } finally { this.busy = false; } },
         async toggleLike() { if (this.busy) return; this.busy = true;
             try { this.liked = (await nxPost('{{ route('content.like', $content) }}')).liked; } finally { this.busy = false; } },
-     }">
-    {{-- backdrop --}}
-    <div class="relative aspect-video w-full overflow-hidden bg-black">
+     }" class="{{ $isModal ? 'flex max-h-[86vh] flex-col' : '' }}">
+    {{-- backdrop (pinned at top in the modal; body scrolls below) --}}
+    <div class="relative aspect-video w-full shrink-0 overflow-hidden bg-black">
         {{-- gradient always underneath so the backdrop never shows a black void --}}
         <div class="absolute inset-0" style="background:{{ $content->gradient }}"></div>
         @if ($content->backdrop_url)
@@ -70,7 +75,7 @@
         </div>
     </div>
 
-    <div class="p-6 sm:p-8">
+    <div class="p-6 sm:p-8 {{ $isModal ? 'min-h-0 flex-1 overflow-y-auto' : '' }}">
         <div class="flex flex-wrap items-center gap-3">
             @if ($needsPro)
                 <a href="{{ route('account') }}" class="flex items-center gap-2 rounded-md bg-gradient-to-r from-gold to-[#ffcf5a] px-6 py-2.5 font-bold text-black hover:brightness-95" title="เนื้อหาผู้ใหญ่ — เฉพาะสมาชิก Pro">
