@@ -3,21 +3,26 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Content;
 use App\Models\Episode;
 use App\Models\Genre;
 use App\Support\EpisodeThumbnailer;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 /**
- * Batch episode-cover generation. Admin picks a scope (all / genre / title) and
- * clicks once; the page walks the episode ids in small batches with a progress
- * bar, generating a WebP frame for each via [EpisodeThumbnailer]. No more
- * "capture when someone watches".
+ * Batch episode-cover generation with a live progress bar. The catalogue has
+ * 240k+ episodes, so we DON'T ship ids to the browser: the client just walks a
+ * server-side cursor (id > after) a couple at a time, so it can show a live log,
+ * a moving count, and pause/stop — and the covers land as WebP via
+ * [EpisodeThumbnailer] (download-then-ffmpeg, no queue worker needed).
  */
 class ThumbController extends Controller
 {
+    private const BATCH = 2; // episodes generated per request (each ~10-15s)
+
     public function index(): View
     {
         $published = fn ($q) => $q->where('is_published', true);
@@ -28,53 +33,76 @@ class ThumbController extends Controller
         return view('admin.thumbs.index', compact('total', 'missing', 'genres'));
     }
 
-    /** Resolve the episode ids to process for the chosen scope + mode. */
-    public function scan(Request $request): JsonResponse
+    /** Title autocomplete for the "by title" scope. */
+    public function search(Request $request): JsonResponse
     {
-        $scope = (string) $request->input('scope', 'all');   // all | genre | title
-        $mode = (string) $request->input('mode', 'missing'); // missing | all (force)
+        $term = trim((string) $request->query('q', ''));
+        if (mb_strlen($term) < 1) {
+            return response()->json(['items' => []]);
+        }
 
+        $items = Content::where('title', 'like', "%{$term}%")
+            ->withCount('episodes')->orderByDesc('episodes_count')->take(12)
+            ->get(['id', 'title'])
+            ->map(fn (Content $c) => ['id' => $c->id, 'title' => $c->title, 'episodes' => $c->episodes_count]);
+
+        return response()->json(['items' => $items]);
+    }
+
+    /** How many episodes the chosen scope will process (the progress denominator). */
+    public function count(Request $request): JsonResponse
+    {
+        return response()->json(['total' => $this->scoped($request)->count()]);
+    }
+
+    /** Generate the next BATCH episodes after the cursor; returns per-episode results. */
+    public function run(Request $request, EpisodeThumbnailer $thumbnailer): JsonResponse
+    {
+        @set_time_limit(0);
+        $after = (int) $request->input('after_id', 0);
+        $force = $request->boolean('force');
+
+        $episodes = $this->scoped($request)
+            ->where('episodes.id', '>', $after)
+            ->orderBy('episodes.id')
+            ->with('content:id,title')
+            ->take(self::BATCH)
+            ->get();
+
+        $items = [];
+        $next = $after;
+        foreach ($episodes as $ep) {
+            $ok = $thumbnailer->generate($ep, $force);
+            $items[] = [
+                'id' => $ep->id,
+                'title' => $ep->content?->title ?? '—',
+                'number' => (int) $ep->number,
+                'ok' => $ok,
+            ];
+            $next = $ep->id;
+        }
+
+        return response()->json(['items' => $items, 'next_after' => $next, 'done' => count($items) > 0]);
+    }
+
+    /** Episodes matching the requested scope (+ "skip existing" unless force). */
+    private function scoped(Request $request): Builder
+    {
         $q = Episode::query()
             ->whereNotNull('source_ref')
             ->whereHas('content', fn ($c) => $c->where('is_published', true));
 
-        if ($mode === 'missing') {
-            $q->whereNull('thumbnail_path');
+        if (! $request->boolean('force')) {
+            $q->whereNull('thumbnail_path'); // skip episodes that already have a cover
         }
 
+        $scope = (string) $request->input('scope', 'all');
         if ($scope === 'genre' && $request->filled('genre_id')) {
-            $gid = (int) $request->input('genre_id');
-            $q->whereHas('content.genres', fn ($g) => $g->where('genres.id', $gid));
-        } elseif ($scope === 'title' && $request->filled('q')) {
-            $term = trim((string) $request->input('q'));
-            $q->whereHas('content', fn ($c) => $c->where('title', 'like', "%{$term}%"));
+            $q->whereHas('content.genres', fn ($g) => $g->where('genres.id', (int) $request->input('genre_id')));
+        } elseif ($scope === 'title' && $request->filled('content_id')) {
+            $q->where('content_id', (int) $request->input('content_id'));
         }
 
-        $ids = $q->orderBy('id')->pluck('id')->all();
-
-        return response()->json(['ids' => $ids, 'total' => count($ids)]);
-    }
-
-    /** Generate covers for one small batch of episode ids (client-paced). */
-    public function run(Request $request, EpisodeThumbnailer $thumbnailer): JsonResponse
-    {
-        @set_time_limit(0);
-
-        $ids = array_slice((array) $request->input('ids', []), 0, 6);
-        $force = $request->boolean('force');
-
-        $done = 0;
-        $failed = 0;
-        foreach ($ids as $id) {
-            $episode = Episode::find((int) $id);
-            if (! $episode) {
-                $failed++;
-
-                continue;
-            }
-            $thumbnailer->generate($episode, $force) ? $done++ : $failed++;
-        }
-
-        return response()->json(['done' => $done, 'failed' => $failed]);
+        return $q;
     }
 }

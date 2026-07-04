@@ -1,6 +1,6 @@
 @extends('layouts.admin')
 @section('page-title', 'สร้างปกตอน')
-@section('page-subtitle', 'สร้างภาพปกของแต่ละตอนด้วย ffmpeg (WebP) — เลือกทั้งเว็บ ตามหมวด หรือตามชื่อเรื่อง')
+@section('page-subtitle', 'สร้างภาพปกของแต่ละตอนด้วย ffmpeg (WebP) — เลือกทีละเรื่อง (แนะนำ) ทั้งหมด หรือตามหมวด')
 
 @section('content')
 <div class="nx-card p-5" x-data="thumbGen()">
@@ -16,10 +16,31 @@
         </div>
     </div>
 
+    {{-- Scope --}}
     <div class="space-y-3 text-sm">
         <label class="flex items-center gap-2.5">
-            <input type="radio" value="all" x-model="scope" class="h-4 w-4 accent-brand"> ทั้งเว็บ
+            <input type="radio" value="title" x-model="scope" class="h-4 w-4 accent-brand"> ตามเรื่อง (แนะนำ)
         </label>
+        <div x-show="scope==='title'" class="relative ml-6.5" style="margin-left:1.6rem">
+            <input x-model="titleQ" @input.debounce.300ms="searchTitle()" @focus="searchTitle()"
+                   placeholder="พิมพ์ชื่อเรื่องเพื่อค้นหา…"
+                   class="w-full max-w-md rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream placeholder:text-cream/30">
+            <div x-show="titleResults.length && !contentId" x-cloak
+                 class="absolute z-20 mt-1 w-full max-w-md overflow-hidden rounded-lg border border-white/10 bg-[#141019] shadow-xl">
+                <template x-for="r in titleResults" :key="r.id">
+                    <button type="button" @click="pickTitle(r)"
+                            class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-white/5">
+                        <span class="truncate" x-text="r.title"></span>
+                        <span class="shrink-0 text-[11px] text-cream/40" x-text="r.episodes + ' ตอน'"></span>
+                    </button>
+                </template>
+            </div>
+            <div x-show="contentId" class="mt-2 flex items-center gap-2 text-[13px]">
+                <span class="rounded-full bg-brand/20 px-3 py-1 text-brand-2" x-text="'เลือก: ' + contentLabel"></span>
+                <button type="button" @click="clearTitle()" class="text-cream/40 hover:text-cream">✕ ล้าง</button>
+            </div>
+        </div>
+
         <label class="flex flex-wrap items-center gap-2.5">
             <input type="radio" value="genre" x-model="scope" class="h-4 w-4 accent-brand"> ตามหมวด
             <select x-model="genreId" x-show="scope==='genre'"
@@ -29,75 +50,120 @@
                 @endforeach
             </select>
         </label>
-        <label class="flex flex-wrap items-center gap-2.5">
-            <input type="radio" value="title" x-model="scope" class="h-4 w-4 accent-brand"> ตามชื่อเรื่อง
-            <input x-model="q" x-show="scope==='title'" placeholder="พิมพ์ชื่อเรื่อง…"
-                   class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-cream placeholder:text-cream/30">
+
+        <label class="flex items-center gap-2.5">
+            <input type="radio" value="all" x-model="scope" class="h-4 w-4 accent-brand"> ทั้งเว็บ
+            <span class="text-[12px] text-cream/40">(ตอนเยอะมาก ใช้เวลานาน — พัก/หยุดได้)</span>
         </label>
+
         <label class="flex items-center gap-2.5 pt-1">
-            <input type="checkbox" x-model="force" class="h-4 w-4 accent-brand">
-            ทำใหม่ทับของเดิม <span class="text-cream/40">(ไม่งั้นสร้างเฉพาะตอนที่ยังไม่มีปก)</span>
+            <input type="checkbox" x-model="skipExisting" class="h-4 w-4 accent-brand">
+            ข้ามตอนที่มีปกแล้ว <span class="text-cream/40">(ปิดเพื่อทำใหม่ทับของเดิมทั้งหมด)</span>
         </label>
     </div>
 
-    <button @click="start()" :disabled="running"
-            class="nx-gradient mt-5 rounded-lg px-5 py-2.5 text-sm font-semibold disabled:opacity-50"
-            style="box-shadow:0 8px 22px rgba(176,38,255,0.32)">
-        <span x-show="!running">เริ่มสร้างปก</span>
-        <span x-show="running" x-cloak>กำลังสร้าง…</span>
-    </button>
+    {{-- Controls --}}
+    <div class="mt-5 flex flex-wrap items-center gap-2.5">
+        <button @click="start()" :disabled="running || (scope==='title' && !contentId)"
+                class="nx-gradient rounded-lg px-5 py-2.5 text-sm font-semibold disabled:opacity-40"
+                style="box-shadow:0 8px 22px rgba(176,38,255,0.32)">เริ่มสร้างปก</button>
+        <button x-show="running" @click="paused = !paused" x-cloak
+                class="rounded-lg border border-white/15 px-4 py-2.5 text-sm hover:bg-white/5">
+            <span x-text="paused ? '▶ ทำต่อ' : '⏸ พัก'"></span>
+        </button>
+        <button x-show="running" @click="stop()" x-cloak
+                class="rounded-lg bg-[#e5484d]/15 px-4 py-2.5 text-sm text-[#ff6b81] hover:bg-[#e5484d]/25">■ หยุด</button>
+    </div>
 
+    {{-- Progress --}}
     <div x-show="phase!=='idle'" x-cloak class="mt-6">
         <div class="h-3 w-full overflow-hidden rounded-full bg-white/10">
             <div class="nx-gradient h-full transition-all duration-300" :style="`width:${pct}%`"></div>
         </div>
-        <div class="mt-2.5 text-[13px] text-cream/60">
-            <span x-text="phase==='scanning' ? 'กำลังค้นหาตอน…' : (phase==='done' ? '✅ เสร็จแล้ว' : 'กำลังสร้าง…')"></span>
-            · <span x-text="done+failed"></span>/<span x-text="total"></span>
-            (<span x-text="pct"></span>%)
-            · สำเร็จ <span class="text-success" x-text="done"></span>
-            · พลาด <span class="text-[#ff6b81]" x-text="failed"></span>
+        <div class="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-cream/60">
+            <span class="font-semibold" x-text="phaseText"></span>
+            <span>· <b x-text="processed"></b> / <span x-text="total"></span> (<span x-text="pct"></span>%)</span>
+            <span>· สำเร็จ <span class="text-success" x-text="done"></span></span>
+            <span>· พลาด <span class="text-[#ff6b81]" x-text="failed"></span></span>
         </div>
-        <p x-show="phase==='done'" class="mt-1 text-[12px] text-cream/40">
-            ปกที่พลาดมักเป็นตอนที่แหล่งวิดีโอหมดอายุ/ดึงไม่ได้ชั่วคราว — กดสร้างซ้ำภายหลังได้
-        </p>
+
+        {{-- Live log --}}
+        <div x-show="log.length" class="mt-3 max-h-64 overflow-y-auto rounded-lg border border-white/5 bg-black/25 p-3 font-mono text-[12px] leading-relaxed">
+            <template x-for="(row,i) in log" :key="i">
+                <div :class="row.ok ? 'text-cream/70' : 'text-[#ff6b81]'">
+                    <span x-text="row.ok ? '✓' : '✗'"></span>
+                    <span x-text="row.text"></span>
+                </div>
+            </template>
+        </div>
     </div>
 </div>
 
 <script>
 function thumbGen() {
+    const csrf = '{{ csrf_token() }}';
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     return {
-        scope: 'all', genreId: '{{ $genres->first()->id ?? '' }}', q: '', force: false,
-        running: false, phase: 'idle', total: 0, done: 0, failed: 0,
-        get pct() { return this.total ? Math.round((this.done + this.failed) / this.total * 100) : 0; },
-        async post(url, body) {
-            const r = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
-                body: JSON.stringify(body),
-            });
-            return r.json();
+        scope: 'title', genreId: '{{ $genres->first()->id ?? '' }}',
+        titleQ: '', titleResults: [], contentId: null, contentLabel: '',
+        skipExisting: true,
+        running: false, paused: false, stopped: false, phase: 'idle',
+        total: 0, processed: 0, done: 0, failed: 0, after: 0, log: [],
+
+        get force() { return !this.skipExisting; },
+        get pct() { return this.total ? Math.min(100, Math.round(this.processed / this.total * 100)) : 0; },
+        get phaseText() {
+            return { counting: 'กำลังนับตอน…', running: 'กำลังสร้าง…', paused: '⏸ พักอยู่',
+                     done: '✅ เสร็จแล้ว', stopped: '■ หยุดแล้ว' }[this.phase] || '';
         },
+
+        async req(url, opts) { const r = await fetch(url, opts); return r.json(); },
+        post(url, body) {
+            return this.req(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf }, body: JSON.stringify(body) });
+        },
+        scopeBody(extra = {}) {
+            return { scope: this.scope, genre_id: this.genreId, content_id: this.contentId, force: this.force, ...extra };
+        },
+
+        async searchTitle() {
+            const q = this.titleQ.trim();
+            this.contentId = null;
+            if (!q) { this.titleResults = []; return; }
+            try { const res = await this.req('{{ route('admin.thumbs.search') }}?q=' + encodeURIComponent(q), {}); this.titleResults = res.items || []; }
+            catch (e) { this.titleResults = []; }
+        },
+        pickTitle(r) { this.contentId = r.id; this.contentLabel = r.title + ' (' + r.episodes + ' ตอน)'; this.titleResults = []; },
+        clearTitle() { this.contentId = null; this.contentLabel = ''; this.titleQ = ''; },
+
         async start() {
             if (this.running) return;
-            this.running = true; this.phase = 'scanning'; this.done = 0; this.failed = 0; this.total = 0;
-            let scan;
-            try {
-                scan = await this.post('{{ route('admin.thumbs.scan') }}',
-                    { scope: this.scope, mode: this.force ? 'all' : 'missing', genre_id: this.genreId, q: this.q });
-            } catch (e) { this.phase = 'done'; this.running = false; return; }
-            this.total = scan.total || 0;
-            const ids = scan.ids || [];
+            this.running = true; this.paused = false; this.stopped = false;
+            this.processed = 0; this.done = 0; this.failed = 0; this.after = 0; this.log = [];
+            this.phase = 'counting';
+            try { const c = await this.post('{{ route('admin.thumbs.count') }}', this.scopeBody()); this.total = c.total || 0; }
+            catch (e) { this.total = 0; }
             this.phase = 'running';
-            for (let i = 0; i < ids.length; i += 3) {
-                const batch = ids.slice(i, i + 3);
-                try {
-                    const res = await this.post('{{ route('admin.thumbs.run') }}', { ids: batch, force: this.force });
-                    this.done += (res.done || 0); this.failed += (res.failed || 0);
-                } catch (e) { this.failed += batch.length; }
+
+            while (!this.stopped) {
+                while (this.paused && !this.stopped) { this.phase = 'paused'; await sleep(300); }
+                if (this.stopped) break;
+                this.phase = 'running';
+                let res;
+                try { res = await this.post('{{ route('admin.thumbs.run') }}', this.scopeBody({ after_id: this.after })); }
+                catch (e) { await sleep(1500); continue; }
+                const items = res.items || [];
+                if (!items.length) break; // finished
+                for (const it of items) {
+                    this.processed++; it.ok ? this.done++ : this.failed++;
+                    this.log.unshift({ ok: it.ok, text: `${it.title} · ตอน ${it.number}` });
+                }
+                if (this.log.length > 60) this.log.length = 60;
+                this.after = res.next_after;
             }
-            this.phase = 'done'; this.running = false;
+            this.phase = this.stopped ? 'stopped' : 'done';
+            this.running = false; this.paused = false;
         },
+        stop() { this.stopped = true; this.paused = false; },
     };
 }
 </script>
