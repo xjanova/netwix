@@ -308,7 +308,9 @@ window.heroPreview = (cfg) => ({
         const v = this.$refs.hero;
         this.muted = !this.muted;
         v.muted = this.muted;
-        if (!this.muted) v.play?.().catch(() => {});            // unmute is a user gesture → sound OK
+        // ALWAYS keep it playing — muting must never pause the background clip (that was the bug:
+        // clicking 🔊→🔇 paused the video). play() is safe on an already-playing element.
+        v.play?.().catch(() => {});
     },
     // Alpine calls this when the element is removed (modal close/replace) — stop + free the video so
     // nothing lingers/buffers in the background.
