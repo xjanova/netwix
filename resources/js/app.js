@@ -268,6 +268,55 @@ window.nxCardPreview = (src) => ({
     },
 });
 
+/**
+ * Title-modal header preview (episode-1 clip). Plays WITH sound by default — muted for 18+/20+ —
+ * with a mute/unmute toggle, and FREEZES (pauses) whenever it's scrolled out of view, so it isn't
+ * moving or blaring while you scroll down to pick an episode. Autoplay-with-sound that the browser
+ * blocks falls back to muted so the clip always plays; the toggle (a real gesture) can turn sound on.
+ *   x-data="heroPreview({ src, resolve, adult })" x-init="init()"
+ */
+window.heroPreview = (cfg) => ({
+    muted: !!cfg.adult,        // 18+/20+ → muted by default; everything else starts with sound
+    ready: false,
+    _io: null,
+    async init() {
+        const v = this.$refs.hero;
+        if (!v) return;
+        let url = cfg.src;
+        if (!url && cfg.resolve) {
+            try {
+                const r = await fetch(cfg.resolve, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                const d = await r.json();
+                if (d && d.ready && d.url) url = d.url;
+            } catch (e) {}
+        }
+        if (!url) return;
+        window.nxAttachVideo(v, url);
+        v.muted = this.muted;
+        this.ready = true;
+        this.tryPlay();
+        // pause (freeze the frame + sound) while scrolled out of view — e.g. browsing episodes below
+        this._io = new IntersectionObserver((e) => {
+            if (e[0].isIntersecting && e[0].intersectionRatio >= 0.55) this.tryPlay();
+            else v.pause();
+        }, { threshold: [0, 0.55] });
+        this._io.observe(v);
+    },
+    tryPlay() {
+        const v = this.$refs.hero;
+        const p = v.play?.();
+        if (p && p.catch) p.catch(() => {                       // autoplay-with-sound blocked
+            if (!v.muted) { v.muted = true; this.muted = true; v.play?.().catch(() => {}); }
+        });
+    },
+    toggleMute() {
+        const v = this.$refs.hero;
+        this.muted = !this.muted;
+        v.muted = this.muted;
+        if (!this.muted) v.play?.().catch(() => {});            // unmute is a user gesture → sound OK
+    },
+});
+
 window.Alpine = Alpine;
 Alpine.start();
 

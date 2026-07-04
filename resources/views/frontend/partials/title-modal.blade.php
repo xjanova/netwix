@@ -38,27 +38,18 @@
                     class="pointer-events-none absolute left-1/2 top-1/2 h-full w-full -translate-x-1/2 -translate-y-1/2 border-0"
                     style="min-width:178%;min-height:178%" allow="autoplay; encrypted-media"></iframe>
         @elseif ($hasHeroPreview)
-            {{-- no trailer → auto-play episode 1 as the header preview (muted, looping),
-                 streaming the stored clip or an on-demand resolved source. --}}
-            <div class="absolute inset-0" x-data="{
-                    async initHero() {
-                        const v = this.$refs.hero;
-                        if (!v) return;
-                        let url = @js($previewSrc);
-                        @if ($previewResolve)
-                            if (!url) {
-                                try {
-                                    const r = await fetch(@js($previewResolve), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                                    const d = await r.json();
-                                    if (d && d.ready && d.url) url = d.url;
-                                } catch (e) {}
-                            }
-                        @endif
-                        if (url) { window.nxAttachVideo(v, url); v.muted = true; v.play?.().catch(() => {}); }
-                    }
-                }" x-init="initHero()">
-                <video x-ref="hero" muted loop playsinline preload="none" aria-hidden="true"
+            {{-- auto-play episode 1 as the header preview WITH sound (muted for 18+/20+); a mute
+                 toggle, and it freezes when scrolled out of view (while picking an episode below). --}}
+            <div class="absolute inset-0"
+                 x-data="heroPreview({ src: @js($previewSrc), resolve: @js($previewResolve), adult: @js((bool) $content->is_adult) })"
+                 x-init="init()">
+                <video x-ref="hero" loop playsinline preload="none"
                        class="absolute inset-0 h-full w-full object-cover"></video>
+                <button type="button" @click.stop="toggleMute()" x-show="ready" x-cloak
+                        class="absolute bottom-4 right-4 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-lg backdrop-blur transition hover:bg-black/80"
+                        :title="muted ? 'เปิดเสียง' : 'ปิดเสียง'" :aria-label="muted ? 'เปิดเสียง' : 'ปิดเสียง'">
+                    <span x-text="muted ? '🔇' : '🔊'"></span>
+                </button>
             </div>
         @elseif (! $content->backdrop_url)
             {{-- no trailer and no image → fill with an animated NetWix logo clip --}}
