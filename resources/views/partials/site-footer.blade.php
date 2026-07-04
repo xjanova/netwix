@@ -6,8 +6,13 @@
             <div class="flex flex-col gap-2.5">
                 <span class="mb-1 text-[11px] font-semibold uppercase tracking-wider text-cream/35">NetWix</span>
                 <a href="{{ route('home') }}" class="hover:text-cream">หน้าแรก</a>
-                <a href="{{ route('login') }}" class="hover:text-cream">เข้าสู่ระบบ</a>
-                <a href="{{ route('register') }}" class="hover:text-cream">สมัครสมาชิก</a>
+                @guest
+                    <a href="{{ route('login') }}" class="hover:text-cream">เข้าสู่ระบบ</a>
+                    <a href="{{ route('register') }}" class="hover:text-cream">สมัครสมาชิก</a>
+                @else
+                    <a href="{{ route('browse') }}" class="hover:text-cream">เข้าชมคลังหนัง</a>
+                    <a href="{{ route('account') }}" class="hover:text-cream">บัญชีของฉัน</a>
+                @endguest
             </div>
             <div class="flex flex-col gap-2.5">
                 <span class="mb-1 text-[11px] font-semibold uppercase tracking-wider text-cream/35">แอปและอุปกรณ์</span>

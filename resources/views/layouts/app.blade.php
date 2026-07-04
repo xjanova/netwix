@@ -10,7 +10,7 @@
         @yield('content')
     </main>
 
-    @include('partials.footer')
+    @include('partials.site-footer')
 
     {{-- Title detail modal host --}}
     <div
