@@ -107,6 +107,9 @@
                 @if ($content->requires_pro)
                     <span class="flex items-center gap-0.5 rounded bg-gradient-to-r from-gold to-[#ffcf5a] px-1.5 py-0.5 text-[9px] font-extrabold tracking-wide text-black shadow" title="ต้องเป็นสมาชิก Pro">👑 PRO</span>
                 @endif
+                @if ($content->dub_label)
+                    <span class="rounded px-1.5 py-0.5 text-[9px] font-bold {{ $content->dub_type === 'thai_dub' ? 'bg-emerald-500/90 text-black' : 'bg-sky-500/90 text-black' }}">{{ $content->dub_label }}</span>
+                @endif
             </div>
             <span class="absolute right-2 top-2 z-10 rounded px-1.5 py-0.5 text-[10px] font-semibold {{ $content->is_adult ? 'bg-gold text-black' : 'bg-black/55' }}">{{ $content->maturity }}</span>
 

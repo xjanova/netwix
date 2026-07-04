@@ -80,6 +80,9 @@
                 <span class="inline-flex items-center gap-0.5 rounded-full bg-gold/90 px-2.5 py-1 text-xs font-bold text-black">👑 PRO</span>
             @endif
             <span class="rounded-full bg-black/45 px-2.5 py-1 text-xs text-cream/90 backdrop-blur">{{ $content->year }}</span>
+            @if ($content->dub_label)
+                <span class="rounded-full px-2.5 py-1 text-xs font-bold backdrop-blur {{ $content->dub_type === 'thai_dub' ? 'bg-emerald-500/90 text-black' : 'bg-sky-500/90 text-black' }}">{{ $content->dub_label }}</span>
+            @endif
             <span class="rounded-full bg-black/45 px-2.5 py-1 text-xs font-bold text-success backdrop-blur">{{ $content->match_score }}% ตรงใจ</span>
         </div>
 

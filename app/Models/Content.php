@@ -20,7 +20,7 @@ class Content extends Model
     }
 
     protected $fillable = [
-        'title', 'slug', 'source', 'source_key', 'type', 'synopsis', 'year', 'maturity',
+        'title', 'slug', 'source', 'source_key', 'type', 'synopsis', 'year', 'maturity', 'dub_type',
         'match_score', 'rating', 'is_original', 'is_featured', 'is_published',
         'poster_path', 'backdrop_path', 'trailer_youtube_id', 'video_url',
         'duration_minutes', 'views', 'sort',
@@ -182,6 +182,33 @@ class Content extends Model
     public function getIsAdultAttribute(): bool
     {
         return Maturity::isAdult($this->maturity);
+    }
+
+    /** Thai audio/subtitle label for the card + detail badge (null when unknown). */
+    public function getDubLabelAttribute(): ?string
+    {
+        return match ($this->dub_type) {
+            'thai_dub' => 'พากย์ไทย',
+            'thai_sub' => 'ซับไทย',
+            default => null,
+        };
+    }
+
+    /**
+     * Best-effort dub/sub from a Thai title when the source didn't tell us — most catalogue titles
+     * carry a "พากย์ไทย"/"ซับไทย" tag right in the name. Prefers พากย์ (dub) when both appear.
+     */
+    public static function guessDubType(?string $title): ?string
+    {
+        $t = mb_strtolower((string) $title, 'UTF-8');
+        if (mb_strpos($t, 'พากย์') !== false) {
+            return 'thai_dub';
+        }
+        if (mb_strpos($t, 'ซับ') !== false) {
+            return 'thai_sub';
+        }
+
+        return null;
     }
 
     /** Whether watching this title needs a Pro membership (adult ratings do). */

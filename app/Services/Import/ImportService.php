@@ -70,6 +70,7 @@ class ImportService
                 'synopsis' => $st->description,
                 'year' => $st->year,
                 'maturity' => '15+',
+                'dub_type' => $st->dub_type ?: Content::guessDubType($title),
                 'match_score' => random_int(90, 99),
                 'rating' => round(random_int(78, 96) / 10, 1),
                 'is_original' => (bool) ($opts['is_original'] ?? false),

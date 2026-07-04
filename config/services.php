@@ -39,7 +39,7 @@ return [
     // with this token to upload mirrored video files. Set NETWIX_INGEST_TOKEN in .env.
     'ingest' => [
         'token' => env('NETWIX_INGEST_TOKEN'),
-        'max_gb' => (float) env('NETWIX_MEDIA_MAX_GB', 55),
+        'max_gb' => (float) env('NETWIX_MEDIA_MAX_GB', 100),
     ],
 
     // ---- Social sign-in (requires laravel/socialite on the server) --------
