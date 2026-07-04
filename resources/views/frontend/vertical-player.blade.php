@@ -357,29 +357,9 @@
                 if (i !== this.index) { this.index = i; this.load(); }
             },
 
-            // Grab a small JPEG frame at a random moment during playback as this episode's cover —
-            // once, only if it has no thumb yet. Cross-origin sources taint the canvas (toDataURL
-            // throws) → we just skip and keep the poster fallback.
-            maybeCapture() {
-                const ep = this.episodes[this.index];
-                if (!ep || ep.has || ep._cap || !window.nxPost) return;
-                ep._cap = true;
-                const v = this.$refs.video;
-                const delay = 5000 + Math.floor(Math.random() * 18000);
-                setTimeout(() => {
-                    if (this.episodes[this.index] !== ep) return;   // viewer moved on
-                    if (!v.videoWidth || v.readyState < 2 || v.paused) return;
-                    try {
-                        const w = 240, h = Math.round(w * v.videoHeight / v.videoWidth) || 135;
-                        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-                        cv.getContext('2d').drawImage(v, 0, 0, w, h);
-                        const img = cv.toDataURL('image/jpeg', 0.62);   // throws if tainted
-                        nxPost(ep.post, { image: img })
-                            .then((r) => { if (r && r.ok) { ep.has = true; if (r.url) ep.thumb = r.url; } })
-                            .catch(() => {});
-                    } catch (e) { /* cross-origin video → keep poster fallback */ }
-                }, delay);
-            },
+            // Covers are generated in the admin panel now (Admin → สร้างปกตอน) —
+            // no more on-watch capture.
+            maybeCapture() {},
             onWheel(e) {
                 if (this.lock) return;
                 if (e.deltaY > 25) this.next();

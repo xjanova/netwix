@@ -224,27 +224,9 @@
                 this.next();   // auto-play the next episode
             },
 
-            // grab a small frame as this episode's cover, once, if it has none yet (see vertical player)
-            maybeCapture() {
-                const ep = this.episodes[this.index];
-                if (!ep || ep.has || ep._cap || !ep.post || !window.nxPost) return;
-                ep._cap = true;
-                const v = this.$refs.video;
-                const delay = 5000 + Math.floor(Math.random() * 18000);
-                setTimeout(() => {
-                    if (this.episodes[this.index] !== ep) return;
-                    if (!v.videoWidth || v.readyState < 2 || v.paused) return;
-                    try {
-                        const w = 320, h = Math.round(w * v.videoHeight / v.videoWidth) || 180;
-                        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-                        cv.getContext('2d').drawImage(v, 0, 0, w, h);
-                        const img = cv.toDataURL('image/jpeg', 0.62);
-                        nxPost(ep.post, { image: img })
-                            .then((r) => { if (r && r.ok) { ep.has = true; if (r.url) ep.thumb = r.url; } })
-                            .catch(() => {});
-                    } catch (e) { /* cross-origin without CORS → keep poster fallback */ }
-                }, delay);
-            },
+            // Covers are generated in the admin panel now (Admin → สร้างปกตอน) —
+            // no more on-watch capture.
+            maybeCapture() {},
 
             toggleFs() { window.nxToggleFullscreen(this.$root, this.$refs.video, 'landscape'); },
 

@@ -132,6 +132,11 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('debug', [Admin\DebugLogController::class, 'index'])->name('debug.index');
     Route::delete('debug', [Admin\DebugLogController::class, 'clear'])->name('debug.clear');
 
+    // Batch episode-cover generation (ffmpeg → WebP), with a progress bar.
+    Route::get('thumbs', [Admin\ThumbController::class, 'index'])->name('thumbs.index');
+    Route::post('thumbs/scan', [Admin\ThumbController::class, 'scan'])->name('thumbs.scan');
+    Route::post('thumbs/run', [Admin\ThumbController::class, 'run'])->name('thumbs.run');
+
     Route::get('import', [Admin\ImportController::class, 'index'])->name('import.index');
     Route::post('import/sync', [Admin\ImportController::class, 'sync'])->name('import.sync');
     Route::post('import/batch', [Admin\ImportController::class, 'batch'])->name('import.batch');

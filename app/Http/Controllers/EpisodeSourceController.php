@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Jobs\GenerateEpisodeThumb;
 use App\Models\Episode;
 use App\Services\Import\SourceRegistry;
 use App\Support\ImageStore;
@@ -32,11 +31,6 @@ class EpisodeSourceController extends Controller
         if ($episode->content->requires_pro && ! auth()->user()?->isProMember()) {
             return response()->json(['ready' => false, 'error' => 'pro_required'], 403);
         }
-
-        // Best-effort server-side cover: if this episode has no thumbnail, grab a
-        // frame with ffmpeg after the response. Works for app AND web, every
-        // source. Guarded to at most once/day per episode; first capture wins.
-        $this->maybeGenerateThumb($episode);
 
         if ($episode->video_url) {
             return response()->json([
@@ -94,17 +88,6 @@ class EpisodeSourceController extends Controller
         Cache::put($cacheKey, $stream->url, now()->addSeconds($ttl));
 
         return response()->json(['ready' => true, 'kind' => $stream->kind, 'url' => $stream->url]);
-    }
-
-    /** Dispatch a server-side thumbnail generation for a cover-less episode (throttled). */
-    private function maybeGenerateThumb(Episode $episode): void
-    {
-        if ($episode->thumbnail_path) {
-            return;
-        }
-        if (Cache::add('thumbgen:'.$episode->id, 1, now()->addDay())) {
-            GenerateEpisodeThumb::dispatch($episode->id)->afterResponse();
-        }
     }
 
     /**

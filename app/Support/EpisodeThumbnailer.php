@@ -1,84 +1,81 @@
 <?php
 
-namespace App\Jobs;
+namespace App\Support;
 
 use App\Models\Episode;
 use App\Services\Import\SourceRegistry;
-use App\Support\ImageStore;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 /**
- * Generate a per-episode cover with ffmpeg — server-side, so it works for BOTH
- * the app and the web and for every source (incl. cross-origin rongyok that the
- * browser canvas can't read). First capture wins.
+ * Generates a per-episode cover by grabbing a frame with ffmpeg — server-side,
+ * works for every source (incl. cross-origin rongyok the browser can't read).
  *
  * The static ffmpeg on the box SEGFAULTS on https input, so we download the media
  * with PHP/Guzzle first (mp4 whole; HLS = its first segment) and run ffmpeg on
- * the LOCAL file.
+ * the LOCAL file. Output is a 640px WebP stored at media/thumbs/{id}.webp.
  */
-class GenerateEpisodeThumb implements ShouldQueue
+class EpisodeThumbnailer
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    public function __construct(private SourceRegistry $registry) {}
 
-    public int $tries = 1;
-    public int $timeout = 120;
-
-    public function __construct(public int $episodeId) {}
-
-    public function handle(SourceRegistry $registry): void
+    /**
+     * Generate + store the cover. Returns true on success. When [$force] is
+     * false an episode that already has a cover is left untouched (returns true).
+     */
+    public function generate(Episode $episode, bool $force = false): bool
     {
-        $episode = Episode::find($this->episodeId);
-        if (! $episode || $episode->thumbnail_path) {
-            return;
+        if ($episode->thumbnail_path && ! $force) {
+            return true;
         }
 
-        $url = $this->playableUrl($episode, $registry);
+        $url = $this->playableUrl($episode);
         if (! $url) {
-            return;
+            return false;
         }
 
         $src = $this->downloadToTemp($url);
         if ($src === null) {
-            return;
+            return false;
         }
 
         $out = $src.'.jpg';
-        $bin = config('services.ffmpeg.bin', '/home/admin/bin/ffmpeg');
         try {
-            // Seek 3s in for a representative frame; if that yields nothing (very
-            // short first segment) fall back to the first frame.
-            if (! $this->grab($bin, $src, $out, '3') && ! $this->grab($bin, $src, $out, '0')) {
-                return;
+            if (! $this->grab($src, $out, '3') && ! $this->grab($src, $out, '0')) {
+                return false;
             }
 
             $data = @file_get_contents($out);
             if ($data === false || strlen($data) < 400) {
-                return;
+                return false;
             }
 
             $path = ImageStore::putWebp($data, 'media/thumbs', (string) $episode->id, 640);
-            if ($path !== null && ! $episode->fresh()?->thumbnail_path) {
-                $episode->update(['thumbnail_path' => $path]);
+            if ($path === null) {
+                return false;
             }
+
+            // Same filename is reused, so store a cache-busted URL to force
+            // Cloudflare/clients to refetch when regenerating.
+            $episode->update(['thumbnail_path' => Storage::disk('public')->url($path).'?t='.now()->timestamp]);
+
+            return true;
         } catch (Throwable $e) {
             report($e);
+
+            return false;
         } finally {
             @unlink($src);
             @unlink($out);
         }
     }
 
-    /** Run ffmpeg on the LOCAL file (never segfaults) → one scaled JPEG frame. */
-    private function grab(string $bin, string $src, string $out, string $seek): bool
+    private function grab(string $src, string $out, string $seek): bool
     {
         @unlink($out);
+        $bin = config('services.ffmpeg.bin', '/home/admin/bin/ffmpeg');
         try {
             Process::timeout(60)->run([
                 $bin, '-y', '-nostdin', '-ss', $seek, '-i', $src,
@@ -91,7 +88,6 @@ class GenerateEpisodeThumb implements ShouldQueue
         return is_file($out) && filesize($out) >= 400;
     }
 
-    /** Download the media to a temp file (HLS → its first segment). */
     private function downloadToTemp(string $url): ?string
     {
         try {
@@ -123,7 +119,6 @@ class GenerateEpisodeThumb implements ShouldQueue
         }
     }
 
-    /** The first media segment URL from an HLS playlist (absolute or resolved). */
     private function firstSegment(string $m3u8Url): ?string
     {
         $body = Http::timeout(20)->get($m3u8Url)->body();
@@ -135,7 +130,6 @@ class GenerateEpisodeThumb implements ShouldQueue
             if (preg_match('~^https?://~', $line)) {
                 return $line;
             }
-            // Relative segment → resolve against the playlist URL.
             if (str_starts_with($line, '/')) {
                 $p = parse_url($m3u8Url);
 
@@ -148,8 +142,7 @@ class GenerateEpisodeThumb implements ShouldQueue
         return null;
     }
 
-    /** Resolve the current playable URL, mirroring EpisodeSourceController. */
-    private function playableUrl(Episode $episode, SourceRegistry $registry): ?string
+    private function playableUrl(Episode $episode): ?string
     {
         if ($episode->video_url) {
             return $episode->video_url;
@@ -157,7 +150,7 @@ class GenerateEpisodeThumb implements ShouldQueue
         if (in_array($episode->source, ['wowdrama', 'anime108'], true)) {
             return route('stream.manifest', $episode);
         }
-        $source = $registry->get((string) $episode->source);
+        $source = $this->registry->get((string) $episode->source);
         $seriesKey = $episode->content?->source_key;
         if (! $source || ! $seriesKey || ! $episode->source_ref) {
             return null;
