@@ -38,7 +38,7 @@
         @if ($content->backdrop_url)
             <img src="{{ $content->backdrop_url }}" alt="" aria-hidden="true"
                  referrerpolicy="no-referrer" onerror="this.style.display='none'"
-                 class="absolute inset-0 h-full w-full object-cover">
+                 class="absolute inset-0 h-full w-full object-cover object-top">
         @endif
         @if ($heroYt)
             <iframe src="https://www.youtube.com/embed/{{ $heroYt }}?autoplay=1&mute=1&loop=1&playlist={{ $heroYt }}&controls=0&modestbranding=1&rel=0&playsinline=1"
@@ -52,7 +52,7 @@
             <div class="absolute inset-0"
                  x-data="heroPreview({ src: @js($previewSrc), resolve: @js($previewResolve), adult: @js((bool) $content->is_adult) })">
                 <video x-ref="hero" loop playsinline preload="none"
-                       class="absolute inset-0 h-full w-full object-cover"></video>
+                       class="absolute inset-0 h-full w-full object-cover object-top"></video>
                 <button type="button" @click.stop="toggleMute()" x-show="ready" x-cloak
                         class="absolute right-16 top-4 z-30 flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-base backdrop-blur transition hover:bg-black/80"
                         :title="muted ? 'เปิดเสียง' : 'ปิดเสียง'" :aria-label="muted ? 'เปิดเสียง' : 'ปิดเสียง'">

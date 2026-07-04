@@ -37,7 +37,7 @@
                                 @if ($content->poster_url)
                                     <img src="{{ $content->poster_url }}" alt="{{ $content->title }}" loading="lazy"
                                          referrerpolicy="no-referrer" onerror="this.style.display='none'"
-                                         class="absolute inset-0 h-full w-full object-cover">
+                                         class="absolute inset-0 h-full w-full object-cover object-top">
                                 @else
                                     <div class="absolute inset-0 flex items-center justify-center">
                                         <img src="{{ asset('assets/netwix-icon.png') }}" alt="" class="h-12 w-12 opacity-30">
@@ -46,7 +46,7 @@
                                 @if ($content->preview_url)
                                     <video x-ref="clip" aria-hidden="true" data-src="{{ $content->preview_url }}"
                                            muted loop playsinline preload="none"
-                                           class="absolute inset-0 h-full w-full object-cover transition-opacity duration-300"
+                                           class="absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-300"
                                            :class="hv ? 'opacity-100' : 'opacity-0'"></video>
                                 @endif
                                 <div class="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100" style="background:rgba(0,0,0,0.35)">

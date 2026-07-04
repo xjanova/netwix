@@ -13,7 +13,7 @@
         @if ($hero->backdrop_url)
             <img src="{{ $hero->backdrop_url }}" alt="" aria-hidden="true"
                  referrerpolicy="no-referrer" onerror="this.style.display='none'"
-                 class="absolute inset-0 h-full w-full object-cover">
+                 class="absolute inset-0 h-full w-full object-cover object-top">
         @endif
         @if ($heroYt)
             <iframe
@@ -25,7 +25,7 @@
                  one (rongyok), otherwise resolved live on demand (anime108 / wow-drama HLS) — no
                  file kept. Revealed only once a frame is actually ready, else the backdrop shows. --}}
             <video x-ref="bg" muted loop playsinline preload="none" x-show="ready" x-cloak
-                   class="pointer-events-none absolute inset-0 h-full w-full object-cover"></video>
+                   class="pointer-events-none absolute inset-0 h-full w-full object-cover object-top"></video>
         @elseif (! $hero->backdrop_url)
             {{-- no trailer, stream, or image → fill with an animated NetWix logo clip --}}
             @include('partials.logo-fill', ['seed' => $hero->id])

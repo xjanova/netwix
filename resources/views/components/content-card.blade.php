@@ -79,7 +79,7 @@
             @if ($content->backdrop_url)
                 <img src="{{ $content->backdrop_url }}" alt="{{ $content->title }}" loading="lazy"
                      referrerpolicy="no-referrer" onerror="this.style.display='none'"
-                     class="absolute inset-0 h-full w-full object-cover">
+                     class="absolute inset-0 h-full w-full object-cover object-top">
             @else
                 {{-- no cover art → branded placeholder (fades out while the clip plays) --}}
                 <div class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center transition-opacity duration-300"
@@ -96,7 +96,7 @@
             @if ($hoverClip)
                 <video x-ref="clip" aria-hidden="true" data-src="{{ $hoverClip }}"
                        muted loop playsinline preload="none"
-                       class="absolute inset-0 h-full w-full object-cover transition-opacity duration-300 {{ $preview ? '' : 'mix-blend-screen' }}"
+                       class="absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-300 {{ $preview ? '' : 'mix-blend-screen' }}"
                        :class="hv ? '{{ $preview ? 'opacity-100' : 'opacity-90' }}' : 'opacity-0'"></video>
             @endif
 
