@@ -67,13 +67,14 @@
 @push('scripts')
 <script>
     function heroRotator(cfg) {
+        const slides = (cfg.slides && cfg.slides.length) ? cfg.slides : [];
         return {
-            slides: (cfg.slides && cfg.slides.length) ? cfg.slides : [],
+            slides: slides,
             seconds: cfg.seconds || 0,
             idx: 0,
+            cur: slides[0] || {},   // plain reactive property (a getter isn't tracked by x-text)
             videoReady: false,
             _t: null,
-            get cur() { return this.slides[this.idx] || {}; },
             init() {
                 if (!this.slides.length) return;
                 this.playClip();
@@ -90,6 +91,7 @@
             show(i) {
                 if (i === this.idx || !this.slides[i]) return;
                 this.idx = i;
+                this.cur = this.slides[i];
                 this.playClip();
             },
             playClip() {
