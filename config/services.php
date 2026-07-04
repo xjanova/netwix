@@ -64,4 +64,9 @@ return [
         'email' => env('SUPPORT_EMAIL', 'support@netwix.online'),
     ],
 
+    // ffmpeg (static build on the box) — grabs a frame as the episode cover.
+    'ffmpeg' => [
+        'bin' => env('FFMPEG_BIN', '/home/admin/bin/ffmpeg'),
+    ],
+
 ];
