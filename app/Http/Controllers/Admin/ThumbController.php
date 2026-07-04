@@ -71,7 +71,10 @@ class ThumbController extends Controller
 
         $items = [];
         $next = $after;
-        foreach ($episodes as $ep) {
+        foreach ($episodes as $i => $ep) {
+            if ($i > 0) {
+                usleep(400_000); // be gentle on the CDN between big downloads
+            }
             $status = $thumbnailer->generate($ep, $force);
             $items[] = [
                 'id' => $ep->id,

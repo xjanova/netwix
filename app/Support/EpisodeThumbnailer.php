@@ -40,7 +40,14 @@ class EpisodeThumbnailer
 
         $src = $this->downloadToTemp($url);
         if ($src === null) {
-            return 'download_failed';
+            // Transient (CDN throttle / hiccup on a burst) — re-resolve a FRESH
+            // signed link and try once more before giving up.
+            usleep(700_000);
+            $retry = $this->playableUrl($episode);
+            $src = $retry ? $this->downloadToTemp($retry) : null;
+            if ($src === null) {
+                return 'download_failed';
+            }
         }
 
         $out = $src.'.jpg';
