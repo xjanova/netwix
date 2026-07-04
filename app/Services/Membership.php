@@ -47,6 +47,13 @@ class Membership
             'share_coins' => 1,
             'share_daily_cap' => 3,
         ],
+        'affiliate' => [
+            'enabled' => true,
+            'level_pct' => [10, 5, 3], // % per level; the COUNT = how many levels deep
+            'from_coins' => true,      // upline earns % of coins a downline earns
+            'from_pro' => true,        // upline earns % when a downline activates Pro
+            'pro_base_coins' => 129,   // coin base a Pro activation pays dividend on
+        ],
     ];
 
     private const KEY = 'membership_config';
@@ -87,13 +94,30 @@ class Membership
         $u->forceFill(['pro_until' => $base->copy()->addDays($days)])->save();
     }
 
-    public function addCoins(User $u, int $n, string $kind = 'admin'): void
+    public function addCoins(User $u, int $n, string $kind = 'admin', ?int $fromUserId = null, ?int $level = null): void
     {
         if ($n <= 0) {
             return;
         }
         $u->increment('coins', $n);
-        CoinTransaction::create(['user_id' => $u->id, 'kind' => $kind, 'amount' => $n]);
+        CoinTransaction::create([
+            'user_id' => $u->id,
+            'kind' => $kind,
+            'amount' => $n,
+            'from_user_id' => $fromUserId,
+            'level' => $level,
+        ]);
+
+        // Affiliate: cascade a share of EARNED coins up the referral chain. Never
+        // on dividend/admin credits — that would recurse and double-count.
+        if ($this->isEarnKind($kind)) {
+            $this->distributeCoinDividend($u, $n);
+        }
+    }
+
+    private function isEarnKind(string $kind): bool
+    {
+        return in_array($kind, ['signup', 'referral', 'daily', 'watch', 'like', 'comment', 'share'], true);
     }
 
     public function spendCoins(User $u, int $n, string $kind = 'unlock'): bool
@@ -246,6 +270,58 @@ class Membership
         $this->addCoins($referrer, (int) ($cfg['referrer_coins'] ?? 0), 'referral');
 
         return ['ok' => true];
+    }
+
+    // ---- Affiliate / downline dividend ---------------------------------
+
+    /** Pay dividend up the chain from coins a downline just EARNED. */
+    private function distributeCoinDividend(User $earner, int $base): void
+    {
+        $aff = $this->config()['affiliate'] ?? [];
+        if (($aff['enabled'] ?? false) && ($aff['from_coins'] ?? true)) {
+            $this->cascadeDividend($earner, $base, $aff['level_pct'] ?? []);
+        }
+    }
+
+    /** Pay dividend up the chain when a downline activates a paid Pro plan. */
+    public function distributeProDividend(User $buyer): void
+    {
+        $aff = $this->config()['affiliate'] ?? [];
+        if (($aff['enabled'] ?? false) && ($aff['from_pro'] ?? true)) {
+            $this->cascadeDividend($buyer, (int) ($aff['pro_base_coins'] ?? 0), $aff['level_pct'] ?? []);
+        }
+    }
+
+    /**
+     * Walk the referral chain up from [$from], crediting each upline a % of
+     * [$base] as dividend coins. The ledger `level` = how far the source sits
+     * below the recipient (1 = direct downline), so the team view can attribute
+     * dividends per level.
+     *
+     * @param  array<int,int|float>  $pcts
+     */
+    private function cascadeDividend(User $from, int $base, array $pcts): void
+    {
+        if ($base <= 0 || $pcts === []) {
+            return;
+        }
+        $current = $from;
+        foreach (array_values($pcts) as $i => $pct) {
+            $parentId = $current->referred_by;
+            if (! $parentId) {
+                break;
+            }
+            $parent = User::find($parentId);
+            if (! $parent) {
+                break;
+            }
+            $cut = (int) floor($base * ((float) $pct) / 100);
+            if ($cut > 0) {
+                // kind='dividend' → isEarnKind() false → no recursion.
+                $this->addCoins($parent, $cut, 'dividend', $from->id, $i + 1);
+            }
+            $current = $parent;
+        }
     }
 
     // ---- Serialised state for the API / views --------------------------

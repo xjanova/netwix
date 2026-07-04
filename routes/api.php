@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\App\AffiliateController;
 use App\Http\Controllers\Api\App\AuthController;
 use App\Http\Controllers\Api\App\CatalogController;
 use App\Http\Controllers\Api\App\DebugController;
@@ -67,6 +68,9 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
         // Membership: this member's Pro/coins/referral state + redeem a code.
         Route::get('membership', [MembershipController::class, 'me']);
         Route::post('referral/redeem', [MembershipController::class, 'redeem']);
+
+        // Affiliate downline (levels + dividend earned) for the "My Team" screen.
+        Route::get('team', [AffiliateController::class, 'team']);
 
         // Coin economy: earn (daily/watch), episode access map, spend-to-unlock.
         Route::post('coins/earn', [MembershipController::class, 'earn']);

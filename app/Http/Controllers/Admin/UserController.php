@@ -36,7 +36,14 @@ class UserController extends Controller
             return back()->withErrors(['role' => 'ต้องมีผู้ดูแลระบบอย่างน้อย 1 คน']);
         }
 
+        $membership = app(\App\Services\Membership::class);
+        $wasPro = $membership->isPro($user);
         $user->update($data);
+
+        // Newly upgraded to a paid Pro plan → pay affiliate dividend up the chain.
+        if (! $wasPro && $membership->isPro($user->refresh())) {
+            $membership->distributeProDividend($user);
+        }
 
         return back()->with('status', 'อัปเดตสมาชิกแล้ว');
     }
