@@ -55,7 +55,7 @@
     }"
     x-init="$nextTick(() => initPreview())"
     @mouseenter="hoverCapable && arm()" @mouseleave="hoverCapable && release()"
-    class="group relative w-[210px] shrink-0 sm:w-[240px] md:w-[262px]"
+    class="group relative w-[146px] shrink-0 sm:w-[164px] md:w-[182px]"
 >
     @if ($ranked)
         <div class="pointer-events-none absolute -left-2 top-1/2 z-10 -translate-y-1/2 text-[70px] font-extrabold leading-none text-transparent"
@@ -72,12 +72,12 @@
             // clip yet, fall back to the animated logo — but only if there's no
             // cover art (a logo looping over a real poster looks off).
             $logoClip = asset('assets/'.($content->id % 2 ? 'logomedia2.mp4' : 'logomedia1.mp4'));
-            $hoverClip = $preview ?: (! $content->backdrop_url ? $logoClip : null);
+            $hoverClip = $preview ?: (! $content->poster_url ? $logoClip : null);
         @endphp
-        <div class="relative aspect-video overflow-hidden rounded-lg ring-1 ring-white/5 transition duration-200 group-hover:ring-2 group-hover:ring-white/25"
-             style="background:{{ $content->backdrop_url ? '#0e0a17' : $content->gradient }}">
-            @if ($content->backdrop_url)
-                <img src="{{ $content->backdrop_url }}" alt="{{ $content->title }}" loading="lazy"
+        <div class="relative aspect-[9/16] overflow-hidden rounded-xl ring-1 ring-white/5 transition duration-200 group-hover:ring-2 group-hover:ring-white/25"
+             style="background:{{ $content->poster_url ? '#0e0a17' : $content->gradient }}">
+            @if ($content->poster_url)
+                <img src="{{ $content->poster_url }}" alt="{{ $content->title }}" loading="lazy"
                      referrerpolicy="no-referrer" onerror="this.style.display='none'"
                      class="absolute inset-0 h-full w-full object-cover object-top">
             @else

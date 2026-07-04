@@ -38,7 +38,7 @@
         @if ($content->backdrop_url)
             <img src="{{ $content->backdrop_url }}" alt="" aria-hidden="true"
                  referrerpolicy="no-referrer" onerror="this.style.display='none'"
-                 class="absolute inset-0 h-full w-full object-cover object-top">
+                 class="absolute inset-0 h-full w-full object-cover object-[50%_30%]">
         @endif
         @if ($heroYt)
             <iframe src="https://www.youtube.com/embed/{{ $heroYt }}?autoplay=1&mute=1&loop=1&playlist={{ $heroYt }}&controls=0&modestbranding=1&rel=0&playsinline=1"
@@ -52,7 +52,7 @@
             <div class="absolute inset-0"
                  x-data="heroPreview({ src: @js($previewSrc), resolve: @js($previewResolve), adult: @js((bool) $content->is_adult) })">
                 <video x-ref="hero" loop playsinline preload="none"
-                       class="absolute inset-0 h-full w-full object-cover object-top"></video>
+                       class="absolute inset-0 h-full w-full object-cover object-[50%_30%]"></video>
                 <button type="button" @click.stop="toggleMute()" x-show="ready" x-cloak
                         class="absolute right-16 top-4 z-30 flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-base backdrop-blur transition hover:bg-black/80"
                         :title="muted ? 'เปิดเสียง' : 'ปิดเสียง'" :aria-label="muted ? 'เปิดเสียง' : 'ปิดเสียง'">
@@ -180,7 +180,7 @@
             </div>
 
             {{-- LEFT column on desktop / shown SECOND on mobile: synopsis + genres + rating/share/comments --}}
-            <div class="sm:order-1 sm:w-[300px] sm:shrink-0">
+            <div class="sm:order-1 sm:w-[64%] sm:shrink-0">
                 <p class="text-[15px] leading-relaxed text-cream/85">{{ $content->synopsis }}</p>
                 <div class="mt-4 space-y-1 text-sm text-cream/55">
                     <div><span class="text-cream/40">แนว:</span> {{ $content->genres->pluck('name')->join(', ') }}</div>
