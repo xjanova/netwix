@@ -12,6 +12,29 @@
 <form method="POST" action="{{ route('admin.settings.update') }}" class="mx-auto flex max-w-3xl flex-col gap-6">
     @csrf @method('PUT')
 
+    {{-- ============ HOME HERO ============ --}}
+    <div class="nx-card p-6">
+        <div class="mb-4 flex items-center gap-2.5">
+            <span class="text-xl">🎬</span>
+            <h3 class="text-base font-bold">หนังตัวอย่างหน้าแรก (แบนเนอร์ใหญ่)</h3>
+        </div>
+        <label class="text-[13px] text-cream/60">เลือกว่าจะวนฉายเรื่องอะไรบนหน้าแรก
+            <select name="home_hero_source" class="nx-input mt-1">
+                <option value="featured" @selected($home_hero_source === 'featured')>เรื่องที่ติดธง “แนะนำ” (is_featured)</option>
+                @foreach ($genres as $g)
+                    <option value="genre:{{ $g->id }}" @selected($home_hero_source === 'genre:'.$g->id)>หมวด: {{ $g->name }}</option>
+                @endforeach
+            </select>
+        </label>
+        <label class="mt-3 block text-[13px] text-cream/60">เปลี่ยนเรื่องทุกๆ กี่วินาที <span class="text-cream/40">(ใส่ 0 = ไม่วนเอง เปลี่ยนเฉพาะตอนเปิดหน้าใหม่)</span>
+            <input type="number" name="home_hero_seconds" min="0" max="60" value="{{ $home_hero_seconds }}" class="nx-input mt-1 w-32">
+        </label>
+        <p class="mt-2 text-[12.5px] leading-relaxed text-cream/50">
+            แบนเนอร์จะสุ่มหยิบสูงสุด 6 เรื่องจากที่เลือก แล้ววนฉายสลับทีละเรื่องตามเวลาที่ตั้ง ·
+            โหมด “แนะนำ” = ไปติ๊ก “แนะนำ” ให้เรื่องที่อยากโชว์ในหน้าแก้ไขเนื้อหา
+        </p>
+    </div>
+
     {{-- ============ GOOGLE ============ --}}
     <div class="nx-card p-6">
         <div class="mb-4 flex items-center justify-between">

@@ -3,67 +3,62 @@
 
 @section('content')
 @if ($hero)
-    @php $heroYt = $hero->youtube_id; @endphp
+    {{-- Configurable rotating billboard: the pool + interval come from admin Settings (home_hero_source /
+         home_hero_seconds). Slide 0 is server-rendered (no flash / SEO); the rotator cross-fades the rest
+         and plays each slide's stored clip over its backdrop. seconds = 0 → no auto-rotate. --}}
     <section class="relative h-[62vh] min-h-[440px] w-full overflow-hidden bg-black md:h-[82vh]"
-             x-data="heroBg({ resolveUrl: @js($heroResolveUrl ?? null), direct: @js($hero->preview_url), yt: @js((bool) $heroYt) })"
-             x-init="init()">
-        {{-- gradient/backdrop always underneath, so the hero never shows a black void
-             while the trailer/stream loads (or if it fails) --}}
+             x-data="heroRotator({ slides: @js($heroSlides), seconds: {{ (int) ($heroSeconds ?? 8) }} })" x-init="init()">
+        {{-- base gradient — never a black void before the backdrops paint --}}
         <div class="absolute inset-0" style="background:{{ $hero->gradient }}"></div>
-        @if ($hero->backdrop_url)
-            <img src="{{ $hero->backdrop_url }}" alt="" aria-hidden="true"
-                 referrerpolicy="no-referrer" onerror="this.style.display='none'"
-                 class="absolute inset-0 h-full w-full object-cover object-top">
-        @endif
-        @if ($heroYt)
-            <iframe
-                :src="`https://www.youtube.com/embed/{{ $heroYt }}?autoplay=1&mute=${muted ? 1 : 0}&loop=1&playlist={{ $heroYt }}&controls=0&modestbranding=1&rel=0&showinfo=0&playsinline=1`"
-                class="pointer-events-none absolute left-1/2 top-1/2 h-full w-full -translate-x-1/2 -translate-y-1/2 border-0"
-                style="min-width:178vh;min-height:75vw" allow="autoplay; encrypted-media"></iframe>
-        @elseif (($heroResolveUrl ?? null) || $hero->preview_url)
-            {{-- stream the first episode muted+looping as the backdrop: a stored clip if we have
-                 one (rongyok), otherwise resolved live on demand (anime108 / wow-drama HLS) — no
-                 file kept. Revealed only once a frame is actually ready, else the backdrop shows. --}}
-            <video x-ref="bg" muted loop playsinline preload="none" x-show="ready" x-cloak
-                   class="pointer-events-none absolute inset-0 h-full w-full object-cover object-top"></video>
-        @elseif (! $hero->backdrop_url)
-            {{-- no trailer, stream, or image → fill with an animated NetWix logo clip --}}
-            @include('partials.logo-fill', ['seed' => $hero->id])
-        @endif
+
+        {{-- cross-fading backdrop layer per slide --}}
+        <template x-for="(s, i) in slides" :key="i">
+            <div class="absolute inset-0 transition-opacity duration-700 ease-out" :class="i === idx ? 'opacity-100' : 'opacity-0'">
+                <div class="absolute inset-0" :style="'background:' + s.gradient"></div>
+                <img :src="s.backdrop" x-show="s.backdrop" referrerpolicy="no-referrer" onerror="this.style.display='none'"
+                     class="absolute inset-0 h-full w-full object-cover object-top" alt="" aria-hidden="true">
+            </div>
+        </template>
+
+        {{-- current slide's stored clip plays over its backdrop (muted loop); backdrop shows when none --}}
+        <video x-ref="bg" muted loop playsinline preload="none" x-show="videoReady" x-cloak x-transition.opacity.duration.500ms
+               class="pointer-events-none absolute inset-0 h-full w-full object-cover object-top"></video>
 
         <div class="absolute inset-0" style="background:linear-gradient(90deg, rgba(7,5,12,0.85) 0%, rgba(7,5,12,0.25) 45%, rgba(7,5,12,0.1) 65%, rgba(7,5,12,0.6) 100%)"></div>
         <div class="absolute inset-0" style="background:linear-gradient(180deg, rgba(7,5,12,0.15) 0%, transparent 26%, transparent 55%, rgba(7,5,12,0.95) 96%, #07050c 100%)"></div>
 
         <div class="absolute bottom-[11%] left-[4vw] right-[4vw] max-w-[640px]">
-            @if ($hero->is_original)
-                <div class="nx-gradient mb-4 inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[11.5px] font-bold tracking-widest">NETWIX ORIGINAL</div>
-            @endif
-            <h1 class="mb-4 text-[clamp(30px,5.2vw,64px)] font-extrabold leading-[1.05] drop-shadow-lg">{{ $hero->title }}</h1>
+            <div class="nx-gradient mb-4 inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[11.5px] font-bold tracking-widest" x-show="cur.original" x-cloak>NETWIX ORIGINAL</div>
+            <h1 class="mb-4 text-[clamp(30px,5.2vw,64px)] font-extrabold leading-[1.05] drop-shadow-lg" x-text="cur.title">{{ $hero->title }}</h1>
             <div class="mb-4 flex flex-wrap items-center gap-3 text-[14.5px] text-cream/75">
-                <span class="font-bold text-success">{{ $hero->match_score }}% ตรงใจ</span>
-                <span>{{ $hero->year }}</span>
-                <span class="rounded border border-cream/40 px-1.5 py-px text-[12.5px]">{{ $hero->maturity }}</span>
-                <span>{{ $hero->type === 'movie' ? ($hero->duration_minutes.' นาที') : ($hero->seasons->count() ?: 1).' ซีซั่น' }}</span>
+                <span class="font-bold text-success" x-text="cur.match + '% ตรงใจ'">{{ $hero->match_score }}% ตรงใจ</span>
+                <span x-text="cur.year">{{ $hero->year }}</span>
+                <span class="rounded border border-cream/40 px-1.5 py-px text-[12.5px]" x-text="cur.maturity">{{ $hero->maturity }}</span>
+                <span x-text="cur.meta">{{ $hero->type === 'movie' ? ($hero->duration_minutes.' นาที') : ($hero->seasons->count() ?: 1).' ซีซั่น' }}</span>
+                <template x-if="cur.dub"><span class="rounded px-1.5 py-px text-[12.5px] font-bold" :class="cur.dub === 'พากย์ไทย' ? 'bg-emerald-500/90 text-black' : 'bg-sky-500/90 text-black'" x-text="cur.dub"></span></template>
             </div>
-            <p class="mb-6 max-w-xl text-[15.5px] leading-relaxed text-cream/85 drop-shadow line-clamp-3">{{ $hero->synopsis }}</p>
+            <p class="mb-6 max-w-xl text-[15.5px] leading-relaxed text-cream/85 drop-shadow line-clamp-3" x-text="cur.synopsis">{{ $hero->synopsis }}</p>
             <div class="flex items-center gap-3.5">
-                <a href="{{ route('watch', $hero) }}"
+                <a :href="cur.watch" href="{{ route('watch', $hero) }}"
                    class="flex items-center gap-2.5 rounded-md bg-cream px-7 py-3 text-base font-bold text-ink transition hover:brightness-90">
                     <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> เล่น
                 </a>
-                <button type="button" @click="$dispatch('open-title', '{{ route('title.modal', $hero) }}')"
+                <button type="button" @click="$dispatch('open-title', cur.modal)"
                         class="flex items-center gap-2.5 rounded-md bg-[rgba(120,120,130,0.35)] px-6 py-3 text-base font-bold backdrop-blur transition hover:bg-[rgba(120,120,130,0.5)]">
                     ⓘ ข้อมูลเพิ่มเติม
                 </button>
             </div>
         </div>
 
-        @if ($heroYt)
-            <button type="button" @click="muted = !muted"
-                    class="absolute bottom-[11%] right-[4vw] rounded-full border-[1.5px] border-cream/50 bg-ink/35 px-4 py-2 text-[13px] backdrop-blur">
-                <span x-text="muted ? '🔇 ปิดเสียง' : '🔊 เปิดเสียง'"></span>
-            </button>
-        @endif
+        {{-- slide dots (only when the pool has more than one) --}}
+        <template x-if="slides.length > 1">
+            <div class="absolute bottom-5 right-[4vw] z-10 flex items-center gap-1.5">
+                <template x-for="(s, i) in slides" :key="i">
+                    <button type="button" @click="go(i)" :aria-label="'สไลด์ ' + (i + 1)"
+                            class="h-1.5 rounded-full transition-all duration-300" :class="i === idx ? 'w-6 bg-cream' : 'w-1.5 bg-cream/40 hover:bg-cream/70'"></button>
+                </template>
+            </div>
+        </template>
     </section>
 @else
     <div class="h-24"></div>
@@ -71,25 +66,42 @@
 
 @push('scripts')
 <script>
-    function heroBg(cfg) {
+    function heroRotator(cfg) {
         return {
-            muted: true,
-            ready: false,
-            async init() {
-                if (cfg.yt) return;                       // YouTube handled by the iframe
+            slides: (cfg.slides && cfg.slides.length) ? cfg.slides : [],
+            seconds: cfg.seconds || 0,
+            idx: 0,
+            videoReady: false,
+            _t: null,
+            get cur() { return this.slides[this.idx] || {}; },
+            init() {
+                if (!this.slides.length) return;
+                this.playClip();
+                this.arm();
+            },
+            arm() {
+                if (this._t) clearInterval(this._t);
+                // seconds = 0 → don't auto-rotate (the pool still gave a fresh random one this page load)
+                if (this.seconds > 0 && this.slides.length > 1) {
+                    this._t = setInterval(() => this.show((this.idx + 1) % this.slides.length), this.seconds * 1000);
+                }
+            },
+            go(i) { this.show(i); this.arm(); },   // a manual click restarts the countdown
+            show(i) {
+                if (i === this.idx || !this.slides[i]) return;
+                this.idx = i;
+                this.playClip();
+            },
+            playClip() {
                 const v = this.$refs.bg;
                 if (!v) return;
-                const play = () => { v.muted = true; this.ready = true; v.play?.().catch(() => {}); };
-                if (cfg.direct) { v.src = cfg.direct; play(); return; }   // stored clip → instant
-                if (!cfg.resolveUrl) return;
-                try {
-                    const r = await fetch(cfg.resolveUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                    const d = await r.json();
-                    if (d && d.ready && d.url && window.nxAttachVideo) {
-                        window.nxAttachVideo(v, d.url);   // hls.js for .m3u8, direct for .mp4
-                        play();
-                    }
-                } catch (e) { /* keep the backdrop image showing */ }
+                this.videoReady = false;
+                try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {}
+                const clip = this.cur.clip;
+                if (!clip) return;                 // no stored clip → just show the backdrop image
+                v.muted = true;
+                v.src = clip;
+                v.play?.().then(() => { this.videoReady = true; }).catch(() => {});
             },
         };
     }

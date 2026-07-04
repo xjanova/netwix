@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Genre;
 use App\Models\Setting;
 use App\Services\AppRelease;
 use Illuminate\Http\RedirectResponse;
@@ -30,6 +31,10 @@ class SettingController extends Controller
             // Cloudflare Turnstile anti-spam (login / register / comments)
             'turnstile_site_key' => Setting::get('turnstile_site_key'),
             'hasTurnstileSecret' => filled(Setting::get('turnstile_secret')),
+            // Home hero billboard: which titles rotate — 'featured' or 'genre:<id>'.
+            'home_hero_source' => Setting::get('home_hero_source', 'featured'),
+            'home_hero_seconds' => (int) Setting::get('home_hero_seconds', 8),
+            'genres' => Genre::orderBy('sort')->get(['id', 'name']),
         ]);
     }
 
@@ -46,6 +51,8 @@ class SettingController extends Controller
             'app_github_token' => ['nullable', 'string', 'max:255'],
             'turnstile_site_key' => ['nullable', 'string', 'max:255'],
             'turnstile_secret' => ['nullable', 'string', 'max:255'],
+            'home_hero_source' => ['nullable', 'string', 'max:40', 'regex:/^(featured|genre:\d+)$/'],
+            'home_hero_seconds' => ['nullable', 'integer', 'between:0,60'],
         ], [
             'support_line_url.url' => 'ลิงก์ LINE ต้องเป็น URL ที่ขึ้นต้นด้วย http/https',
             'support_email.email' => 'อีเมลไม่ถูกต้อง',
@@ -54,7 +61,7 @@ class SettingController extends Controller
 
         // Plain (non-secret) fields are pre-filled in the form, so they resubmit
         // their real value — safe to write as-is (null clears them).
-        foreach (['google_client_id', 'line_client_id', 'support_line_url', 'support_email', 'app_github_repo', 'turnstile_site_key'] as $field) {
+        foreach (['google_client_id', 'line_client_id', 'support_line_url', 'support_email', 'app_github_repo', 'turnstile_site_key', 'home_hero_source', 'home_hero_seconds'] as $field) {
             Setting::write($field, $data[$field] ?? null);
         }
 

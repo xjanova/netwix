@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Content;
 use App\Models\Genre;
 use App\Models\Profile;
+use App\Models\Setting;
 use App\Services\Recommender;
+use Illuminate\Support\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -18,15 +20,11 @@ class BrowseController extends Controller
         $animeIds = $this->animeGenreIds();
         $notAnime = fn ($q) => $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', $animeIds));
 
-        // Hero is random (not "the newest"), and prefers a title that actually has a video to play
-        // (YouTube trailer or a stored ep-1 preview) so the hero background isn't a still image.
-        $hero = Content::published()->where('is_featured', true)->where($notAnime)
-                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
-            ?? Content::published()->where($notAnime)
-                ->where(fn ($q) => $q->whereNotNull('trailer_youtube_id')->orWhereHas('previewEpisode'))
-                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
-            ?? Content::published()->where($notAnime)
-                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first();
+        // Hero billboard — an admin-configurable pool (Setting home_hero_source = 'featured' or
+        // 'genre:<id>') that rotates on the client. Slide 0 is rendered server-side; the rest ride
+        // along as JSON for the rotator.
+        $heroPool = $this->heroPool($notAnime);
+        $hero = $heroPool->first();
 
         $rows = [];
 
@@ -75,6 +73,8 @@ class BrowseController extends Controller
         return view('frontend.browse', [
             'hero' => $hero,
             'heroResolveUrl' => $this->heroResolveUrl($hero),
+            'heroSlides' => $this->heroSlides($heroPool),
+            'heroSeconds' => (int) Setting::get('home_hero_seconds', 8),
             'rows' => $rows,
             'myListIds' => $this->myListIds($profile),
             'feedSeed' => random_int(1, 999999),
@@ -162,6 +162,55 @@ class BrowseController extends Controller
         $ep = $hero->episodes()->orderBy('season_id')->orderBy('sort')->orderBy('number')->first();
 
         return ($ep && $ep->source) ? route('episode.source', $ep) : null;
+    }
+
+    /**
+     * The home hero pool. Admin picks the source via Setting `home_hero_source`:
+     *   'featured'   → titles ticked "แนะนำ" (is_featured)   [default]
+     *   'genre:<id>' → titles in that genre
+     * Up to 6 shuffled titles; falls back to anything showable so the hero is never blank.
+     */
+    private function heroPool(\Closure $notAnime): Collection
+    {
+        $source = (string) Setting::get('home_hero_source', 'featured');
+        $with = ['genres', 'previewEpisode', 'seasons'];
+        $base = fn () => Content::published()->where($notAnime)->with($with);
+
+        if (str_starts_with($source, 'genre:')) {
+            $gid = (int) substr($source, 6);
+            $pool = $base()->whereHas('genres', fn ($g) => $g->where('genres.id', $gid))
+                ->inRandomOrder()->take(6)->get();
+        } else {
+            $pool = $base()->where('is_featured', true)->inRandomOrder()->take(6)->get();
+        }
+
+        if ($pool->isEmpty()) {
+            $pool = $base()
+                ->where(fn ($q) => $q->whereNotNull('backdrop_path')->orWhereNotNull('trailer_youtube_id')->orWhereHas('previewEpisode'))
+                ->inRandomOrder()->take(6)->get();
+        }
+
+        return $pool;
+    }
+
+    /** JSON slide data for the client-side hero rotator (everything the billboard needs per title). */
+    private function heroSlides(Collection $pool): array
+    {
+        return $pool->map(fn (Content $c) => [
+            'title' => $c->title,
+            'year' => $c->year,
+            'maturity' => $c->maturity,
+            'meta' => $c->type === 'movie' ? (($c->duration_minutes ?: 0).' นาที') : (($c->seasons->count() ?: 1).' ซีซั่น'),
+            'match' => $c->match_score,
+            'dub' => $c->dub_label,
+            'synopsis' => $c->synopsis,
+            'backdrop' => $c->backdrop_url,
+            'gradient' => $c->gradient,
+            'original' => (bool) $c->is_original,
+            'watch' => route('watch', $c),
+            'modal' => route('title.modal', $c),
+            'clip' => $c->preview_url,   // stored mp4 → cheap to loop over the backdrop; null otherwise
+        ])->values()->all();
     }
 
     /** Personalised infinite-scroll feed page (JSON of rendered cards). */
