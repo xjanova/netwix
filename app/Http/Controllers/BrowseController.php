@@ -30,15 +30,9 @@ class BrowseController extends Controller
 
         $rows = [];
 
-        // Continue watching
-        $continue = Content::published()
-            ->whereIn('id', $profile->watchProgress()
-                ->whereBetween('percent', [1, 94])
-                ->orderByDesc('last_watched_at')
-                ->pluck('content_id'))
-            ->with(['genres', 'previewEpisode'])->get();
-        if ($continue->isNotEmpty()) {
-            $rows[] = ['title' => 'ดูต่อสำหรับ '.$profile->name, 'en' => 'Continue Watching', 'items' => $continue];
+        // Continue watching (most-recent first)
+        if ($c = $this->continueRow($profile, null, 'notanime')) {
+            $rows[] = $c;
         }
 
         // NetWix Originals
@@ -109,13 +103,19 @@ class BrowseController extends Controller
                 ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
             ?? Content::published()->where($isAnime)->with(['genres', 'previewEpisode'])->inRandomOrder()->first();
 
-        $rows = [[
+        $rows = [];
+        // Continue watching first (anime only).
+        if ($c = $this->continueRow($profile, null, 'anime')) {
+            $rows[] = $c;
+        }
+        $rows[] = [
             'title' => 'อนิเมะมาแรง', 'en' => 'Trending Anime', 'ranked' => true,
             'items' => Content::published()->where($isAnime)->rankedByEngagement()
                 ->with(['genres', 'previewEpisode'])->take(10)->get(),
-        ]];
+        ];
 
         $rowSeed = random_int(1, 999999);
+        $baseCount = count($rows);
         foreach (Genre::orderBy('sort')->get() as $genre) {
             if (in_array($genre->id, $animeIds, true)) {
                 continue; // skip the umbrella genres — group by the real sub-genres instead
@@ -128,7 +128,7 @@ class BrowseController extends Controller
             }
         }
 
-        if (count($rows) <= 1) { // no sub-genre rows filled → one catch-all row
+        if (count($rows) === $baseCount) { // no sub-genre rows filled → one catch-all row
             $rows[] = [
                 'title' => 'อนิเมะทั้งหมด',
                 'items' => Content::published()->where($isAnime)->with(['genres', 'previewEpisode'])
@@ -235,6 +235,46 @@ class BrowseController extends Controller
         ]);
     }
 
+    /**
+     * "ดูต่อ / Continue Watching" row, MOST-RECENT first, optionally scoped to a page's type/anime —
+     * so on any category page you land straight back on the title you just opened (owner: กดผิดย้อนกลับ
+     * มาแล้วหาไม่เจอ). Returns null when nothing is in progress in that scope.
+     */
+    private function continueRow(Profile $profile, ?string $type = null, ?string $scope = null): ?array
+    {
+        $ids = $profile->watchProgress()
+            ->whereBetween('percent', [1, 94])
+            ->orderByDesc('last_watched_at')
+            ->limit(24)
+            ->pluck('content_id')->all();
+        if ($ids === []) {
+            return null;
+        }
+
+        $q = Content::published()->whereIn('id', $ids)->with(['genres', 'previewEpisode']);
+        if ($type) {
+            $q->type($type);
+        }
+        if ($type === 'vertical') {
+            $q->withCount('episodes');
+        }
+        if ($scope === 'notanime') {
+            $a = $this->animeGenreIds();
+            $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', $a));
+        } elseif ($scope === 'anime') {
+            $a = $this->animeGenreIds();
+            $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $a));
+        }
+
+        // preserve the last_watched order (whereIn loses it)
+        $items = $q->get()->sortBy(fn ($c) => array_search($c->id, $ids, true))->values();
+        if ($items->isEmpty()) {
+            return null;
+        }
+
+        return ['title' => 'ดูต่อสำหรับ '.$profile->name, 'en' => 'Continue Watching', 'genre' => null, 'items' => $items];
+    }
+
     public function series(Request $request): View
     {
         return $this->grouped($request, 'series', 'ซีรี่ส์');
@@ -258,6 +298,12 @@ class BrowseController extends Controller
 
         $rows = [];
         $rowSeed = random_int(1, 999999);
+
+        // Continue watching first (this type only).
+        if ($c = $this->continueRow($profile, $type, 'notanime')) {
+            $rows[] = $c;
+        }
+
         foreach (Genre::orderBy('sort')->get() as $genre) {
             if (in_array($genre->id, $animeIds, true)) {
                 continue;
@@ -336,6 +382,11 @@ class BrowseController extends Controller
         $rows = [];
         $rowSeed = random_int(1, 999999);
 
+        // Continue watching first — jump straight back to the short you just opened.
+        if ($c = $this->continueRow($profile, 'vertical')) {
+            $rows[] = $c;
+        }
+
         // Trending strip first (curated top-N, not lazy).
         $trending = Content::published()->type('vertical')->rankedByEngagement()
             ->with(['genres', 'previewEpisode'])->withCount('episodes')->take(14)->get();
@@ -344,6 +395,7 @@ class BrowseController extends Controller
         }
 
         // One row per genre — slides through EVERY vertical in that genre (lazy, page 2+ via browse.row).
+        $baseCount = count($rows);
         foreach (Genre::orderBy('sort')->get() as $genre) {
             if (in_array($genre->id, $animeIds, true)) {
                 continue;
@@ -356,7 +408,7 @@ class BrowseController extends Controller
         }
 
         // Nothing grouped (e.g. no genres assigned) → one catch-all row (lazy over all verticals).
-        if ($rows === [] || count($rows) === 1) {
+        if (count($rows) === $baseCount) {
             $rows[] = [
                 'title' => 'ทั้งหมด', 'en' => 'All', 'genre' => null,
                 'items' => $this->rowQuery('vertical', null, null, $rowSeed)->take(18)->get(),
