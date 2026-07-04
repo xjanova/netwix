@@ -33,6 +33,9 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
     Route::get('content/{content:id}/comments', [FeedbackController::class, 'comments']);
     Route::get('content/{content:id}/ratings', [FeedbackController::class, 'ratings']);
 
+    // Public: count a watch (deduped server-side).
+    Route::post('content/{content:id}/view', [CatalogController::class, 'view']);
+
     // Public: admin-defined membership rules (free episodes, coin costs, Pro, referral rewards).
     Route::get('membership/config', [MembershipController::class, 'config']);
 

@@ -9,6 +9,7 @@ use App\Models\Content;
 use App\Models\Genre;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Public catalog API for the NetWix mobile app. Mirrors the Blade
@@ -112,6 +113,21 @@ class CatalogController extends Controller
             'total' => $p->total(),
             'has_more' => $p->hasMorePages(),
         ]);
+    }
+
+    /**
+     * POST /api/app/content/{id}/view — count a watch. Deduped per viewer
+     * (ip) + title for 6h so a refresh/rewatch can't inflate the number.
+     * Public: guests watch too.
+     */
+    public function view(Content $content, Request $request): JsonResponse
+    {
+        $key = 'appview:'.$content->id.':'.sha1((string) $request->ip());
+        if (Cache::add($key, 1, now()->addHours(6))) {
+            $content->increment('views');
+        }
+
+        return $this->ok(['ok' => true]);
     }
 
     /** GET /api/app/genres — the genre taxonomy for the app's category chips. */
