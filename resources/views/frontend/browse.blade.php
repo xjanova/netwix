@@ -140,7 +140,7 @@
                     _vel: 0, _raf: null,
                     // Cache what's loaded in this tab session so coming back to browse is instant
                     // (survives clicking a title and pressing Back) — keyed per genre filter.
-                    ckey() { return 'nxfeed:' + (this.genre ?? 'all'); },
+                    ckey() { return 'nxfeed:v2:' + (this.genre ?? 'all'); },   // v2: invalidate pre-object-top cached cards
                     cache() {
                         try {
                             const html = this.$refs.rail.innerHTML;
