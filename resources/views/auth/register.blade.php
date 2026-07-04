@@ -26,6 +26,8 @@
                 <div class="mt-3.5 text-[13.5px] text-[#ff6b81]">{{ $errors->first() }}</div>
             @endif
 
+            @include('partials.turnstile')
+
             <button type="submit" class="btn-brand mt-5 w-full py-3.5 text-base">สร้างบัญชี</button>
         @else
             <p class="mb-1 mt-3 text-center text-[15px] text-cream/70">สมัครและเข้าสู่ระบบด้วยบัญชีโซเชียล</p>

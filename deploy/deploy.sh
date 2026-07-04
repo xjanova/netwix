@@ -26,7 +26,7 @@ echo "▶ Deploying ref: $REF  (in $APP_DIR)"
 # the site is brought back up even if a step fails midway.
 trap 'php artisan up >/dev/null 2>&1 || true' EXIT
 echo "▶ Maintenance mode ON…"
-php artisan down --retry=15 || true
+php artisan down --render="errors.503" --retry=15 || true
 
 echo "▶ Fetching source…"
 # Check out the freshly-fetched REMOTE ref via FETCH_HEAD. Using `git checkout -f "$REF"`

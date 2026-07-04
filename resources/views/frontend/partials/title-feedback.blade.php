@@ -51,13 +51,17 @@
     {{-- comments --}}
     <div class="mt-6" x-data="{ list: {{ \Illuminate\Support\Js::from($commentsJs) }}, count: {{ $commentCount }}, body: '', busy: false,
             async post() { if (this.busy || !this.body.trim()) return; this.busy = true;
-                try { const d = await nxPost('{{ route('content.comment', $content) }}', { body: this.body });
-                    this.list.unshift(d.comment); this.count = d.count; this.body = ''; } catch (e) {} finally { this.busy = false; } } }">
+                const ts = window.turnstile ? window.turnstile.getResponse() : '';
+                try { const d = await nxPost('{{ route('content.comment', $content) }}', { body: this.body, 'cf-turnstile-response': ts });
+                    this.list.unshift(d.comment); this.count = d.count; this.body = ''; window.turnstile && window.turnstile.reset(); } catch (e) {} finally { this.busy = false; } } }">
         <h3 class="mb-3 text-base font-semibold">ความคิดเห็น <span class="text-cream/45">(<span x-text="count"></span>)</span></h3>
-        <form @submit.prevent="post()" class="mb-4 flex gap-2">
-            <input x-model="body" maxlength="500" placeholder="ร่วมพูดคุยเกี่ยวกับเรื่องนี้…"
-                   class="flex-1 rounded-lg border border-white/10 bg-surface-2 px-3.5 py-2.5 text-sm outline-none focus:border-brand">
-            <button type="submit" :disabled="busy || !body.trim()" class="btn-brand px-5 text-sm disabled:opacity-40">ส่ง</button>
+        <form @submit.prevent="post()" class="mb-4">
+            <div class="flex gap-2">
+                <input x-model="body" maxlength="500" placeholder="ร่วมพูดคุยเกี่ยวกับเรื่องนี้…"
+                       class="flex-1 rounded-lg border border-white/10 bg-surface-2 px-3.5 py-2.5 text-sm outline-none focus:border-brand">
+                <button type="submit" :disabled="busy || !body.trim()" class="btn-brand px-5 text-sm disabled:opacity-40">ส่ง</button>
+            </div>
+            @include('partials.turnstile')
         </form>
         <div class="flex flex-col gap-3.5">
             <template x-for="(c, i) in list" :key="i">

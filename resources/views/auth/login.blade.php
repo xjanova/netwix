@@ -20,6 +20,8 @@
 
         @error('email')<div class="mt-3.5 text-[13.5px] text-[#ff6b81]">{{ $message }}</div>@enderror
 
+        @include('partials.turnstile')
+
         <button type="submit" class="btn-brand mt-5 w-full py-3.5 text-base">เข้าสู่ระบบ</button>
 
         <div class="mt-4 flex items-center justify-between text-[13.5px] text-cream/50">

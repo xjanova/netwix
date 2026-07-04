@@ -47,9 +47,9 @@ Route::prefix('api/ingest')->middleware('throttle:120,1')->group(function () {
 // ---- Guest auth --------------------------------------------------------
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'show'])->name('login');
-    Route::post('/login', [LoginController::class, 'login'])->middleware('throttle:10,1');
+    Route::post('/login', [LoginController::class, 'login'])->middleware(['throttle:10,1', 'turnstile']);
     Route::get('/register', [RegisterController::class, 'show'])->name('register');
-    Route::post('/register', [RegisterController::class, 'register'])->middleware('throttle:10,1');
+    Route::post('/register', [RegisterController::class, 'register'])->middleware(['throttle:10,1', 'turnstile']);
 
     // Social sign-in (Google / LINE) — requires laravel/socialite on the server.
     Route::get('/auth/{provider}/redirect', [SocialController::class, 'redirect'])
@@ -100,7 +100,7 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::post('/api/content/{content}/list', [InteractionController::class, 'toggleMyList'])->name('content.list');
     Route::post('/api/content/{content}/like', [InteractionController::class, 'toggleLike'])->name('content.like');
     Route::post('/api/content/{content}/progress', [InteractionController::class, 'progress'])->name('content.progress');
-    Route::post('/api/content/{content}/comment', [InteractionController::class, 'comment'])->middleware('throttle:30,1')->name('content.comment');
+    Route::post('/api/content/{content}/comment', [InteractionController::class, 'comment'])->middleware(['throttle:30,1', 'turnstile'])->name('content.comment');
     Route::post('/api/content/{content}/rate', [InteractionController::class, 'rate'])->name('content.rate');
 
     Route::get('/api/episode/{episode}/source', [EpisodeSourceController::class, 'resolve'])->name('episode.source');

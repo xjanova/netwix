@@ -142,7 +142,7 @@
 
         <div class="flex flex-col gap-3">
             <label class="text-[13px] text-cream/60">GitHub repo ของแอป (owner/repo)
-                <input name="app_github_repo" value="{{ old('app_github_repo', $app_github_repo) }}" placeholder="เช่น xjanova/hivedownload" class="nx-input mt-1">
+                <input name="app_github_repo" value="{{ old('app_github_repo', $app_github_repo) }}" placeholder="เช่น xjanova/netwixmobile" class="nx-input mt-1">
             </label>
             <div x-data="{ show: false }">
                 <label class="text-[13px] text-cream/60">GitHub Token <span class="text-cream/35">(ไม่บังคับ — ใส่ถ้า repo เป็น private หรือชน rate limit)</span></label>
@@ -188,6 +188,48 @@
             <span class="text-sm">เปิดสมัครด้วยอีเมล + รหัสผ่าน</span>
         </label>
         <p class="mt-3 text-[12px] text-cream/40">ปิดช่องนี้ = หน้าสมัครและหน้าแรกจะเหลือเฉพาะปุ่มสมัครด้วย Google/LINE (สมาชิกอีเมลเดิมยังเข้าสู่ระบบได้ปกติ) — ต้องตั้งค่า Google/LINE ด้านบนให้เสร็จก่อน ไม่งั้นจะไม่มีช่องทางสมัครใหม่</p>
+    </div>
+
+    {{-- ============ CLOUDFLARE TURNSTILE (anti-spam) ============ --}}
+    <div class="nx-card p-6">
+        <div class="mb-4 flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+                <span class="flex h-6 w-6 items-center justify-center rounded-md text-white" style="background:#f6821f"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm-1.2 14.2l-4-4 1.4-1.4 2.6 2.6 5.2-5.2 1.4 1.4z"/></svg></span>
+                <h3 class="text-base font-bold">กันบอท / สแปม (Cloudflare Turnstile)</h3>
+            </div>
+            @if (filled($turnstile_site_key) && $hasTurnstileSecret)
+                <span class="rounded-full bg-success/15 px-2.5 py-1 text-[11px] font-semibold text-success">● ใช้งานอยู่</span>
+            @else
+                <span class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-cream/50">○ ยังไม่ตั้งค่า</span>
+            @endif
+        </div>
+        <p class="mb-4 text-[13px] text-cream/50">ป้องกันบอทสมัคร/ล็อกอิน และสแปมคอมเมนต์ — เมื่อตั้งค่าแล้วจะมีกล่องยืนยัน “ไม่ใช่บอท” โผล่บนฟอร์มล็อกอิน สมัครสมาชิก และช่องคอมเมนต์อัตโนมัติ (คนจริงส่วนใหญ่ผ่านแบบไม่ต้องกดอะไร)</p>
+        <div class="flex flex-col gap-3">
+            <label class="text-[13px] text-cream/60">Site Key
+                <input name="turnstile_site_key" value="{{ old('turnstile_site_key', $turnstile_site_key) }}" placeholder="0x4AAAAAAA…" class="nx-input mt-1">
+            </label>
+            <div x-data="{ show: false }">
+                <label class="text-[13px] text-cream/60">Secret Key</label>
+                <div class="mt-1 flex gap-2">
+                    <input :type="show ? 'text' : 'password'" name="turnstile_secret" autocomplete="new-password"
+                           placeholder="{{ $hasTurnstileSecret ? '•••••• บันทึกไว้แล้ว — เว้นว่างเพื่อคงค่าเดิม' : 'วาง Secret Key ที่นี่' }}" class="nx-input flex-1">
+                    <button type="button" @click="show = !show" class="rounded-md bg-white/5 px-3 text-xs hover:bg-white/10" x-text="show ? 'ซ่อน' : 'แสดง'"></button>
+                </div>
+                @if ($hasTurnstileSecret)
+                    <label class="mt-2 flex items-center gap-2 text-[12px] text-cream/45">
+                        <input type="checkbox" name="turnstile_secret_clear" value="1" class="h-3.5 w-3.5 accent-brand"> ล้าง Secret Key ที่บันทึกไว้ (= ปิดระบบกันบอท)
+                    </label>
+                @endif
+            </div>
+        </div>
+        <div class="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3.5 text-[12.5px] leading-relaxed text-cream/55">
+            <div class="mb-1.5 font-semibold text-cream/70">วิธีเอาค่า (ฟรี):</div>
+            <ol class="ml-4 list-decimal space-y-1">
+                <li>เปิด <a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank" rel="noopener" class="text-brand-2 underline">Cloudflare → Turnstile</a> แล้วกด <strong>Add widget</strong></li>
+                <li>Name: NetWix · Hostname: <code class="rounded bg-black/40 px-1.5 py-0.5">netwix.online</code> · Widget Mode: <strong>Managed</strong></li>
+                <li>คัดลอก <strong>Site Key</strong> + <strong>Secret Key</strong> มาวางด้านบน แล้วกดบันทึก — ระบบจะเปิดใช้งานทันที</li>
+            </ol>
+        </div>
     </div>
 
     <div class="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.02] px-5 py-4">

@@ -27,6 +27,9 @@ class SettingController extends Controller
             'hasAppToken' => filled(Setting::get('app_github_token')),
             'appRelease' => app(AppRelease::class)->latest(),
             'emailRegEnabled' => Setting::flag('email_registration_enabled', true),
+            // Cloudflare Turnstile anti-spam (login / register / comments)
+            'turnstile_site_key' => Setting::get('turnstile_site_key'),
+            'hasTurnstileSecret' => filled(Setting::get('turnstile_secret')),
         ]);
     }
 
@@ -41,15 +44,17 @@ class SettingController extends Controller
             'support_email' => ['nullable', 'email', 'max:255'],
             'app_github_repo' => ['nullable', 'string', 'max:255', 'regex:/^[\w.-]+\/[\w.-]+$/'],
             'app_github_token' => ['nullable', 'string', 'max:255'],
+            'turnstile_site_key' => ['nullable', 'string', 'max:255'],
+            'turnstile_secret' => ['nullable', 'string', 'max:255'],
         ], [
             'support_line_url.url' => 'ลิงก์ LINE ต้องเป็น URL ที่ขึ้นต้นด้วย http/https',
             'support_email.email' => 'อีเมลไม่ถูกต้อง',
-            'app_github_repo.regex' => 'รูปแบบต้องเป็น owner/repo เช่น xjanova/hivedownload',
+            'app_github_repo.regex' => 'รูปแบบต้องเป็น owner/repo เช่น xjanova/netwixmobile',
         ]);
 
         // Plain (non-secret) fields are pre-filled in the form, so they resubmit
         // their real value — safe to write as-is (null clears them).
-        foreach (['google_client_id', 'line_client_id', 'support_line_url', 'support_email', 'app_github_repo'] as $field) {
+        foreach (['google_client_id', 'line_client_id', 'support_line_url', 'support_email', 'app_github_repo', 'turnstile_site_key'] as $field) {
             Setting::write($field, $data[$field] ?? null);
         }
 
@@ -61,7 +66,7 @@ class SettingController extends Controller
         // blank submit must be treated as "keep the existing secret", NOT a wipe.
         // (brain: SlipOK/Stripe key-wiped-on-save — check blank(), not === '')
         // An explicit "ล้างค่า" checkbox is the only way to clear a stored secret.
-        foreach (['google_client_secret', 'line_client_secret', 'app_github_token'] as $field) {
+        foreach (['google_client_secret', 'line_client_secret', 'app_github_token', 'turnstile_secret'] as $field) {
             if ($request->boolean($field.'_clear')) {
                 Setting::write($field, null);
             } elseif (filled($data[$field] ?? null)) {
