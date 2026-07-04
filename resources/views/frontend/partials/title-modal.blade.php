@@ -87,10 +87,10 @@
     {{-- info lifted over the video's lower ~half; the video keeps playing behind the title like a
          background and eases out through this fade (owner: ตัวหนังสือกินเข้าไปในวีดีโอ ~50%,
          วีดีโอเล่นเหมือนแบล็กกราวด์ ไม่หยุด) --}}
-    <div class="relative z-10 -mt-[30%] sm:-mt-[25%]">
+    <div class="relative z-10 -mt-[33%] sm:-mt-[28%]">
         {{-- fade band tied to WIDTH (aspect-ratio) so it always covers the overlap zone no matter
-             how tall the body is: video → panel colour --}}
-        <div class="pointer-events-none absolute inset-x-0 top-0 w-full" style="aspect-ratio:16/8;background:linear-gradient(180deg, transparent 0%, transparent 16%, rgba(14,10,23,0.6) 40%, var(--color-panel) 58%, var(--color-panel) 100%)"></div>
+             how tall the body is: video → panel colour, solid before the video's bottom edge --}}
+        <div class="pointer-events-none absolute inset-x-0 top-0 w-full" style="aspect-ratio:16/7.5;background:linear-gradient(180deg, transparent 0%, transparent 14%, rgba(14,10,23,0.65) 36%, var(--color-panel) 54%, var(--color-panel) 100%)"></div>
         <div class="relative px-6 pb-6 pt-3 sm:px-8 sm:pt-4">
             @if ($content->is_original)
                 <div class="nx-gradient mb-2 inline-flex rounded px-2 py-0.5 text-[10px] font-bold tracking-widest">NETWIX ORIGINAL</div>
