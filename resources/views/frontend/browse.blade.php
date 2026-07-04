@@ -107,7 +107,7 @@
     {{-- Personalised infinite-scroll feed (learns your genres, mixes in the rest,
          positions shuffled per session). Rails below stay as they were. --}}
     @isset($feedSeed)
-        <section class="pt-6" x-data="recFeed({ seed: {{ $feedSeed }}, url: '{{ route('browse.feed') }}' })" x-init="start()">
+        <section class="pt-6" x-data="recFeed({ seed: {{ $feedSeed }}, url: '{{ route('browse.feed') }}', ver: '{{ @filemtime(public_path('build/manifest.json')) ?: 'x' }}' })" x-init="start()">
             <h2 class="mb-2 flex items-center gap-2 px-[4vw] text-lg font-semibold sm:text-xl">
                 <span class="nx-gradient h-5 w-1 shrink-0 rounded-full sm:h-6" aria-hidden="true"></span>
                 <span>แนะนำสำหรับคุณ <span class="text-[14px] font-normal text-cream/40">For You</span></span>
@@ -136,11 +136,11 @@
         <script>
             function recFeed(cfg) {
                 return {
-                    seed: cfg.seed, url: cfg.url, page: 1, genre: null, loading: false, done: false,
+                    seed: cfg.seed, url: cfg.url, ver: cfg.ver, page: 1, genre: null, loading: false, done: false,
                     _vel: 0, _raf: null,
                     // Cache what's loaded in this tab session so coming back to browse is instant
                     // (survives clicking a title and pressing Back) — keyed per genre filter.
-                    ckey() { return 'nxfeed:v2:' + (this.genre ?? 'all'); },   // v2: invalidate pre-object-top cached cards
+                    ckey() { return 'nxfeed:' + this.ver + ':' + (this.genre ?? 'all'); },   // ver = build mtime → cache auto-busts every deploy
                     cache() {
                         try {
                             const html = this.$refs.rail.innerHTML;
