@@ -54,8 +54,10 @@
                  x-data="heroPreview({ src: @js($previewSrc), resolve: @js($previewResolve), adult: @js((bool) $content->is_adult) })">
                 <video x-ref="hero" loop playsinline preload="none"
                        class="absolute inset-0 h-full w-full object-cover"></video>
+                {{-- mute toggle sits top-right (the info overlaps the video's lower half, so it can't
+                     live at the bottom any more) --}}
                 <button type="button" @click.stop="toggleMute()" x-show="ready" x-cloak
-                        class="absolute bottom-4 right-4 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-lg backdrop-blur transition hover:bg-black/80"
+                        class="absolute right-16 top-4 z-30 flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-base backdrop-blur transition hover:bg-black/80"
                         :title="muted ? 'เปิดเสียง' : 'ปิดเสียง'" :aria-label="muted ? 'เปิดเสียง' : 'ปิดเสียง'">
                     <span x-text="muted ? '🔇' : '🔊'"></span>
                 </button>
@@ -64,12 +66,8 @@
             {{-- no trailer and no image → fill with an animated NetWix logo clip --}}
             @include('partials.logo-fill', ['seed' => $content->id])
         @endif
-        {{-- soft fade: the title/info "eats into" the lower ~half of the video and eases into the
-             body — no hard cut-off edge (owner's request: กินเข้าไป ~50% ก่อนเลือนหาย) --}}
-        <div class="pointer-events-none absolute inset-0" style="background:linear-gradient(180deg, transparent 40%, rgba(20,16,32,0.4) 58%, rgba(20,16,32,0.88) 84%, #141020 100%)"></div>
-
         {{-- top of the preview: rating stars + maturity / PRO / year / match badges (owner: ดาว + ป้ายกำกับ อยู่บนสุด) --}}
-        <div class="absolute left-5 right-16 top-4 z-20 flex flex-wrap items-center gap-1.5">
+        <div class="absolute left-5 right-28 top-4 z-20 flex flex-wrap items-center gap-1.5">
             <span class="inline-flex items-center gap-1 rounded-full bg-black/45 px-2.5 py-1 text-sm font-bold text-gold backdrop-blur">★ {{ $content->rating }}</span>
             <span class="rounded-full px-2.5 py-1 text-xs font-semibold backdrop-blur {{ $content->is_adult ? 'bg-gold/90 text-black' : 'bg-black/45 text-cream/90' }}">{{ $content->maturity }}</span>
             @if ($content->requires_pro)
@@ -84,15 +82,20 @@
                     class="absolute right-4 top-4 z-30 flex h-9 w-9 items-center justify-center rounded-full bg-ink/70 text-lg hover:bg-ink">✕</button>
         @endif
 
-        <div class="absolute bottom-5 left-6 right-16 z-20">
+    </div>
+
+    {{-- info lifted over the video's lower ~half; the video keeps playing behind the title like a
+         background and eases out through this fade (owner: ตัวหนังสือกินเข้าไปในวีดีโอ ~50%,
+         วีดีโอเล่นเหมือนแบล็กกราวด์ ไม่หยุด) --}}
+    <div class="relative z-10 -mt-[30%] sm:-mt-[25%]">
+        {{-- fade band tied to WIDTH (aspect-ratio) so it always covers the overlap zone no matter
+             how tall the body is: video → panel colour --}}
+        <div class="pointer-events-none absolute inset-x-0 top-0 w-full" style="aspect-ratio:16/8;background:linear-gradient(180deg, transparent 0%, transparent 16%, rgba(14,10,23,0.6) 40%, var(--color-panel) 58%, var(--color-panel) 100%)"></div>
+        <div class="relative px-6 pb-6 pt-3 sm:px-8 sm:pt-4">
             @if ($content->is_original)
                 <div class="nx-gradient mb-2 inline-flex rounded px-2 py-0.5 text-[10px] font-bold tracking-widest">NETWIX ORIGINAL</div>
             @endif
-            <h2 class="text-2xl font-extrabold drop-shadow-[0_2px_8px_rgba(0,0,0,0.75)] sm:text-3xl">{{ $content->title }}</h2>
-        </div>
-    </div>
-
-    <div class="p-6 sm:p-8">
+            <h2 class="mb-4 text-2xl font-extrabold drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)] sm:text-3xl">{{ $content->title }}</h2>
         <div class="flex flex-wrap items-center gap-3">
             @if ($needsPro)
                 <a href="{{ route('account') }}" class="flex items-center gap-2 rounded-md bg-gradient-to-r from-gold to-[#ffcf5a] px-6 py-2.5 font-bold text-black hover:brightness-95" title="เนื้อหาผู้ใหญ่ — เฉพาะสมาชิก Pro">
@@ -185,5 +188,6 @@
         @endif
 
         @include('frontend.partials.title-feedback')
+        </div>
     </div>
 </div>

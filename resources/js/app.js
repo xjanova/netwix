@@ -269,16 +269,17 @@ window.nxCardPreview = (src) => ({
 });
 
 /**
- * Title-modal header preview (episode-1 clip). Plays WITH sound by default — muted for 18+/20+ —
- * with a mute/unmute toggle, and FREEZES (pauses) whenever it's scrolled out of view, so it isn't
- * moving or blaring while you scroll down to pick an episode. Autoplay-with-sound that the browser
- * blocks falls back to muted so the clip always plays; the toggle (a real gesture) can turn sound on.
- *   x-data="heroPreview({ src, resolve, adult })" x-init="init()"
+ * Title-modal header preview (episode-1 clip). Plays continuously behind the title/info like a
+ * moving background (owner: "ให้วีดีโอเล่นไปเหมือนแบล็กกราวด์" — does NOT pause on scroll). Plays
+ * WITH sound by default — muted for 18+/20+ — with a mute/unmute toggle. Autoplay-with-sound that
+ * the browser blocks falls back to muted so the clip always plays; the toggle (a real gesture) can
+ * turn sound on. IMPORTANT: no x-init — Alpine auto-calls init() once; adding x-init double-inits
+ * (two resolves + two <video> loads) and hard-freezes the renderer.
+ *   x-data="heroPreview({ src, resolve, adult })"
  */
 window.heroPreview = (cfg) => ({
     muted: !!cfg.adult,        // 18+/20+ → muted by default; everything else starts with sound
     ready: false,
-    _io: null,
     async init() {
         const v = this.$refs.hero;
         if (!v) return;
@@ -294,13 +295,7 @@ window.heroPreview = (cfg) => ({
         window.nxAttachVideo(v, url);
         v.muted = this.muted;
         this.ready = true;
-        this.tryPlay();
-        // pause (freeze the frame + sound) while scrolled out of view — e.g. browsing episodes below
-        this._io = new IntersectionObserver((e) => {
-            if (e[0].isIntersecting && e[0].intersectionRatio >= 0.55) this.tryPlay();
-            else v.pause();
-        }, { threshold: [0, 0.55] });
-        this._io.observe(v);
+        this.tryPlay();        // loops + keeps playing as the header background; no pause-on-scroll
     },
     tryPlay() {
         const v = this.$refs.hero;
@@ -315,10 +310,9 @@ window.heroPreview = (cfg) => ({
         v.muted = this.muted;
         if (!this.muted) v.play?.().catch(() => {});            // unmute is a user gesture → sound OK
     },
-    // Alpine calls this when the element is removed (modal close/replace) — stop + free the video and
-    // disconnect the observer so nothing lingers/buffers in the background.
+    // Alpine calls this when the element is removed (modal close/replace) — stop + free the video so
+    // nothing lingers/buffers in the background.
     destroy() {
-        if (this._io) { this._io.disconnect(); this._io = null; }
         const v = this.$refs.hero;
         if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
     },
