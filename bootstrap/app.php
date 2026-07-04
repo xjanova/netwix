@@ -28,6 +28,15 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             \App\Http\Middleware\TrackPageView::class,
         ]);
+
+        // During a deploy (`artisan down`), keep the mobile app alive: streaming, API and the
+        // auth bridge bypass maintenance so active video playback (ExoPlayer) never gets a 503.
+        // Only web HTML page-loads see the brief "be right back" page.
+        $middleware->preventRequestsDuringMaintenance(except: [
+            'stream/*',
+            'api/*',
+            'mauth/*',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
