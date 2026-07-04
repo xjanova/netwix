@@ -13,13 +13,15 @@
     // are searched heavily; include วาย, พากย์ไทย/ซับไทย, แนวตั้ง/โรงหยก, อนิเมะ). Google no longer
     // ranks on this tag, but Bing and Thai SEO tools still read it and it is harmless. A page can
     // override with @section('meta_keywords', '…') to lead with its own title/genre terms.
-    $seoKeywords = trim($__env->yieldContent('meta_keywords')) ?: implode(', ', [
+    // Priority: per-page @section('meta_keywords') → admin-editable Setting('seo_keywords') → default.
+    $seoKeywords = trim($__env->yieldContent('meta_keywords'))
+        ?: (\App\Models\Setting::get('seo_keywords') ?: implode(', ', [
         'ดูหนังออนไลน์', 'ดูหนังออนไลน์ฟรี', 'ดูซีรี่ย์ออนไลน์', 'ดูซีรี่ย์ออนไลน์ฟรี', 'ดูซีรีส์ออนไลน์',
         'ซีรี่ย์เกาหลีซับไทย', 'ซีรี่ย์เกาหลีพากย์ไทย', 'ซีรี่ย์จีนซับไทย', 'ซีรี่ย์จีนพากย์ไทย',
         'ซีรี่ย์ไทย', 'ซีรี่ย์ฝรั่ง', 'ซีรี่ย์วาย', 'ซีรีส์แนวตั้ง', 'หนังสั้นจีน', 'ละครสั้น', 'โรงหยก',
         'มินิซีรีส์จีน', 'อนิเมะซับไทย', 'ดูอนิเมะ', 'ดูหนังฟรี', 'ดูซีรี่ย์ 2026', 'พากย์ไทย HD',
         'สตรีมมิ่ง', 'ดูหนังทุกอุปกรณ์', 'NetWix', 'เน็ตวิกซ์',
-    ]);
+    ]));
 @endphp
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

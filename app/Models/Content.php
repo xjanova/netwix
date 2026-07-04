@@ -214,4 +214,28 @@ class Content extends Model
 
         return null;
     }
+
+    /**
+     * Per-title SEO keyword string for the page <head> — the title with พากย์ไทย/ซับไทย/ดู…
+     * variants (how Thai users actually search a specific show) plus its genres and a type label.
+     * Consumed by the title/watch/vertical-player views via @section('meta_keywords', …).
+     */
+    public function getSeoKeywordsAttribute(): string
+    {
+        $typeLabel = match ($this->type) {
+            'movie' => 'ดูหนัง',
+            'vertical' => 'ซีรีส์แนวตั้ง',
+            default => 'ดูซีรี่ย์',
+        };
+
+        return collect([
+            $this->title,
+            $this->title.' พากย์ไทย',
+            $this->title.' ซับไทย',
+            'ดู'.$this->title,
+            $typeLabel.$this->title,
+        ])->merge($this->genres->pluck('name'))
+            ->merge([$typeLabel, 'ดูฟรี HD', 'ดูซีรี่ย์ออนไลน์ฟรี'])
+            ->filter()->unique()->implode(', ');
+    }
 }

@@ -1,5 +1,6 @@
 @extends('layouts.app')
 @section('title', $content->title)
+@section('meta_keywords', $content->seo_keywords)
 
 @section('content')
 <div class="pt-16 pb-10">

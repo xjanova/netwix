@@ -1,5 +1,6 @@
 @extends('layouts.app')
 @section('title', $heading)
+@section('meta_keywords', $genre->seo_keywords)
 
 @php
     $sortOpts = [

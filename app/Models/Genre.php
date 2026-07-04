@@ -28,4 +28,15 @@ class Genre extends Model
     {
         return $this->belongsToMany(Content::class, 'content_genre')->withPivot('is_primary');
     }
+
+    /** Per-genre SEO keyword string for the genre page <head>. */
+    public function getSeoKeywordsAttribute(): string
+    {
+        $n = $this->name;
+
+        return collect([
+            'ดู'.$n, $n.' ซับไทย', $n.' พากย์ไทย', 'ซีรี่ย์'.$n, $n.' ออนไลน์',
+            $this->name_en, 'ดูซีรี่ย์ออนไลน์ฟรี', 'ดูหนังออนไลน์', $n,
+        ])->filter()->unique()->implode(', ');
+    }
 }

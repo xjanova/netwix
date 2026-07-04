@@ -33,7 +33,13 @@ class StreamController extends Controller
         // of its ~700 segment URLs — slow (several seconds) on a cold hit. Cache the finished playlist
         // briefly so re-plays / seeks start instantly; segment signatures stay valid far longer.
         $out = Cache::remember("ep_manifest:{$episode->id}", now()->addMinutes(10), function () use ($episode, $stream) {
-            $body = Http::withHeaders($this->headers($stream->referer))->timeout(30)->get($stream->url)->body();
+            // A dead/slow upstream (e.g. a rotated tiktokcdn link) must not bubble up as an uncaught
+            // ConnectionException — that spammed the ERROR log. Fail fast on connect, return a clean 504.
+            try {
+                $body = Http::withHeaders($this->headers($stream->referer))->connectTimeout(8)->timeout(30)->get($stream->url)->body();
+            } catch (\Throwable $e) {
+                abort(504, 'upstream manifest unavailable');
+            }
             $base = $this->baseUrl($stream->url);
 
             return collect(preg_split('/\r?\n/', $body))->map(function (string $line) use ($base, $episode, $stream) {
@@ -76,7 +82,7 @@ class StreamController extends Controller
         $resp = null;
         for ($attempt = 0; $attempt < 3; $attempt++) {
             try {
-                $resp = Http::withHeaders($this->headers($ref ?: null))->timeout(30)->get($url);
+                $resp = Http::withHeaders($this->headers($ref ?: null))->connectTimeout(8)->timeout(30)->get($url);
                 if ($resp->ok()) {
                     break;
                 }
@@ -107,11 +113,15 @@ class StreamController extends Controller
         abort_if(! $stream, 404);
 
         $range = $request->header('Range');
-        $upstream = Http::withHeaders(array_filter([
-            'User-Agent' => self::UA,
-            'Referer' => $stream->referer,
-            'Range' => $range,
-        ]))->withOptions(['stream' => true])->timeout(60)->get($stream->url);
+        try {
+            $upstream = Http::withHeaders(array_filter([
+                'User-Agent' => self::UA,
+                'Referer' => $stream->referer,
+                'Range' => $range,
+            ]))->withOptions(['stream' => true])->connectTimeout(8)->timeout(60)->get($stream->url);
+        } catch (\Throwable $e) {
+            abort(504, 'upstream video unavailable');   // dead/rotated CDN link — clean 504, no ERROR-log spam
+        }
 
         $status = $upstream->status();
         $headers = array_filter([

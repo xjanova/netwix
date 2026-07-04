@@ -1,5 +1,6 @@
 @extends('layouts.player')
 @section('title', $content->title)
+@section('meta_keywords', $content->seo_keywords)
 
 @php
     $eps = $episodes->map(fn ($e) => [
