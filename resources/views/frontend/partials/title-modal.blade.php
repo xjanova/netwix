@@ -43,12 +43,13 @@
             <iframe src="https://www.youtube.com/embed/{{ $heroYt }}?autoplay=1&mute=1&loop=1&playlist={{ $heroYt }}&controls=0&modestbranding=1&rel=0&playsinline=1"
                     class="pointer-events-none absolute left-1/2 top-1/2 h-full w-full -translate-x-1/2 -translate-y-1/2 border-0"
                     style="min-width:178%;min-height:178%" allow="autoplay; encrypted-media"></iframe>
-        @elseif ($hasHeroPreview)
-            {{-- auto-play episode 1 as the header preview WITH sound (muted for 18+/20+); a mute
-                 toggle, and it freezes when scrolled out of view (while picking an episode below). --}}
+        @elseif ($hasHeroPreview && ! $isModal)
+            {{-- Full title page only: auto-play episode 1 as the header preview WITH sound (muted for
+                 18+/20+) + mute toggle. NOT in the pop-up modal — the on-demand rongyok resolve + a
+                 playing <video> there hard-froze the renderer ("detail won't load"); the modal shows
+                 the static backdrop/poster instead (instant). --}}
             <div class="absolute inset-0"
-                 x-data="heroPreview({ src: @js($previewSrc), resolve: @js($previewResolve), adult: @js((bool) $content->is_adult) })"
-                 x-init="init()">
+                 x-data="heroPreview({ src: @js($previewSrc), resolve: @js($previewResolve), adult: @js((bool) $content->is_adult) })">
                 <video x-ref="hero" loop playsinline preload="none"
                        class="absolute inset-0 h-full w-full object-cover"></video>
                 <button type="button" @click.stop="toggleMute()" x-show="ready" x-cloak
