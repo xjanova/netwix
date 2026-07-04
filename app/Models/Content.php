@@ -228,6 +228,9 @@ class Content extends Model
             default => 'ดูซีรี่ย์',
         };
 
+        // Admin-editable per-type keyword template (Setting) is appended to the auto-generated set.
+        $template = (string) \App\Models\Setting::get('seo_kw_'.($this->type ?: 'series'), '');
+
         return collect([
             $this->title,
             $this->title.' พากย์ไทย',
@@ -236,6 +239,7 @@ class Content extends Model
             $typeLabel.$this->title,
         ])->merge($this->genres->pluck('name'))
             ->merge([$typeLabel, 'ดูฟรี HD', 'ดูซีรี่ย์ออนไลน์ฟรี'])
+            ->merge($template !== '' ? array_map('trim', explode(',', $template)) : [])
             ->filter()->unique()->implode(', ');
     }
 }

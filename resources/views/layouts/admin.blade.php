@@ -17,6 +17,7 @@
         ['route' => 'admin.settings.index', 'label' => 'ตั้งค่า / เชื่อมต่อ'],
         ['route' => 'admin.membership.index', 'label' => 'โปรโมชัน / รางวัล'],
         ['route' => 'admin.analytics', 'label' => 'วิเคราะห์ข้อมูล'],
+        ['route' => 'admin.seo', 'label' => 'SEO / ทราฟฟิก'],
     ];
     $admin = auth()->user();
 @endphp

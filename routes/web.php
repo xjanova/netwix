@@ -169,4 +169,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::put('membership', [Admin\MembershipController::class, 'update'])->name('membership.update');
 
     Route::get('analytics', [Admin\AnalyticsController::class, 'index'])->name('analytics');
+
+    Route::get('seo', [Admin\SeoController::class, 'index'])->name('seo');
+    Route::put('seo', [Admin\SeoController::class, 'update'])->name('seo.update');
 });

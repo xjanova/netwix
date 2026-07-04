@@ -23,6 +23,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'api/ingest/*',
         ]);
+
+        // Log human page views for the admin SEO/traffic dashboard (best-effort, self-pruning).
+        $middleware->web(append: [
+            \App\Http\Middleware\TrackPageView::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
