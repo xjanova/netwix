@@ -22,50 +22,52 @@ class EpisodeThumbnailer
     public function __construct(private SourceRegistry $registry) {}
 
     /**
-     * Generate + store the cover. Returns true on success. When [$force] is
-     * false an episode that already has a cover is left untouched (returns true).
+     * Generate + store the cover. Returns a status code so the UI can explain
+     * failures: ok | exists | no_source | download_failed | ffmpeg_failed | error.
+     * (`no_source` = the upstream video link is gone/expired — nothing to grab.)
+     * When [$force] is false an episode that already has a cover is left alone.
      */
-    public function generate(Episode $episode, bool $force = false): bool
+    public function generate(Episode $episode, bool $force = false): string
     {
         if ($episode->thumbnail_path && ! $force) {
-            return true;
+            return 'exists';
         }
 
         $url = $this->playableUrl($episode);
         if (! $url) {
-            return false;
+            return 'no_source';
         }
 
         $src = $this->downloadToTemp($url);
         if ($src === null) {
-            return false;
+            return 'download_failed';
         }
 
         $out = $src.'.jpg';
         try {
             if (! $this->grab($src, $out, '3') && ! $this->grab($src, $out, '0')) {
-                return false;
+                return 'ffmpeg_failed';
             }
 
             $data = @file_get_contents($out);
             if ($data === false || strlen($data) < 400) {
-                return false;
+                return 'ffmpeg_failed';
             }
 
             $path = ImageStore::putWebp($data, 'media/thumbs', (string) $episode->id, 640);
             if ($path === null) {
-                return false;
+                return 'ffmpeg_failed';
             }
 
             // Same filename is reused, so store a cache-busted URL to force
             // Cloudflare/clients to refetch when regenerating.
             $episode->update(['thumbnail_path' => Storage::disk('public')->url($path).'?t='.now()->timestamp]);
 
-            return true;
+            return 'ok';
         } catch (Throwable $e) {
             report($e);
 
-            return false;
+            return 'error';
         } finally {
             @unlink($src);
             @unlink($out);

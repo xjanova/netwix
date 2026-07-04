@@ -134,6 +134,10 @@ function thumbGen() {
         },
         pickTitle(r) { this.contentId = r.id; this.contentLabel = r.title + ' (' + r.episodes + ' ตอน)'; this.titleResults = []; },
         clearTitle() { this.contentId = null; this.contentLabel = ''; this.titleQ = ''; },
+        reasonText(r) {
+            return { no_source: 'แหล่งวิดีโอหมดอายุ/ไม่พร้อม', download_failed: 'ดาวน์โหลดไม่ได้',
+                     ffmpeg_failed: 'แปลงภาพไม่ได้', error: 'ผิดพลาด' }[r] || r;
+        },
 
         async start() {
             if (this.running) return;
@@ -155,7 +159,8 @@ function thumbGen() {
                 if (!items.length) break; // finished
                 for (const it of items) {
                     this.processed++; it.ok ? this.done++ : this.failed++;
-                    this.log.unshift({ ok: it.ok, text: `${it.title} · ตอน ${it.number}` });
+                    const why = it.ok ? '' : ' — ' + this.reasonText(it.reason);
+                    this.log.unshift({ ok: it.ok, text: `${it.title} · ตอน ${it.number}${why}` });
                 }
                 if (this.log.length > 60) this.log.length = 60;
                 this.after = res.next_after;

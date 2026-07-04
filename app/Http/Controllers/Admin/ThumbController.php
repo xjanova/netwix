@@ -72,12 +72,13 @@ class ThumbController extends Controller
         $items = [];
         $next = $after;
         foreach ($episodes as $ep) {
-            $ok = $thumbnailer->generate($ep, $force);
+            $status = $thumbnailer->generate($ep, $force);
             $items[] = [
                 'id' => $ep->id,
                 'title' => $ep->content?->title ?? '—',
                 'number' => (int) $ep->number,
-                'ok' => $ok,
+                'ok' => in_array($status, ['ok', 'exists'], true),
+                'reason' => $status,
             ];
             $next = $ep->id;
         }
