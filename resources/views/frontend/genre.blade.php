@@ -21,7 +21,7 @@
         <span class="nx-gradient h-7 w-1.5 shrink-0 rounded-full" aria-hidden="true"></span>
         <span>{{ $heading }}</span>
         @if ($headingEn)<span class="text-lg font-normal text-cream/45">{{ $headingEn }}</span>@endif
-        <span class="text-base font-normal text-cream/40">{{ $items->count() }} เรื่อง</span>
+        <span class="text-base font-normal text-cream/40">{{ $items->total() }} เรื่อง</span>
     </h1>
 </div>
 
@@ -71,6 +71,23 @@
             @foreach ($items as $content)
                 <x-content-card :content="$content" :in-list="in_array($content->id, $myListIds)" />
             @endforeach
+        </div>
+    @endif
+
+    {{-- Pager: the grid is paginated (60/page) so a big genre isn't a multi-MB page. --}}
+    @if ($items->hasPages())
+        <div class="mt-8 flex items-center justify-center gap-3 text-sm">
+            @if ($items->onFirstPage())
+                <span class="rounded-full bg-white/5 px-5 py-2 text-cream/30">‹ ก่อนหน้า</span>
+            @else
+                <a href="{{ $items->previousPageUrl() }}" class="rounded-full bg-white/10 px-5 py-2 transition hover:bg-white/15">‹ ก่อนหน้า</a>
+            @endif
+            <span class="text-cream/50">หน้า {{ $items->currentPage() }} / {{ $items->lastPage() }}</span>
+            @if ($items->hasMorePages())
+                <a href="{{ $items->nextPageUrl() }}" class="rounded-full bg-white/10 px-5 py-2 transition hover:bg-white/15">ถัดไป ›</a>
+            @else
+                <span class="rounded-full bg-white/5 px-5 py-2 text-cream/30">ถัดไป ›</span>
+            @endif
         </div>
     @endif
 </div>

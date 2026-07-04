@@ -255,16 +255,20 @@ class BrowseController extends Controller
         } elseif ($sort === 'latest') {
             $q->orderBy('id', $dir);
         } else {
-            $q->inRandomOrder();
+            // Seeded shuffle: stable within a day so the paginator doesn't repeat/skip
+            // titles across pages (unseeded inRandomOrder reshuffles every page load).
+            $q->inRandomOrder((int) now()->format('Ymd') + $genre->id);
         }
 
+        // Paginate — a big catch-all genre like "ดราม่า" has ~900 titles; rendering them
+        // all was a ~5 MB page that OOM'd at memory_limit=128M → intermittent 500.
         return view('frontend.genre', [
             'genre' => $genre,
             'heading' => $genre->name,
             'headingEn' => $genre->name_en,
             'top' => $top,
             'continue' => $continue,
-            'items' => $q->get(),
+            'items' => $q->paginate(60)->withQueryString(),
             'sort' => $sort,
             'dir' => $dir,
             'myListIds' => $this->myListIds($profile),
