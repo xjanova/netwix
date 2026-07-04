@@ -83,6 +83,7 @@ Route::middleware('auth')->group(function () {
 Route::middleware(['auth', 'profile'])->group(function () {
     Route::get('/browse', [BrowseController::class, 'home'])->name('browse');
     Route::get('/browse/feed', [BrowseController::class, 'feed'])->middleware('throttle:120,1')->name('browse.feed');
+    Route::get('/browse/row', [BrowseController::class, 'row'])->middleware('throttle:180,1')->name('browse.row');
     Route::get('/series', [BrowseController::class, 'series'])->name('browse.series');
     Route::get('/movies', [BrowseController::class, 'movies'])->name('browse.movies');
     Route::get('/anime', [BrowseController::class, 'anime'])->name('browse.anime');

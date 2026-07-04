@@ -130,6 +130,50 @@ window.nxFullscreenActive = function () {
 window.nxRail = () => ({
     _raf: null,
     _vel: 0,
+    // Optional lazy-load: a rail that carries data-lazy-url keeps fetching the next page of cards as
+    // you slide toward the right end, so a genre row can browse EVERY title in it (page 1 is rendered
+    // server-side; we pull page 2+). Rows without data-lazy-url behave exactly as before.
+    lazyPage: 2,
+    lazyDone: false,
+    lazyLoading: false,
+    _lz: null,
+    init() {
+        const r = this.$refs.rail;
+        if (r && r.dataset.lazyUrl) {
+            this._lz = { url: r.dataset.lazyUrl, type: r.dataset.lazyType || '', genre: r.dataset.lazyGenre || '', scope: r.dataset.lazyScope || '', seed: r.dataset.lazySeed || '' };
+            this.$nextTick(() => this.lazyFill());
+        } else {
+            this.lazyDone = true;
+        }
+    },
+    async lazyMore() {
+        if (this.lazyLoading || this.lazyDone || !this._lz) return;
+        this.lazyLoading = true;
+        try {
+            const u = new URL(this._lz.url, location.origin);
+            ['type', 'genre', 'scope', 'seed'].forEach((k) => { if (this._lz[k]) u.searchParams.set(k, this._lz[k]); });
+            u.searchParams.set('page', this.lazyPage);
+            const res = await fetch(u, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const d = await res.json();
+            if (d && d.html) this.$refs.rail.insertAdjacentHTML('beforeend', d.html);
+            this.lazyPage = d.next;
+            this.lazyDone = !!d.done;
+        } catch (e) { /* keep the row usable on a transient error */ } finally {
+            this.lazyLoading = false;
+            this.$nextTick(() => this.lazyFill());
+        }
+    },
+    // keep pulling pages until the rail actually overflows, so a wide screen never shows a short stub
+    lazyFill() {
+        const r = this.$refs.rail;
+        if (!r || this.lazyLoading || this.lazyDone) return;
+        if (r.scrollWidth <= r.clientWidth + 320) this.lazyMore();
+    },
+    // fetch the next page as the viewer nears the right end (drag, wheel, arrows, or edge-glide)
+    onScroll() {
+        const r = this.$refs.rail;
+        if (r && r.scrollLeft + r.clientWidth >= r.scrollWidth - 800) this.lazyMore();
+    },
     scroll(dir) {
         const r = this.$refs.rail;
         if (!r) return;
