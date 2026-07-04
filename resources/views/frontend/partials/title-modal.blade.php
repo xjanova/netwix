@@ -150,9 +150,19 @@
             </div>
         @endif
 
-        @if ($content->type === 'vertical')
-            <div class="mt-6 rounded-lg bg-white/5 p-4 text-sm text-cream/60">
-                ซีรีส์แนวตั้ง {{ $content->episodes->count() }} ตอน · ปัดขึ้น–ลงเพื่อดูตอนถัดไป
+        @if ($content->type === 'vertical' && $content->episodes->isNotEmpty())
+            <div class="mt-7">
+                <div class="mb-3 flex flex-wrap items-center gap-2">
+                    <h3 class="text-lg font-semibold">ตอนทั้งหมด</h3>
+                    <span class="text-sm text-cream/45">{{ $content->episodes->count() }} ตอน · ปัดขึ้น–ลงเพื่อดูตอนถัดไป</span>
+                </div>
+                <div class="grid grid-cols-6 gap-2 sm:grid-cols-8 md:grid-cols-10">
+                    @foreach ($content->episodes as $i => $ep)
+                        <a href="{{ route('watch', $content) }}?ep={{ $i }}"
+                           class="flex aspect-square items-center justify-center rounded-lg bg-white/5 text-sm font-bold ring-1 ring-white/10 transition hover:bg-brand hover:text-white hover:ring-brand"
+                           title="ตอนที่ {{ $ep->number }}">{{ $ep->number }}</a>
+                    @endforeach
+                </div>
             </div>
         @endif
 

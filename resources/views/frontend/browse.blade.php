@@ -123,10 +123,10 @@
                  hovering near an edge glides the row the opposite way (faster the closer to the edge) --}}
             <div class="group/row relative">
                 <button type="button" @click="scroll(-1)"
-                        class="absolute left-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-r from-ink/80 to-transparent text-2xl opacity-0 transition group-hover/row:opacity-100 lg:flex">‹</button>
+                        class="absolute left-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-r from-ink/80 to-transparent text-2xl pointer-events-none opacity-0 transition group-hover/row:pointer-events-auto group-hover/row:opacity-100 lg:flex">‹</button>
                 <div x-ref="rail" class="nx-rail px-[4vw] pb-2" @mousemove="edgeMove($event)" @mouseleave="edgeLeave()" @scroll.passive="onScroll()"></div>
                 <button type="button" @click="scroll(1)"
-                        class="absolute right-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-l from-ink/80 to-transparent text-2xl opacity-0 transition group-hover/row:opacity-100 lg:flex">›</button>
+                        class="absolute right-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-l from-ink/80 to-transparent text-2xl pointer-events-none opacity-0 transition group-hover/row:pointer-events-auto group-hover/row:opacity-100 lg:flex">›</button>
             </div>
             <div x-show="loading" x-cloak class="px-[4vw] py-2 text-sm text-cream/50">กำลังโหลด…</div>
             <div x-show="done && !loading" x-cloak class="px-[4vw] py-2 text-sm text-cream/35">— ครบแล้ว —</div>
@@ -203,7 +203,7 @@
                         if (r) r.scrollBy({ left: dir * r.clientWidth * 0.85, behavior: 'smooth' });
                     },
                     edgeMove(e) {
-                        if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return; // desktop only
+                        if (!window.matchMedia('(any-hover: hover) and (any-pointer: fine)').matches) return; // needs a mouse (true on touch-capable PCs too, false on phones)
                         const r = this.$refs.rail.getBoundingClientRect();
                         const frac = (e.clientX - r.left) / r.width;
                         const zone = 0.16;

@@ -12,7 +12,7 @@
         </h2>
         <div class="group/row relative">
             <button type="button" @click="scroll(-1)"
-                    class="absolute left-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-r from-ink/80 to-transparent text-2xl opacity-0 transition group-hover/row:opacity-100 lg:flex">‹</button>
+                    class="absolute left-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-r from-ink/80 to-transparent text-2xl pointer-events-none opacity-0 transition group-hover/row:pointer-events-auto group-hover/row:opacity-100 lg:flex">‹</button>
             <div x-ref="rail" class="nx-rail px-[4vw] pb-2" @mousemove="edgeMove($event)" @mouseleave="edgeLeave()">
                 @foreach ($items as $i => $content)
                     <x-content-card :content="$content"
@@ -21,7 +21,7 @@
                 @endforeach
             </div>
             <button type="button" @click="scroll(1)"
-                    class="absolute right-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-l from-ink/80 to-transparent text-2xl opacity-0 transition group-hover/row:opacity-100 lg:flex">›</button>
+                    class="absolute right-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-l from-ink/80 to-transparent text-2xl pointer-events-none opacity-0 transition group-hover/row:pointer-events-auto group-hover/row:opacity-100 lg:flex">›</button>
         </div>
     </section>
 @endif

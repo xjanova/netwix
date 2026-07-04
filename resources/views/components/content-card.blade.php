@@ -12,7 +12,7 @@
         io: null,
         playT: null,
         reduced: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-        hoverCapable: window.matchMedia('(hover: hover) and (pointer: fine)').matches,
+        hoverCapable: window.matchMedia('(any-hover: hover) and (any-pointer: fine)').matches,
         // Desktop (mouse): the preview plays only while hovered (see @mouseenter/@mouseleave).
         // Touch/mobile: it plays for the card the viewer is focused on — i.e. well-centered on
         // screen — so only one clip plays at a time, not every card that's merely visible.

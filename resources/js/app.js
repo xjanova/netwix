@@ -135,7 +135,7 @@ window.nxRail = () => ({
         if (r) r.scrollBy({ left: dir * r.clientWidth * 0.85, behavior: 'smooth' });
     },
     edgeMove(e) {
-        if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return; // desktop only
+        if (!window.matchMedia('(any-hover: hover) and (any-pointer: fine)').matches) return; // needs a mouse (true on touch-capable PCs too, false on phones)
         const r = this.$refs.rail.getBoundingClientRect();
         const frac = (e.clientX - r.left) / r.width;
         const zone = 0.16;
@@ -211,6 +211,47 @@ window.nxCounter = (value, opts = {}) => ({
     },
     get formatted() {
         return this.display.toLocaleString('en-US');
+    },
+});
+
+/**
+ * Silent hover/scroll preview for a poster card (the vertical-browse 9:16 cards reuse this; the
+ * 16:9 content-card has its own inline copy). Mouse device → plays the ep1 clip while hovered;
+ * touch → plays while the card is well-centred on screen. Lazy: src is set only the first time shown.
+ *   x-data="nxCardPreview(@js($content->preview_url))" x-init="$nextTick(() => initPreview())"
+ */
+window.nxCardPreview = (src) => ({
+    src: src || null,
+    hv: false,
+    playing: false,
+    io: null,
+    playT: null,
+    reduced: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    hoverCapable: window.matchMedia('(any-hover: hover) and (any-pointer: fine)').matches,
+    initPreview() {
+        const v = this.$refs.clip;
+        if (!v || !this.src || this.reduced || this.hoverCapable) return;   // hover devices use @mouseenter
+        this.io = new IntersectionObserver((e) => {
+            (e[0].isIntersecting && e[0].intersectionRatio >= 0.75) ? this.arm() : this.release();
+        }, { threshold: [0, 0.75] });
+        this.io.observe(this.$root);
+    },
+    arm() {
+        if (this.playing || !this.src) return;
+        this.playing = true;
+        const v = this.$refs.clip;
+        this.playT = setTimeout(() => {
+            if (!this.playing) return;
+            if (!v.src) v.src = v.dataset.src;                 // lazy: fetch only once shown
+            v.play().then(() => { if (this.playing) this.hv = true; }).catch(() => {});
+        }, 180);
+    },
+    release() {
+        this.playing = false;
+        clearTimeout(this.playT);
+        this.hv = false;
+        const v = this.$refs.clip;
+        if (v) { v.pause(); v.removeAttribute('src'); v.load(); }   // free the buffer off-screen
     },
 });
 

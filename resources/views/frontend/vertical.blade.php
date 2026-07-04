@@ -21,10 +21,17 @@
             </h2>
             <div class="group/row relative">
                 <button type="button" @click="scroll(-1)"
-                        class="absolute left-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-r from-ink/80 to-transparent text-2xl opacity-0 transition group-hover/row:opacity-100 lg:flex">‹</button>
+                        class="absolute left-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-r from-ink/80 to-transparent text-2xl pointer-events-none opacity-0 transition group-hover/row:pointer-events-auto group-hover/row:opacity-100 lg:flex">‹</button>
                 <div x-ref="rail" class="nx-rail px-[4vw] pb-2" @mousemove="edgeMove($event)" @mouseleave="edgeLeave()">
                     @foreach ($row['items'] as $content)
-                        <a href="{{ route('watch', $content) }}" class="group block w-[132px] shrink-0 sm:w-[150px] md:w-[168px]">
+                        {{-- Click opens the title detail (synopsis / episodes / comments) like every other
+                             card — not straight into the player; hover plays the ep1 preview clip. --}}
+                        <div x-data="nxCardPreview(@js($content->preview_url))" x-init="$nextTick(() => initPreview())"
+                             @mouseenter="hoverCapable && arm()" @mouseleave="hoverCapable && release()"
+                             @click="$dispatch('open-title', '{{ route('title.modal', $content) }}')"
+                             @keydown.enter="$dispatch('open-title', '{{ route('title.modal', $content) }}')"
+                             role="button" tabindex="0"
+                             class="group block w-[132px] shrink-0 cursor-pointer sm:w-[150px] md:w-[168px]">
                             <div class="relative aspect-[9/16] overflow-hidden rounded-xl ring-1 ring-white/5 transition group-hover:ring-2 group-hover:ring-white/25"
                                  style="background:{{ $content->gradient }}">
                                 @if ($content->poster_url)
@@ -35,6 +42,12 @@
                                     <div class="absolute inset-0 flex items-center justify-center">
                                         <img src="{{ asset('assets/netwix-icon.png') }}" alt="" class="h-12 w-12 opacity-30">
                                     </div>
+                                @endif
+                                @if ($content->preview_url)
+                                    <video x-ref="clip" aria-hidden="true" data-src="{{ $content->preview_url }}"
+                                           muted loop playsinline preload="none"
+                                           class="absolute inset-0 h-full w-full object-cover transition-opacity duration-300"
+                                           :class="hv ? 'opacity-100' : 'opacity-0'"></video>
                                 @endif
                                 <div class="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100" style="background:rgba(0,0,0,0.35)">
                                     <span class="flex h-11 w-11 items-center justify-center rounded-full bg-cream/90 text-ink">
@@ -49,16 +62,16 @@
                                         <span class="flex items-center gap-0.5 rounded bg-gradient-to-r from-gold to-[#ffcf5a] px-1.5 py-0.5 text-[9px] font-extrabold tracking-wide text-black shadow" title="ต้องเป็นสมาชิก Pro">👑 PRO</span>
                                     @endif
                                 </div>
-                                <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-2.5">
+                                <div class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-2.5">
                                     <div class="truncate text-[13px] font-semibold">{{ $content->title }}</div>
                                     <div class="text-[11px] text-cream/60">{{ $content->episodes_count ?? $content->episodes->count() }} ตอน</div>
                                 </div>
                             </div>
-                        </a>
+                        </div>
                     @endforeach
                 </div>
                 <button type="button" @click="scroll(1)"
-                        class="absolute right-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-l from-ink/80 to-transparent text-2xl opacity-0 transition group-hover/row:opacity-100 lg:flex">›</button>
+                        class="absolute right-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-l from-ink/80 to-transparent text-2xl pointer-events-none opacity-0 transition group-hover/row:pointer-events-auto group-hover/row:opacity-100 lg:flex">›</button>
             </div>
         </section>
     @empty
