@@ -43,11 +43,13 @@
             <iframe src="https://www.youtube.com/embed/{{ $heroYt }}?autoplay=1&mute=1&loop=1&playlist={{ $heroYt }}&controls=0&modestbranding=1&rel=0&playsinline=1"
                     class="pointer-events-none absolute left-1/2 top-1/2 h-full w-full -translate-x-1/2 -translate-y-1/2 border-0"
                     style="min-width:178%;min-height:178%" allow="autoplay; encrypted-media"></iframe>
-        @elseif ($hasHeroPreview && ! $isModal)
-            {{-- Full title page only: auto-play episode 1 as the header preview WITH sound (muted for
-                 18+/20+) + mute toggle. NOT in the pop-up modal — the on-demand rongyok resolve + a
-                 playing <video> there hard-froze the renderer ("detail won't load"); the modal shows
-                 the static backdrop/poster instead (instant). --}}
+        @elseif ($hasHeroPreview)
+            {{-- Auto-play episode 1 as the header preview WITH sound (muted for 18+/20+) + a mute
+                 toggle. SINGLE-INIT ONLY: heroPreview.init() is auto-called by Alpine — do NOT add
+                 x-init="init()" here, or it resolves + attaches the <video> twice and hard-freezes
+                 the renderer (that was the "vertical detail won't load" bug). The component's
+                 IntersectionObserver pauses the video when you scroll it out of view to pick an
+                 episode below (owner's "pause on scroll" request; pinning a playing video froze). --}}
             <div class="absolute inset-0"
                  x-data="heroPreview({ src: @js($previewSrc), resolve: @js($previewResolve), adult: @js((bool) $content->is_adult) })">
                 <video x-ref="hero" loop playsinline preload="none"
@@ -62,18 +64,31 @@
             {{-- no trailer and no image → fill with an animated NetWix logo clip --}}
             @include('partials.logo-fill', ['seed' => $content->id])
         @endif
-        <div class="absolute inset-0" style="background:linear-gradient(180deg,transparent 40%, rgba(20,16,32,0.9) 92%, #141020 100%)"></div>
+        {{-- soft fade: the title/info "eats into" the lower ~half of the video and eases into the
+             body — no hard cut-off edge (owner's request: กินเข้าไป ~50% ก่อนเลือนหาย) --}}
+        <div class="pointer-events-none absolute inset-0" style="background:linear-gradient(180deg, transparent 40%, rgba(20,16,32,0.4) 58%, rgba(20,16,32,0.88) 84%, #141020 100%)"></div>
+
+        {{-- top of the preview: rating stars + maturity / PRO / year / match badges (owner: ดาว + ป้ายกำกับ อยู่บนสุด) --}}
+        <div class="absolute left-5 right-16 top-4 z-20 flex flex-wrap items-center gap-1.5">
+            <span class="inline-flex items-center gap-1 rounded-full bg-black/45 px-2.5 py-1 text-sm font-bold text-gold backdrop-blur">★ {{ $content->rating }}</span>
+            <span class="rounded-full px-2.5 py-1 text-xs font-semibold backdrop-blur {{ $content->is_adult ? 'bg-gold/90 text-black' : 'bg-black/45 text-cream/90' }}">{{ $content->maturity }}</span>
+            @if ($content->requires_pro)
+                <span class="inline-flex items-center gap-0.5 rounded-full bg-gold/90 px-2.5 py-1 text-xs font-bold text-black">👑 PRO</span>
+            @endif
+            <span class="rounded-full bg-black/45 px-2.5 py-1 text-xs text-cream/90 backdrop-blur">{{ $content->year }}</span>
+            <span class="rounded-full bg-black/45 px-2.5 py-1 text-xs font-bold text-success backdrop-blur">{{ $content->match_score }}% ตรงใจ</span>
+        </div>
 
         @if ($modal ?? true)
             <button type="button" @click="$dispatch('close-title')"
-                    class="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-ink/70 text-lg hover:bg-ink">✕</button>
+                    class="absolute right-4 top-4 z-30 flex h-9 w-9 items-center justify-center rounded-full bg-ink/70 text-lg hover:bg-ink">✕</button>
         @endif
 
-        <div class="absolute bottom-5 left-6 right-6">
+        <div class="absolute bottom-5 left-6 right-16 z-20">
             @if ($content->is_original)
-                <div class="nx-gradient mb-3 inline-flex rounded px-2 py-0.5 text-[10px] font-bold tracking-widest">NETWIX ORIGINAL</div>
+                <div class="nx-gradient mb-2 inline-flex rounded px-2 py-0.5 text-[10px] font-bold tracking-widest">NETWIX ORIGINAL</div>
             @endif
-            <h2 class="text-2xl font-extrabold sm:text-3xl">{{ $content->title }}</h2>
+            <h2 class="text-2xl font-extrabold drop-shadow-[0_2px_8px_rgba(0,0,0,0.75)] sm:text-3xl">{{ $content->title }}</h2>
         </div>
     </div>
 
@@ -96,15 +111,7 @@
 
         <div class="mt-5 grid gap-5 sm:grid-cols-[2fr_1fr]">
             <div>
-                <div class="mb-2 flex flex-wrap items-center gap-3 text-sm text-cream/75">
-                    <span class="font-bold text-success">{{ $content->match_score }}% ตรงใจ</span>
-                    <span>{{ $content->year }}</span>
-                    <span class="rounded border px-1.5 py-px text-xs {{ $content->is_adult ? 'border-gold/60 font-semibold text-gold' : 'border-cream/40' }}">{{ $content->maturity }}</span>
-                    @if ($content->requires_pro)
-                        <span class="inline-flex items-center gap-0.5 rounded bg-gold/90 px-1.5 py-px text-xs font-bold text-black" title="ต้องเป็นสมาชิก Pro">👑 PRO</span>
-                    @endif
-                    <span class="text-gold">★ {{ $content->rating }}</span>
-                </div>
+                {{-- rating ★ + maturity/PRO/year/match now live at the top of the video preview above --}}
                 <p class="text-[15px] leading-relaxed text-cream/85">{{ $content->synopsis }}</p>
             </div>
             <div class="text-sm text-cream/55">
