@@ -25,7 +25,9 @@
     >
         <div class="fixed inset-0 bg-black/70" x-on:click="close()"></div>
         <div class="relative mx-auto my-8 w-[min(920px,94vw)]">
-            <div class="nx-card overflow-hidden" x-html="html"></div>
+            {{-- no overflow-hidden here: it would break `position:sticky` on the modal's video header.
+                 The injected content rounds its own top/bottom corners instead. --}}
+            <div class="nx-card" x-html="html"></div>
         </div>
     </div>
 

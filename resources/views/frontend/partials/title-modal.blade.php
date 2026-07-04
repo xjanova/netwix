@@ -31,7 +31,7 @@
      }">
     {{-- backdrop — pinned to the top of the modal via sticky (single scroll container; the old
          flex+max-h+overflow-y-auto approach caused an aspect-ratio↔scrollbar reflow loop = freeze) --}}
-    <div class="relative aspect-video w-full overflow-hidden bg-black {{ $isModal ? 'sticky top-0 z-20' : '' }}">
+    <div class="relative aspect-video w-full overflow-hidden bg-black {{ $isModal ? 'sticky top-0 z-20 rounded-t-[14px]' : '' }}">
         {{-- gradient always underneath so the backdrop never shows a black void --}}
         <div class="absolute inset-0" style="background:{{ $content->gradient }}"></div>
         @if ($content->backdrop_url)
@@ -76,7 +76,7 @@
         </div>
     </div>
 
-    <div class="relative z-10 bg-[#141020] p-6 sm:p-8">
+    <div class="relative z-10 bg-[#141020] p-6 sm:p-8 {{ $isModal ? 'rounded-b-[14px]' : '' }}">
         <div class="flex flex-wrap items-center gap-3">
             @if ($needsPro)
                 <a href="{{ route('account') }}" class="flex items-center gap-2 rounded-md bg-gradient-to-r from-gold to-[#ffcf5a] px-6 py-2.5 font-bold text-black hover:brightness-95" title="เนื้อหาผู้ใหญ่ — เฉพาะสมาชิก Pro">
