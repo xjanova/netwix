@@ -83,10 +83,19 @@
             <div class="nx-gradient h-full transition-all duration-300" :style="`width:${pct}%`"></div>
         </div>
         <div class="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-cream/60">
+            <span x-show="running" x-cloak class="inline-block h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-white/15 border-t-brand-2"></span>
             <span class="font-semibold" x-text="phaseText"></span>
             <span>· <b x-text="processed"></b> / <span x-text="total"></span> (<span x-text="pct"></span>%)</span>
             <span>· สำเร็จ <span class="text-success" x-text="processed - failed"></span></span>
             <span>· พลาด <span class="text-[#ff6b81]" x-text="failed"></span></span>
+            <span x-show="running" x-cloak class="text-cream/35" x-text="'· ' + elapsed + ' วิ'"></span>
+            <span x-show="pending>0" x-cloak class="text-cream/35" x-text="'· ในคิวเซิร์ฟเวอร์ ' + pending"></span>
+        </div>
+
+        {{-- Reassurance while the worker hasn't picked up the first job yet --}}
+        <div x-show="running && processed===0 && phase==='running'" x-cloak class="mt-2 flex items-center gap-2 text-[12px] text-cream/45">
+            <span class="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-brand-2"></span>
+            ส่งงานเข้าคิวแล้ว กำลังรอเซิร์ฟเวอร์หยิบไปทำ (ปกติ 1–2 วินาที) — ระบบทำงานอยู่ ไม่ได้ค้าง
         </div>
 
         {{-- Live log --}}
@@ -110,12 +119,13 @@ function thumbGen() {
         titleQ: '', titleResults: [], contentId: null, contentLabel: '',
         skipExisting: true,
         running: false, stopped: false, phase: 'idle', batch: null, priority: false,
-        total: 0, processed: 0, failed: 0, after: 0, log: [],
+        total: 0, processed: 0, failed: 0, after: 0, pending: 0, elapsed: 0, t0: 0, log: [],
 
         get force() { return !this.skipExisting; },
         get pct() { return this.total ? Math.min(100, Math.round(this.processed / this.total * 100)) : 0; },
         get phaseText() {
-            return { counting: 'กำลังนับตอน…', queuing: 'กำลังส่งเข้าคิว…', running: 'กำลังสร้างปก…',
+            if (this.phase === 'running') return this.processed > 0 ? 'กำลังสร้างปก…' : '⏳ รอเซิร์ฟเวอร์เริ่มงาน…';
+            return { counting: 'กำลังนับตอน…', queuing: 'กำลังส่งเข้าคิว…',
                      done: '✅ เสร็จแล้ว', stopped: '■ หยุดแล้ว' }[this.phase] || '';
         },
 
@@ -144,7 +154,7 @@ function thumbGen() {
         async start() {
             if (this.running) return;
             this.running = true; this.stopped = false;
-            this.processed = 0; this.failed = 0; this.after = 0; this.log = []; this.batch = null;
+            this.processed = 0; this.failed = 0; this.after = 0; this.pending = 0; this.elapsed = 0; this.log = []; this.batch = null;
 
             // 1) Open the batch (snapshot the denominator).
             this.phase = 'counting';
@@ -168,13 +178,16 @@ function thumbGen() {
 
             // 3) Poll progress while the CLI worker drains the queue.
             this.phase = 'running';
+            this.t0 = Date.now();
             let lastText = '';
             while (!this.stopped) {
                 let p;
                 try { p = await this.req('{{ route('admin.thumbs.progress') }}?batch=' + this.batch, {}); }
-                catch (e) { await sleep(2000); continue; }
+                catch (e) { await sleep(1200); continue; }
                 this.processed = p.processed || 0;
                 this.failed = p.failed || 0;
+                this.pending = p.pending || 0;
+                this.elapsed = Math.round((Date.now() - this.t0) / 1000);
                 if (p.last && p.last.text && p.last.text !== lastText) {
                     lastText = p.last.text;
                     const why = p.last.ok ? '' : ' — ' + this.reasonText(p.last.reason);
@@ -182,7 +195,7 @@ function thumbGen() {
                     if (this.log.length > 60) this.log.length = 60;
                 }
                 if (this.processed >= this.total) break;
-                await sleep(2000);
+                await sleep(1200);
             }
             this.phase = this.stopped ? 'stopped' : 'done';
             this.running = false;

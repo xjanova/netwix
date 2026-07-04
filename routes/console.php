@@ -35,10 +35,15 @@ Schedule::command('queue:work --stop-when-empty --max-time=55')
 // "whole site"/genre run lands on `thumbs`. Worker A drains now-first so a
 // small title never queues behind a huge bulk backlog; worker B drains
 // bulk-first for throughput (a different --queue order = a different mutex, so
-// both run in parallel). --max-time keeps each run short so a killed worker's
-// withoutOverlapping mutex self-heals within a few minutes.
-Schedule::command('queue:work --queue=thumbs-now,thumbs --stop-when-empty --max-time=110 --timeout=150 --memory=256 --tries=2')
+// both run in parallel).
+//
+// NB: deliberately NO --stop-when-empty. The workers stay alive polling every
+// 1s for the whole --max-time window, so a freshly-clicked job is picked up in
+// ~1-2s (not up to a minute) and the admin progress bar moves in near real
+// time. --max-time=110 recycles each worker every ~2 min (fresh code + the
+// withoutOverlapping(5) mutex self-heals if a worker is ever killed).
+Schedule::command('queue:work --queue=thumbs-now,thumbs --sleep=1 --max-time=110 --timeout=150 --memory=256 --tries=2')
     ->everyMinute()->withoutOverlapping(5)->runInBackground();
 
-Schedule::command('queue:work --queue=thumbs,thumbs-now --stop-when-empty --max-time=110 --timeout=150 --memory=256 --tries=2')
+Schedule::command('queue:work --queue=thumbs,thumbs-now --sleep=1 --max-time=110 --timeout=150 --memory=256 --tries=2')
     ->everyMinute()->withoutOverlapping(5)->runInBackground();

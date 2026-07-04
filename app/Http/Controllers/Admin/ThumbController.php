@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
@@ -104,6 +105,8 @@ class ThumbController extends Controller
             'processed' => (int) Cache::get("thumbs:{$batch}:proc", 0),
             'failed' => (int) Cache::get("thumbs:{$batch}:fail", 0),
             'last' => Cache::get("thumbs:{$batch}:last"),
+            // Live server-side queue depth (both lanes) — proof the worker is alive.
+            'pending' => (int) DB::table('jobs')->whereIn('queue', ['thumbs-now', 'thumbs'])->count(),
         ]);
     }
 
