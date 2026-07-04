@@ -122,7 +122,7 @@ class CatalogController extends Controller
      */
     public function view(Content $content, Request $request): JsonResponse
     {
-        $key = 'appview:'.$content->id.':'.sha1((string) $request->ip());
+        $key = 'view:'.$content->id.':'.sha1((string) $request->ip());
         if (Cache::add($key, 1, now()->addHours(6))) {
             $content->increment('views');
         }

@@ -40,6 +40,12 @@ class Membership
             'daily_checkin_coins' => 2,
             'watch_reward_coins' => 3,
             'watch_reward_daily_cap' => 5,
+            'like_coins' => 1,
+            'like_daily_cap' => 5,
+            'comment_coins' => 2,
+            'comment_daily_cap' => 3,
+            'share_coins' => 1,
+            'share_daily_cap' => 3,
         ],
     ];
 
@@ -107,35 +113,38 @@ class Membership
     // ---- Earn (daily check-in / watch-reward) --------------------------
 
     /**
+     * Earn coins from a capped daily activity. Coin amount + daily cap come from
+     * the admin config; the cap is enforced by counting today's ledger rows of
+     * that kind, so it can't be farmed by spamming the endpoint.
+     *
      * @return array{ok:bool,error?:string,earned?:int,remaining?:?int}
      */
     public function earn(User $u, string $kind): array
     {
         $earn = $this->config()['earn'];
 
-        if ($kind === 'daily') {
-            if ($this->earnedToday($u, 'daily') > 0) {
-                return ['ok' => false, 'error' => 'วันนี้เช็คอินไปแล้ว'];
-            }
-            $amt = (int) ($earn['daily_checkin_coins'] ?? 0);
-            $this->addCoins($u, $amt, 'daily');
+        // kind => [coins, daily cap (0 = unlimited), "cap reached" message]
+        $rules = [
+            'daily' => [(int) ($earn['daily_checkin_coins'] ?? 0), 1, 'วันนี้เช็คอินไปแล้ว'],
+            'watch' => [(int) ($earn['watch_reward_coins'] ?? 0), (int) ($earn['watch_reward_daily_cap'] ?? 0), 'รับรางวัลครบตามจำนวนของวันนี้แล้ว'],
+            'like' => [(int) ($earn['like_coins'] ?? 0), (int) ($earn['like_daily_cap'] ?? 0), 'รับเหรียญจากไลก์ครบวันนี้แล้ว'],
+            'comment' => [(int) ($earn['comment_coins'] ?? 0), (int) ($earn['comment_daily_cap'] ?? 0), 'รับเหรียญจากคอมเมนต์ครบวันนี้แล้ว'],
+            'share' => [(int) ($earn['share_coins'] ?? 0), (int) ($earn['share_daily_cap'] ?? 0), 'รับเหรียญจากแชร์ครบวันนี้แล้ว'],
+        ];
 
-            return ['ok' => true, 'earned' => $amt];
+        if (! isset($rules[$kind])) {
+            return ['ok' => false, 'error' => 'ไม่รู้จักกิจกรรมนี้'];
         }
 
-        if ($kind === 'watch') {
-            $cap = (int) ($earn['watch_reward_daily_cap'] ?? 0);
-            $done = $this->earnedToday($u, 'watch');
-            if ($cap > 0 && $done >= $cap) {
-                return ['ok' => false, 'error' => 'รับรางวัลครบตามจำนวนของวันนี้แล้ว'];
-            }
-            $amt = (int) ($earn['watch_reward_coins'] ?? 0);
-            $this->addCoins($u, $amt, 'watch');
-
-            return ['ok' => true, 'earned' => $amt, 'remaining' => $cap > 0 ? max(0, $cap - $done - 1) : null];
+        [$amt, $cap, $capMsg] = $rules[$kind];
+        $done = $this->earnedToday($u, $kind);
+        if ($cap > 0 && $done >= $cap) {
+            return ['ok' => false, 'error' => $capMsg];
         }
 
-        return ['ok' => false, 'error' => 'ไม่รู้จักกิจกรรมนี้'];
+        $this->addCoins($u, $amt, $kind);
+
+        return ['ok' => true, 'earned' => $amt, 'remaining' => $cap > 0 ? max(0, $cap - $done - 1) : null];
     }
 
     private function earnedToday(User $u, string $kind): int

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Content;
 use App\Models\Episode;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 
 class WatchController extends Controller
@@ -17,6 +18,12 @@ class WatchController extends Controller
         // 404s the route binding for them; an adult profile without Pro sees the upgrade wall instead.
         if ($content->requires_pro && ! $request->user()?->isProMember()) {
             return view('frontend.locked-pro', ['content' => $content]);
+        }
+
+        // Count the watch (deduped per viewer + title for 6h; same key as the app).
+        $vkey = 'view:'.$content->id.':'.sha1((string) $request->ip());
+        if (Cache::add($vkey, 1, now()->addHours(6))) {
+            $content->increment('views');
         }
 
         $content->load(['episodes' => fn ($q) => $q->orderBy('season_id')->orderBy('number')]);

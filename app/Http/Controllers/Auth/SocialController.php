@@ -105,6 +105,13 @@ class SocialController extends Controller
         }
         $user->save();
 
+        // Brand-new social account → grant the same signup coin bonus that email
+        // sign-ups get (RegisterController). wasRecentlyCreated is only true on insert.
+        if ($user->wasRecentlyCreated) {
+            $m = app(\App\Services\Membership::class);
+            $m->addCoins($user, (int) ($m->config()['signup_bonus_coins'] ?? 0), 'signup');
+        }
+
         // Give brand-new accounts a starter profile (mirrors RegisterController).
         if ($user->profiles()->count() === 0) {
             $user->profiles()->create([
