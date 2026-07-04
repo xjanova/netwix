@@ -132,7 +132,16 @@ window.nxRail = () => ({
     _vel: 0,
     scroll(dir) {
         const r = this.$refs.rail;
-        if (r) r.scrollBy({ left: dir * r.clientWidth * 0.85, behavior: 'smooth' });
+        if (!r) return;
+        this._vel = 0;                                       // cancel any edge glide
+        // animate scrollLeft ourselves — native scrollBy({behavior:'smooth'}) no-ops on this flex rail
+        const start = r.scrollLeft, dist = dir * r.clientWidth * 0.85, t0 = performance.now(), dur = 340;
+        const step = (now) => {
+            const p = Math.min(1, (now - t0) / dur);
+            r.scrollLeft = start + dist * (1 - Math.pow(1 - p, 3));   // easeOutCubic
+            if (p < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
     },
     edgeMove(e) {
         if (!window.matchMedia('(any-hover: hover) and (any-pointer: fine)').matches) return; // needs a mouse (true on touch-capable PCs too, false on phones)

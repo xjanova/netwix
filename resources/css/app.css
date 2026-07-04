@@ -119,17 +119,11 @@
         border-radius: 14px;
     }
 
-    /* horizontal content rail */
+    /* horizontal content rail — NO scroll-snap / scroll-smooth: on this flex rail they
+       pinned every programmatic scroll (arrow click + edge-hover glide) back to 0
+       (verified in-browser 2026-07-04). Free-scroll; the JS animates the arrow click. */
     .nx-rail {
-        @apply flex gap-2 overflow-x-auto no-scrollbar scroll-smooth;
-        scroll-snap-type: x proximity;
-        /* keep the snap origin inside the rail's px-[4vw] padding — without this
-           the initial snap drags scrollLeft to the padding width, gluing the
-           first card to the viewport edge */
-        scroll-padding-inline: 4vw;
-    }
-    .nx-rail > * {
-        scroll-snap-align: start;
+        @apply flex gap-2 overflow-x-auto no-scrollbar;
     }
 }
 
