@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\App\AuthController;
 use App\Http\Controllers\Api\App\CatalogController;
+use App\Http\Controllers\Api\App\DebugController;
 use App\Http\Controllers\Api\App\FeedbackController;
 use App\Http\Controllers\Api\App\LibraryController;
 use App\Http\Controllers\Api\App\MembershipController;
@@ -34,6 +35,10 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
 
     // Public: admin-defined membership rules (free episodes, coin costs, Pro, referral rewards).
     Route::get('membership/config', [MembershipController::class, 'config']);
+
+    // Diagnostics sink — public (must accept guest + failed-sign-in reports),
+    // extra-throttled on top of the group limit.
+    Route::post('debug', [DebugController::class, 'store'])->middleware('throttle:20,1');
 
     // Auth: exchange a one-time login code for a bearer token, then member calls.
     Route::post('auth/exchange', [AuthController::class, 'exchange']);
