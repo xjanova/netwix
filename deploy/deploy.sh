@@ -29,8 +29,14 @@ echo "▶ Maintenance mode ON…"
 php artisan down --retry=15 || true
 
 echo "▶ Fetching source…"
-git fetch --tags --prune --depth 1 origin
-git checkout -f "$REF"
+# Check out the freshly-fetched REMOTE ref via FETCH_HEAD. Using `git checkout -f "$REF"`
+# here was a trap: it checks out the LOCAL branch, and a shallow prod clone never
+# fast-forwards local `main`, so `deploy.sh main` could silently roll production BACK to
+# a stale local `main` (hit 2026-07-04). FETCH_HEAD is always the tip we just fetched;
+# works for a branch or a tag. Keep the local branch ref in sync for readability.
+git fetch --tags --force --prune --depth 1 origin "$REF"
+git checkout -f FETCH_HEAD
+git branch -f "$REF" FETCH_HEAD 2>/dev/null || true
 
 echo "▶ Composer (production)…"
 composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
