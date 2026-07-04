@@ -9,6 +9,17 @@
     $seoRobots = trim($__env->yieldContent('meta_robots')) ?: 'index,follow,max-image-preview:large,max-snippet:-1';
     $seoCanonical = trim($__env->yieldContent('meta_canonical')) ?: url()->current();
     $seoFullTitle = $seoTitle.' · NetWix';
+    // Keyword set grounded in real Thai streaming search demand (both ซีรี่ย์/ซีรีส์ spellings
+    // are searched heavily; include วาย, พากย์ไทย/ซับไทย, แนวตั้ง/โรงหยก, อนิเมะ). Google no longer
+    // ranks on this tag, but Bing and Thai SEO tools still read it and it is harmless. A page can
+    // override with @section('meta_keywords', '…') to lead with its own title/genre terms.
+    $seoKeywords = trim($__env->yieldContent('meta_keywords')) ?: implode(', ', [
+        'ดูหนังออนไลน์', 'ดูหนังออนไลน์ฟรี', 'ดูซีรี่ย์ออนไลน์', 'ดูซีรี่ย์ออนไลน์ฟรี', 'ดูซีรีส์ออนไลน์',
+        'ซีรี่ย์เกาหลีซับไทย', 'ซีรี่ย์เกาหลีพากย์ไทย', 'ซีรี่ย์จีนซับไทย', 'ซีรี่ย์จีนพากย์ไทย',
+        'ซีรี่ย์ไทย', 'ซีรี่ย์ฝรั่ง', 'ซีรี่ย์วาย', 'ซีรีส์แนวตั้ง', 'หนังสั้นจีน', 'ละครสั้น', 'โรงหยก',
+        'มินิซีรีส์จีน', 'อนิเมะซับไทย', 'ดูอนิเมะ', 'ดูหนังฟรี', 'ดูซีรี่ย์ 2026', 'พากย์ไทย HD',
+        'สตรีมมิ่ง', 'ดูหนังทุกอุปกรณ์', 'NetWix', 'เน็ตวิกซ์',
+    ]);
 @endphp
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -16,6 +27,7 @@
 
 <title>{{ $seoFullTitle }}</title>
 <meta name="description" content="{{ $seoDesc }}">
+<meta name="keywords" content="{{ $seoKeywords }}">
 <meta name="robots" content="{{ $seoRobots }}">
 <meta name="theme-color" content="#07050c">
 <link rel="canonical" href="{{ $seoCanonical }}">

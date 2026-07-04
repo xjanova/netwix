@@ -19,6 +19,15 @@ cd "$APP_DIR"
 
 echo "▶ Deploying ref: $REF  (in $APP_DIR)"
 
+# Maintenance mode covers the risky window: the moment `git checkout` swaps the
+# source, the old compiled views/config/opcache still reference the old tree, so a
+# live request can hit a half-updated view and 500 (seen 2026-07-03: watch/vertical
+# "unexpected end of file"). `down` returns a clean 503 instead. The trap guarantees
+# the site is brought back up even if a step fails midway.
+trap 'php artisan up >/dev/null 2>&1 || true' EXIT
+echo "▶ Maintenance mode ON…"
+php artisan down --retry=15 || true
+
 echo "▶ Fetching source…"
 git fetch --tags --prune --depth 1 origin
 git checkout -f "$REF"
@@ -47,5 +56,8 @@ php artisan view:cache
 
 echo "▶ Restart PHP-FPM…"
 sudo systemctl restart php-fpm83.service || true
+
+echo "▶ Maintenance mode OFF…"
+php artisan up
 
 echo "✅ Deploy complete: $REF"
