@@ -40,6 +40,9 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
     // extra-throttled on top of the group limit.
     Route::post('debug', [DebugController::class, 'store'])->middleware('throttle:20,1');
 
+    // Public: which social providers are configured (app hides the rest).
+    Route::get('auth/providers', [AuthController::class, 'providers']);
+
     // Auth: exchange a one-time login code for a bearer token, then member calls.
     Route::post('auth/exchange', [AuthController::class, 'exchange']);
     Route::middleware('auth.apptoken')->group(function () {

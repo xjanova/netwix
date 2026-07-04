@@ -128,6 +128,10 @@ Route::get('/stream/{episode}/video.mp4', [StreamController::class, 'mp4'])->nam
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/', [Admin\DashboardController::class, 'index'])->name('dashboard');
 
+    // Mobile-app diagnostics viewer (app_debug_logs).
+    Route::get('debug', [Admin\DebugLogController::class, 'index'])->name('debug.index');
+    Route::delete('debug', [Admin\DebugLogController::class, 'clear'])->name('debug.clear');
+
     Route::get('import', [Admin\ImportController::class, 'index'])->name('import.index');
     Route::post('import/sync', [Admin\ImportController::class, 'sync'])->name('import.sync');
     Route::post('import/batch', [Admin\ImportController::class, 'batch'])->name('import.batch');

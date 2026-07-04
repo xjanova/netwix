@@ -96,6 +96,16 @@ class AuthController extends Controller
         return response()->json(['success' => true, 'data' => null]);
     }
 
+    /** Which social sign-in providers are configured, so the app hides the rest. */
+    public function providers(): JsonResponse
+    {
+        return response()->json(['success' => true, 'data' => [
+            'google' => filled(config('services.google.client_id')),
+            'line' => filled(config('services.line.client_id')),
+            'email' => true,
+        ]]);
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private function userPayload(User $user): array
