@@ -51,7 +51,7 @@ class SettingController extends Controller
             'app_github_token' => ['nullable', 'string', 'max:255'],
             'turnstile_site_key' => ['nullable', 'string', 'max:255'],
             'turnstile_secret' => ['nullable', 'string', 'max:255'],
-            'home_hero_source' => ['nullable', 'string', 'max:40', 'regex:/^(featured|genre:\d+)$/'],
+            'home_hero_source' => ['nullable', 'string', 'max:40', 'regex:/^(featured|trending|genre:\d+)$/'],
             'home_hero_seconds' => ['nullable', 'integer', 'between:0,60'],
         ], [
             'support_line_url.url' => 'ลิงก์ LINE ต้องเป็น URL ที่ขึ้นต้นด้วย http/https',

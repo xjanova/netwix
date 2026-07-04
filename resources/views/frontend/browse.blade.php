@@ -3,6 +3,9 @@
 
 @section('content')
 @if ($hero)
+    {{-- Other browse pages (anime / movies / series) render this same template with a single static
+         $hero and no pool — never let a missing $heroSlides 500 the page. --}}
+    @php $heroSlides ??= []; @endphp
     {{-- Configurable rotating billboard: the pool + interval come from admin Settings (home_hero_source /
          home_hero_seconds). Slide 0 is server-rendered (no flash / SEO); the rotator cross-fades the rest
          and plays each slide's stored clip over its backdrop. seconds = 0 → no auto-rotate. --}}
@@ -75,6 +78,7 @@
             cur: slides[0] || {},   // plain reactive property (a getter isn't tracked by x-text)
             videoReady: false,
             _t: null,
+            _seq: 0,
             init() {
                 if (!this.slides.length) return;
                 this.playClip();
@@ -97,13 +101,33 @@
             playClip() {
                 const v = this.$refs.bg;
                 if (!v) return;
+                const token = ++this._seq;         // any in-flight resolve for the old slide is now stale
                 this.videoReady = false;
-                try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {}
-                const clip = this.cur.clip;
-                if (!clip) return;                 // no stored clip → just show the backdrop image
+                try {
+                    v.pause();
+                    if (v._nxHls) { v._nxHls.destroy(); v._nxHls = null; }   // tear down a previous HLS loader
+                    v.removeAttribute('src');
+                    v.load();
+                } catch (e) {}
+                this.attach(this.cur, token);
+            },
+            async attach(slide, token) {
+                // A stored mp4 plays directly; otherwise resolve ep1 on demand (rongyok mp4 / anime108
+                // HLS) exactly like the title pop-up. The resolved url is memoised on the slide so the
+                // looping billboard never re-hits the resolver for a title it already prepared.
+                let url = slide.clip || slide._url;
+                if (!url && slide.resolve) {
+                    try {
+                        const r = await fetch(slide.resolve, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                        const d = await r.json();
+                        if (d && d.ready && d.url) url = slide._url = d.url;
+                    } catch (e) {}
+                }
+                const v = this.$refs.bg;
+                if (!v || !url || token !== this._seq) return;   // nothing to play, or the slide moved on
                 v.muted = true;
-                v.src = clip;
-                v.play?.().then(() => { this.videoReady = true; }).catch(() => {});
+                window.nxAttachVideo(v, url);      // handles HLS (lazy hls.js) + progressive mp4
+                v.play?.().then(() => { if (token === this._seq) this.videoReady = true; }).catch(() => {});
             },
         };
     }

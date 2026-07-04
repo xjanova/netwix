@@ -21,6 +21,7 @@
         <label class="text-[13px] text-cream/60">เลือกว่าจะวนฉายเรื่องอะไรบนหน้าแรก
             <select name="home_hero_source" class="nx-input mt-1">
                 <option value="featured" @selected($home_hero_source === 'featured')>เรื่องที่ติดธง “แนะนำ” (is_featured)</option>
+                <option value="trending" @selected($home_hero_source === 'trending')>🔥 มาแรงตอนนี้ (Trending Now)</option>
                 @foreach ($genres as $g)
                     <option value="genre:{{ $g->id }}" @selected($home_hero_source === 'genre:'.$g->id)>หมวด: {{ $g->name }}</option>
                 @endforeach
