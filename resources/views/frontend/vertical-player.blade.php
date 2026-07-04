@@ -25,12 +25,14 @@
     @mousemove="poke()"
     class="relative flex h-[100dvh] select-none items-center justify-center overflow-hidden bg-black"
 >
-    {{-- Ambient glow (Ambilight): a heavily-blurred, upscaled copy of the current frame bleeds out
-         around the 9:16 video, so the black bars fill with the clip's own colours. Follows the
-         playing image, faintly — a soft halo rather than a hard border. --}}
+    {{-- Edge glow (dark mode): a small blurred copy of the current frame sits just BEHIND the 9:16
+         video, only a little larger than it — so its own colours bleed out as a faint halo around the
+         video's edges, and nothing else. No full-screen "Ambilight" wash: the rest of the frame stays
+         dark (not glary), while the soft same-colour glow keeps the video's edges from reading as a
+         hard cut. Still painted from the live frame (see startAmbi) so the colour always matches. --}}
     <canvas x-ref="ambi" width="54" height="96" aria-hidden="true"
-            class="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-60"
-            style="object-fit:cover;filter:blur(72px) saturate(1.7);transform:scale(1.25)"></canvas>
+            class="pointer-events-none absolute left-1/2 top-1/2 z-0 h-full w-auto opacity-70"
+            style="aspect-ratio:9/16;filter:blur(56px) saturate(1.45);transform:translate(-50%,-50%) scale(1.09)"></canvas>
 
     <a href="{{ route('browse.vertical') }}" x-show="ui || !playing" x-transition.opacity class="absolute left-4 top-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-lg backdrop-blur hover:bg-white/20">✕</a>
 
