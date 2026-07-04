@@ -31,10 +31,10 @@
             class="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-60"
             style="object-fit:cover;filter:blur(72px) saturate(1.7);transform:scale(1.25)"></canvas>
 
-    <a href="{{ route('browse.vertical') }}" class="absolute left-4 top-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-lg backdrop-blur hover:bg-white/20">✕</a>
+    <a href="{{ route('browse.vertical') }}" x-show="ui || !playing" x-transition.opacity class="absolute left-4 top-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-lg backdrop-blur hover:bg-white/20">✕</a>
 
     {{-- open the episode grid --}}
-    <button @click.stop="epMenu = true"
+    <button @click.stop="epMenu = true" x-show="ui || !playing" x-transition.opacity
             class="absolute left-16 top-4 z-40 flex h-10 items-center gap-1.5 rounded-full bg-white/10 px-4 text-sm font-semibold backdrop-blur hover:bg-white/20">
         ▦ ตอน <span x-text="index + 1"></span>/{{ $eps->count() }}
     </button>
@@ -102,13 +102,13 @@
         @include('partials.player-watermark')
 
         {{-- caption --}}
-        <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 to-transparent px-5 pb-24 pt-5">
+        <div x-show="ui || !playing" x-transition.opacity class="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 to-transparent px-5 pb-24 pt-5">
             <div class="text-lg font-bold">{{ $content->title }}</div>
             <div class="text-sm text-cream/70">ตอนที่ <span x-text="episodes[index]?.n"></span> / {{ $eps->count() }}</div>
         </div>
 
         {{-- up / down episode nav --}}
-        <div class="absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col gap-3">
+        <div x-show="ui || !playing" x-transition.opacity class="absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col gap-3">
             <button @click.stop="prev()" :disabled="index === 0" class="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-xl backdrop-blur disabled:opacity-30 hover:bg-white/20">↑</button>
             <button @click.stop="next()" :disabled="index === episodes.length - 1" class="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-xl backdrop-blur disabled:opacity-30 hover:bg-white/20">↓</button>
         </div>

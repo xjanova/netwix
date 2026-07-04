@@ -19,10 +19,10 @@
                     <a href="{{ route('browse.genre', $row['genre']) }}" class="ml-1 whitespace-nowrap rounded-full bg-white/10 px-2.5 py-0.5 text-[12px] font-semibold text-cream/85 transition hover:bg-brand hover:text-white">ดูทั้งหมด ›</a>
                 @endif
             </h2>
-            <div class="group/row relative">
-                <button type="button" @click="scroll(-1)"
-                        class="absolute left-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-r from-ink/80 to-transparent text-2xl pointer-events-none opacity-0 transition group-hover/row:pointer-events-auto group-hover/row:opacity-100 lg:flex">‹</button>
-                <div x-ref="rail" class="nx-rail px-[4vw] pb-2" @mousemove="edgeMove($event)" @mouseleave="edgeLeave()">
+            <div class="group/row relative" @mousemove="edgeMove($event)" @mouseleave="edgeLeave()">
+                <button type="button" @click="scroll(-1)" @mouseenter="edgeStart(-1)" @mouseleave="edgeStop()"
+                        class="absolute left-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-r from-ink/80 to-transparent text-2xl opacity-0 transition group-hover/row:opacity-100 lg:flex">‹</button>
+                <div x-ref="rail" class="nx-rail px-[4vw] pb-2">
                     @foreach ($row['items'] as $content)
                         {{-- Click opens the title detail (synopsis / episodes / comments) like every other
                              card — not straight into the player; hover plays the ep1 preview clip. --}}
@@ -70,8 +70,8 @@
                         </div>
                     @endforeach
                 </div>
-                <button type="button" @click="scroll(1)"
-                        class="absolute right-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-l from-ink/80 to-transparent text-2xl pointer-events-none opacity-0 transition group-hover/row:pointer-events-auto group-hover/row:opacity-100 lg:flex">›</button>
+                <button type="button" @click="scroll(1)" @mouseenter="edgeStart(1)" @mouseleave="edgeStop()"
+                        class="absolute right-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-l from-ink/80 to-transparent text-2xl opacity-0 transition group-hover/row:opacity-100 lg:flex">›</button>
             </div>
         </section>
     @empty

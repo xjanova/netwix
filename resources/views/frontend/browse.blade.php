@@ -121,12 +121,12 @@
 
             {{-- single-row rail like every other row: slide to browse, arrows on hover, and
                  hovering near an edge glides the row the opposite way (faster the closer to the edge) --}}
-            <div class="group/row relative">
-                <button type="button" @click="scroll(-1)"
-                        class="absolute left-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-r from-ink/80 to-transparent text-2xl pointer-events-none opacity-0 transition group-hover/row:pointer-events-auto group-hover/row:opacity-100 lg:flex">‹</button>
-                <div x-ref="rail" class="nx-rail px-[4vw] pb-2" @mousemove="edgeMove($event)" @mouseleave="edgeLeave()" @scroll.passive="onScroll()"></div>
-                <button type="button" @click="scroll(1)"
-                        class="absolute right-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-l from-ink/80 to-transparent text-2xl pointer-events-none opacity-0 transition group-hover/row:pointer-events-auto group-hover/row:opacity-100 lg:flex">›</button>
+            <div class="group/row relative" @mousemove="edgeMove($event)" @mouseleave="edgeLeave()">
+                <button type="button" @click="scroll(-1)" @mouseenter="edgeStart(-1)" @mouseleave="edgeStop()"
+                        class="absolute left-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-r from-ink/80 to-transparent text-2xl opacity-0 transition group-hover/row:opacity-100 lg:flex">‹</button>
+                <div x-ref="rail" class="nx-rail px-[4vw] pb-2" @scroll.passive="onScroll()"></div>
+                <button type="button" @click="scroll(1)" @mouseenter="edgeStart(1)" @mouseleave="edgeStop()"
+                        class="absolute right-0 top-0 z-20 hidden h-full w-[4vw] items-center justify-center bg-gradient-to-l from-ink/80 to-transparent text-2xl opacity-0 transition group-hover/row:opacity-100 lg:flex">›</button>
             </div>
             <div x-show="loading" x-cloak class="px-[4vw] py-2 text-sm text-cream/50">กำลังโหลด…</div>
             <div x-show="done && !loading" x-cloak class="px-[4vw] py-2 text-sm text-cream/35">— ครบแล้ว —</div>
@@ -214,6 +214,8 @@
                         if (this._vel && !this._raf) this._loop();
                     },
                     edgeLeave() { this._vel = 0; },
+                    edgeStart(dir) { this._vel = dir; if (!this._raf) this._loop(); },
+                    edgeStop() { this._vel = 0; },
                     _loop() {
                         this._raf = requestAnimationFrame(() => {
                             if (this._vel && this.$refs.rail) { this.$refs.rail.scrollLeft += this._vel * 26; this.onScroll(); this._loop(); }

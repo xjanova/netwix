@@ -156,11 +156,24 @@
                     <h3 class="text-lg font-semibold">ตอนทั้งหมด</h3>
                     <span class="text-sm text-cream/45">{{ $content->episodes->count() }} ตอน · ปัดขึ้น–ลงเพื่อดูตอนถัดไป</span>
                 </div>
-                <div class="grid grid-cols-6 gap-2 sm:grid-cols-8 md:grid-cols-10">
+                {{-- portrait tiles (9:16) with the captured per-episode frame + episode number,
+                     mirroring the swipe player's picker; poster fallback until a frame is grabbed --}}
+                <div class="grid gap-2.5" style="grid-template-columns:repeat(auto-fill,minmax(88px,1fr))">
                     @foreach ($content->episodes as $i => $ep)
-                        <a href="{{ route('watch', $content) }}?ep={{ $i }}"
-                           class="flex aspect-square items-center justify-center rounded-lg bg-white/5 text-sm font-bold ring-1 ring-white/10 transition hover:bg-brand hover:text-white hover:ring-brand"
-                           title="ตอนที่ {{ $ep->number }}">{{ $ep->number }}</a>
+                        @php $epThumb = $ep->thumbnail_path ? $ep->thumbnail_url : $content->poster_url; @endphp
+                        <a href="{{ route('watch', $content) }}?ep={{ $i }}" title="ตอนที่ {{ $ep->number }}"
+                           class="relative block overflow-hidden rounded-lg ring-1 ring-white/10 transition hover:ring-2 hover:ring-brand"
+                           style="aspect-ratio:9/16;background:{{ $content->gradient }}">
+                            @if ($epThumb)
+                                <img src="{{ $epThumb }}" alt="" loading="lazy" referrerpolicy="no-referrer"
+                                     onerror="this.style.display='none'" class="absolute inset-0 h-full w-full object-cover">
+                            @endif
+                            <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-transparent"></div>
+                            <div class="absolute inset-x-0 bottom-1 text-center leading-none drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
+                                <span class="text-[15px] font-extrabold">{{ $ep->number }}</span>
+                                <span class="block text-[9px] font-medium text-cream/60">ตอน</span>
+                            </div>
+                        </a>
                     @endforeach
                 </div>
             </div>

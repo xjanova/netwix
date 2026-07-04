@@ -146,6 +146,10 @@ window.nxRail = () => ({
         if (this._vel && !this._raf) this._loop();
     },
     edgeLeave() { this._vel = 0; },
+    // Hovering an arrow glides the row that way at full speed — no matchMedia gate (the arrows are
+    // desktop-only via `hidden lg:flex`), so this works even where the pointer media query misreports.
+    edgeStart(dir) { this._vel = dir; if (!this._raf) this._loop(); },
+    edgeStop() { this._vel = 0; },
     _loop() {
         this._raf = requestAnimationFrame(() => {
             if (this._vel && this.$refs.rail) { this.$refs.rail.scrollLeft += this._vel * 26; this._loop(); }

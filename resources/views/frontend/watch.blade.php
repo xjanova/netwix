@@ -31,10 +31,10 @@
         youtube: @js($youtubeId),
         hasMedia: @js((bool) $youtubeId || $eps->isNotEmpty()),
      })"
-     x-init="init()">
+     x-init="init()" @mousemove="poke()" @touchstart="poke()">
 
-    {{-- top bar --}}
-    <div class="absolute inset-x-0 top-0 z-30 flex items-center gap-3 bg-gradient-to-b from-black/80 to-transparent p-4">
+    {{-- top bar (auto-hides when idle; any mouse/touch activity brings it back) --}}
+    <div x-show="ui" x-transition.opacity class="absolute inset-x-0 top-0 z-30 flex items-center gap-3 bg-gradient-to-b from-black/80 to-transparent p-4">
         <a href="{{ url()->previous() !== url()->current() ? url()->previous() : route('browse') }}"
            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-xl backdrop-blur hover:bg-white/20">‹</a>
         <div class="min-w-0">
@@ -121,6 +121,8 @@
             err: '',
             fs: false,
             loading: cfg.hasMedia,
+            ui: true,
+            _uiT: null,
             _stallT: null,
             _poll: null,
             _url: '',
@@ -129,6 +131,9 @@
             _stuck: 0,
             _watch: null,
 
+            // auto-hide the top chrome (+ watermark) when idle; mouse/touch activity shows it again
+            poke() { this.ui = true; clearTimeout(this._uiT); this._uiT = setTimeout(() => { this.ui = false; }, 2800); },
+
             // loader shows only for a stall that lasts (>700ms) and hides the moment playback resumes
             stall() { clearTimeout(this._stallT); this._stallT = setTimeout(() => { this.loading = true; }, 700); },
             resume() { clearTimeout(this._stallT); this.loading = false; },
@@ -136,6 +141,7 @@
             init() {
                 document.addEventListener('fullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
                 document.addEventListener('webkitfullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
+                this.poke();
                 if (cfg.youtube || !this.$refs.video) return;
                 if (this.episodes.length) this.load();
                 // watch for a mid-episode freeze that never recovers on its own (see watchdog())
