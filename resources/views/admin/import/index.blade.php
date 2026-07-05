@@ -6,7 +6,9 @@
           onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='กำลังซิงค์…'">
         @csrf
         <input type="hidden" name="source" value="{{ $sourceId }}">
-        <input type="hidden" name="max_pages" value="30">
+        {{-- 100 pages × 100 = up to 10k titles. sync() persists per page, so even if a big
+             catalogue (e.g. 24-hdx ~6.5k) outruns the request timeout, every fetched page is kept. --}}
+        <input type="hidden" name="max_pages" value="100">
         <button class="nx-gradient flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold" style="box-shadow:0 8px 22px rgba(176,38,255,0.32)">
             ⟳ ซิงค์แคตตาล็อก
         </button>

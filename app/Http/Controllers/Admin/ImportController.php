@@ -95,7 +95,7 @@ class ImportController extends Controller
     {
         $data = $request->validate([
             'source' => ['required', 'string'],
-            'max_pages' => ['nullable', 'integer', 'between:1,60'],
+            'max_pages' => ['nullable', 'integer', 'between:1,100'],
         ]);
         abort_unless($this->registry->has($data['source']), 404);
 
