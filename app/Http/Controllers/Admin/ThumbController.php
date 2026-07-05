@@ -41,7 +41,7 @@ use Throwable;
  */
 class ThumbController extends Controller
 {
-    private const TTL_HOURS = 6;
+    private const TTL_HOURS = 48;   // a whole-site run takes many hours; state must outlive it
 
     public function index(): View
     {
@@ -72,6 +72,7 @@ class ThumbController extends Controller
     /** Open a batch: snapshot the denominator + kick off server-side seeding. */
     public function begin(Request $request): JsonResponse
     {
+        $this->supersede();  // one run at a time — clear any previous run's queued jobs first
         $params = $this->params($request);
         $total = EpisodeThumbScope::query($params)->count();
         $batch = 'g'.Str::random(10);
@@ -97,6 +98,7 @@ class ThumbController extends Controller
     /** Re-run ONLY the episodes that failed in a previous batch — no rescan. */
     public function redoFailed(Request $request): JsonResponse
     {
+        $this->supersede();  // one run at a time — clear any previous run's queued jobs first
         $source = (string) $request->input('batch');
         $ids = [];
         try {
@@ -167,6 +169,34 @@ class ThumbController extends Controller
 
     // ---- internals ---------------------------------------------------------
 
+    /**
+     * One run at a time. Cancel the previous run and DROP its still-queued jobs so a
+     * fresh run starts immediately. Without this a new batch's jobs pile up BEHIND the
+     * old backlog: a stacked "whole site" run left ~340k jobs ahead of a genre run, so
+     * the workers kept draining the old batch while the new one sat at 0% with an empty
+     * live log forever (the "report is wrong / log disappeared" bug). In-flight
+     * (reserved) jobs are left alone to finish cleanly; the old batch's stop flag makes
+     * them no-op on pickup.
+     */
+    private function supersede(): void
+    {
+        $prev = (string) Cache::get('thumbs:active', '');
+        if ($prev !== '') {
+            Cache::put("thumbs:{$prev}:stop", true, $this->ttl());
+        }
+        try {
+            do {
+                $deleted = DB::table('jobs')
+                    ->whereIn('queue', ['thumbs', 'thumbs-now'])
+                    ->whereNull('reserved_at')      // don't yank a job a worker is mid-processing
+                    ->limit(10000)                  // bounded chunks → no one giant table lock
+                    ->delete();
+            } while ($deleted > 0);
+        } catch (Throwable $e) {
+            // best-effort — a fresh run is still correct even if a few old jobs linger
+        }
+    }
+
     /** Reset a batch's counters + register it as the active run. */
     private function openBatch(string $batch, array $meta, int $total): void
     {
@@ -209,8 +239,10 @@ class ThumbController extends Controller
             'seed_total' => $seedTotal,
             'seed_done' => $seedDone,
             'last' => Cache::get("thumbs:{$batch}:last"),
-            // Live server-side queue depth (both lanes) — proof the workers are alive.
-            'pending' => (int) DB::table('jobs')->whereIn('queue', ['thumbs-now', 'thumbs'])->count(),
+            // Jobs enqueued for THIS run but not yet processed. Batch-scoped (not a global
+            // jobs-table count) so the number always matches the run the UI is watching, and
+            // it's free. supersede() guarantees only this run's jobs sit on the lanes.
+            'pending' => max(0, $seeded - $proc),
             // One entry per currently-working agent → the live "Agent" cards.
             'agents' => $this->activeAgents(),
             // How many failures are re-runnable right now (drives the redo button).

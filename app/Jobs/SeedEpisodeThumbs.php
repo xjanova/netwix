@@ -155,7 +155,7 @@ class SeedEpisodeThumbs implements ShouldQueue
     /** Mark the batch fully seeded so the UI can flip from "ส่งเข้าคิว" to "สร้างปก". */
     private function finishSeeding(): void
     {
-        Cache::put("thumbs:{$this->batchId}:seed_done", true, now()->addHours(6));
+        Cache::put("thumbs:{$this->batchId}:seed_done", true, now()->addHours(48));
     }
 
     private function stopped(): bool

@@ -115,7 +115,7 @@ class GenerateEpisodeThumb implements ShouldQueue
             'ok' => $ok,
             'text' => $label ?: '—',
             'reason' => $status,
-        ], now()->addMinutes(30));
+        ], now()->addHours(6));
     }
 
     /** Add this episode id to the batch's failed-set (Redis, self-expiring 6h). */
