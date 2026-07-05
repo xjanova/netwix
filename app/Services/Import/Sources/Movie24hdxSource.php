@@ -34,6 +34,14 @@ class Movie24hdxSource implements MediaSource
     private const CAT_SERIES_SLUG = 'series';
 
     /**
+     * Player language values to try at resolve time, in preference order. Each title only carries
+     * SOME of these (the language <select> on its page) and get.php returns "ไม่พบรายการ" for a
+     * language it doesn't have — so we try Thai dub first, then the original Sound Track. (Hardcoding
+     * one value made every Sound-Track-only movie fail to play.)
+     */
+    private const LANGS = ['Thai', 'Sound Track'];
+
+    /**
      * 24-hdx category slug → NetWix genre name (Thai). Only real NetWix genres are targeted, and
      * NEVER the anime umbrellas (อนิเมะ/การ์ตูน) — those get filtered off /movies. The main story
      * genres below cover virtually every movie, so each import lands in at least one /movies row.
@@ -304,6 +312,38 @@ class Movie24hdxSource implements MediaSource
 
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream
     {
+        $episode = $sourceRef !== '' ? $sourceRef : '1';
+
+        // A title only has some of the LANGS (and maybe only server 2), so try each combo until the
+        // player returns a real iframe hash. First hit wins (usually 1 request for a Thai-dub movie).
+        foreach (['1', '2'] as $server) {
+            foreach (self::LANGS as $lang) {
+                $playerId = $this->playerHash($sourceKey, $episode, $server, $lang);
+                if ($playerId === null) {
+                    continue;
+                }
+                $referer = self::PLAYER."/index_th.php?id={$playerId}";
+                $masterUrl = self::PLAYER."/newplaylist/{$playerId}/{$playerId}.m3u8";
+
+                // The master lists bitrate variants. NetWix's HLS proxy re-points nested playlists
+                // back to the manifest route (which would loop on a master), so resolve down to a
+                // single MEDIA playlist here — the proxy then only rewrites segment URIs.
+                $media = $this->resolveMediaPlaylist($masterUrl, $referer);
+                if ($media !== null) {
+                    return new RemoteStream(RemoteStream::KIND_HLS, $media, $referer);
+                }
+            }
+        }
+
+        return null;   // no language/server produced a playable stream (caller shows "preparing")
+    }
+
+    /**
+     * POST the Halim player ajax for one (episode, server, lang) and return the player hash id, or
+     * null if the title has no stream for that language/server ("ไม่พบรายการ" / non-iframe response).
+     */
+    private function playerHash(string $postid, string $episode, string $server, string $lang): ?string
+    {
         try {
             $resp = $this->http()->asForm()->withHeaders([
                 'Referer' => self::BASE.'/',
@@ -312,36 +352,21 @@ class Movie24hdxSource implements MediaSource
             ])->post(self::API, [
                 'action' => 'halim_ajax_player',
                 'nonce' => '',
-                'episode' => $sourceRef !== '' ? $sourceRef : '1',
-                'server' => '1',
-                'postid' => $sourceKey,
-                'lang' => 'Thai',   // REQUIRED — the language <select> value
+                'episode' => $episode,
+                'server' => $server,
+                'postid' => $postid,
+                'lang' => $lang,   // REQUIRED — must match a language <select> value on the title
                 'title' => '',
             ]);
         } catch (\Throwable) {
             return null;
         }
-
         if (! $resp->ok()) {
             return null;
         }
-        // Response is an iframe → main.24playerhd.com/index_th.php?id={hash}
-        if (! preg_match('~index_th\.php\?id=([a-f0-9]+)~i', $resp->body(), $m)) {
-            return null;
-        }
-        $playerId = $m[1];
-        $referer = self::PLAYER."/index_th.php?id={$playerId}";
-        $masterUrl = self::PLAYER."/newplaylist/{$playerId}/{$playerId}.m3u8";
 
-        // The master lists bitrate variants. NetWix's HLS proxy re-points nested playlists back to the
-        // manifest route (which would loop on a master), so resolve down to a single MEDIA playlist
-        // here — the proxy then only ever rewrites segment URIs.
-        $media = $this->resolveMediaPlaylist($masterUrl, $referer);
-        if ($media === null) {
-            return null;   // transient (player/CDN down) — caller shows "preparing" and retries
-        }
-
-        return new RemoteStream(RemoteStream::KIND_HLS, $media, $referer);
+        // Response is an iframe → main.24playerhd.com/index_th.php?id={hash} (server 2 = new_player.php).
+        return preg_match('~(?:index_th|new_player)\.php\?id=([a-f0-9]+)~i', $resp->body(), $m) ? $m[1] : null;
     }
 
     /**
