@@ -155,6 +155,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
 
     Route::get('import', [Admin\ImportController::class, 'index'])->name('import.index');
     Route::post('import/sync', [Admin\ImportController::class, 'sync'])->name('import.sync');
+    Route::post('import/auto-toggle', [Admin\ImportController::class, 'autoToggle'])->name('import.auto-toggle');
     Route::post('import/batch', [Admin\ImportController::class, 'batch'])->name('import.batch');
     Route::post('import/auto', [Admin\ImportController::class, 'auto'])->name('import.auto');
     Route::post('import', [Admin\ImportController::class, 'import'])->name('import.store');

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Content;
 use App\Models\Genre;
+use App\Models\Setting;
 use App\Models\SourceTitle;
 use App\Services\Import\ImportService;
 use App\Services\Import\SourceRegistry;
@@ -54,7 +55,19 @@ class ImportController extends Controller
             'agent' => \App\Support\IngestAgent::status(),
             'duplicates' => $this->duplicateHints($titles->getCollection()),
             'pending' => SourceTitle::where('source', $sourceId)->notImported()->count(),
+            'autoImport' => Setting::flag('auto_import_enabled', false),
         ]);
+    }
+
+    /** Turn the daily auto-import (netwix:auto-import) on/off. */
+    public function autoToggle(Request $request): RedirectResponse
+    {
+        $on = $request->boolean('enabled');
+        Setting::write('auto_import_enabled', $on ? '1' : '0');
+
+        return back()->with('status', $on
+            ? 'เปิดนำเข้าหนังใหม่อัตโนมัติแล้ว — ระบบจะดึงหนังใหม่ให้เองทุกวัน'
+            : 'ปิดการนำเข้าอัตโนมัติแล้ว');
     }
 
     /**

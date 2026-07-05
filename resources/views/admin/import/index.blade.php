@@ -2,17 +2,30 @@
 @section('page-title', 'นำเข้าหนัง')
 @section('page-subtitle', 'ดึงคอนเทนต์จากแหล่งภายนอกเข้าคลัง NetWix')
 @section('action')
-    <form method="POST" action="{{ route('admin.import.sync') }}"
-          onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='กำลังซิงค์…'">
-        @csrf
-        <input type="hidden" name="source" value="{{ $sourceId }}">
-        {{-- 100 pages × 100 = up to 10k titles. sync() persists per page, so even if a big
-             catalogue (e.g. 24-hdx ~6.5k) outruns the request timeout, every fetched page is kept. --}}
-        <input type="hidden" name="max_pages" value="100">
-        <button class="nx-gradient flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold" style="box-shadow:0 8px 22px rgba(176,38,255,0.32)">
-            ⟳ ซิงค์แคตตาล็อก
-        </button>
-    </form>
+    <div class="flex items-center gap-2.5">
+        {{-- Daily auto-import on/off (drives netwix:auto-import). Clicking submits the opposite state. --}}
+        <form method="POST" action="{{ route('admin.import.auto-toggle') }}" title="ดึงหนังใหม่จากทุกแหล่งให้เองทุกวัน">
+            @csrf
+            <input type="hidden" name="enabled" value="{{ $autoImport ? '0' : '1' }}">
+            <button class="flex items-center gap-2 rounded-lg border px-3.5 py-2.5 text-sm font-semibold transition {{ $autoImport ? 'border-success/40 bg-success/15 text-success' : 'border-white/10 bg-white/5 text-cream/55 hover:text-cream' }}">
+                <span class="relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition {{ $autoImport ? 'bg-success/70' : 'bg-white/15' }}">
+                    <span class="absolute h-3 w-3 rounded-full bg-white transition-all" style="{{ $autoImport ? 'left:14px' : 'left:2px' }}"></span>
+                </span>
+                นำเข้าอัตโนมัติทุกวัน · {{ $autoImport ? 'เปิด' : 'ปิด' }}
+            </button>
+        </form>
+        <form method="POST" action="{{ route('admin.import.sync') }}"
+              onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='กำลังซิงค์…'">
+            @csrf
+            <input type="hidden" name="source" value="{{ $sourceId }}">
+            {{-- 100 pages × 100 = up to 10k titles. sync() persists per page, so even if a big
+                 catalogue (e.g. 24-hdx ~6.5k) outruns the request timeout, every fetched page is kept. --}}
+            <input type="hidden" name="max_pages" value="100">
+            <button class="nx-gradient flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold" style="box-shadow:0 8px 22px rgba(176,38,255,0.32)">
+                ⟳ ซิงค์แคตตาล็อก
+            </button>
+        </form>
+    </div>
 @endsection
 
 @section('content')

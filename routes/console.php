@@ -23,6 +23,11 @@ Schedule::command('netwix:import wowdrama --limit=8 --sync')
 Schedule::command('netwix:previews --limit=40')
     ->hourly()->withoutOverlapping()->runInBackground();
 
+// Daily auto top-up of new releases. Self-gates on the admin toggle `auto_import_enabled` (set on
+// /admin/import), so it's safe to always schedule — it no-ops when the admin has it off.
+Schedule::command('netwix:auto-import')
+    ->dailyAt('05:00')->withoutOverlapping()->runInBackground();
+
 // Drains DownloadPreviewJob (queued when a viewer opens an un-mirrored title).
 Schedule::command('queue:work --stop-when-empty --max-time=55')
     ->everyMinute()->withoutOverlapping();
