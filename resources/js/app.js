@@ -42,9 +42,14 @@ window.nxAttachVideo = async function (video, src, reportUrl = null) {
     if (video._nxHls) { try { video._nxHls.destroy(); } catch (e) {} video._nxHls = null; }
 
     const isHls = /\.m3u8($|\?)/i.test(src);
-    if (isHls && !video.canPlayType('application/vnd.apple.mpegurl')) {
-        const { default: Hls } = await import('hls.js');
-        if (Hls.isSupported()) {
+    if (isHls) {
+        // Prefer hls.js wherever it's supported. Chrome/Firefox return canPlayType('…mpegurl') ===
+        // 'maybe' but CANNOT actually play HLS natively — so never gate on canPlayType (that made the
+        // web set video.src to a raw .m3u8 and freeze). Only fall through to the native <video> path
+        // (Safari/iOS, which really does play HLS) when hls.js itself isn't supported.
+        let Hls = null;
+        try { Hls = (await import('hls.js')).default; } catch (e) {}
+        if (Hls && Hls.isSupported()) {
             // Our HLS is a same-origin proxy in front of a high-bitrate, SINGLE-rendition CDN, so a
             // segment can be slow and there's no lower quality to fall back to. Buffer generously,
             // retry fragments hard, and — critically — recover from a *fatal* error instead of
