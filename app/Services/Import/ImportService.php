@@ -194,6 +194,17 @@ class ImportService
             );
         }
 
+        // Drop leftovers from a previous import of the OTHER shape (a movie's episode has
+        // season_id=null; a series' episodes hang off a season) so re-importing a title whose type
+        // changed — e.g. a movie that gained episodes and became a series — doesn't leave an orphan
+        // ตอนที่ 1. Only runs once we've actually upserted the real episodes.
+        if ($episodes !== []) {
+            $content->episodes()
+                ->when($type === 'series', fn ($q) => $q->whereNull('season_id'))
+                ->when($type !== 'series', fn ($q) => $q->whereNotNull('season_id'))
+                ->delete();
+        }
+
         return count($episodes);
     }
 
