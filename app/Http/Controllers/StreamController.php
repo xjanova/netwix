@@ -35,7 +35,9 @@ class StreamController extends Controller
         abort_unless($this->tokenOk($episode, (string) $request->query('t', '')), 403);
         $this->blockForeignEmbed($request);
 
-        $this->gateAdult($episode);
+        // NB: no gateAdult() here — this route is cookieless (so Cloudflare can cache it) and has no
+        // session/auth. The Pro/adult gate is enforced upstream in EpisodeSourceController::resolve,
+        // which is the ONLY thing that mints a manifest token, so an unentitled viewer never gets here.
         $stream = $this->resolve($episode, $registry);
         if (! $stream || $stream->kind !== RemoteStream::KIND_HLS) {
             // Upstream link is dead — count this viewer toward auto-suspend (see PlaybackHealth).

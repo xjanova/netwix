@@ -121,9 +121,21 @@ Route::middleware(['auth', 'profile'])->group(function () {
 // authenticated interaction routes above). This is safe as an open endpoint —
 // segment URLs are HMAC-signed so it can't be abused as an SSRF proxy, and it
 // only exposes the same imported streams the resolver already hands out.
-Route::get('/stream/{episode}/index.m3u8', [StreamController::class, 'manifest'])
-    ->middleware('throttle:60,1')->name('stream.manifest');
-Route::get('/stream/{episode}/segment', [StreamController::class, 'segment'])->name('stream.segment');
+// Cookieless so Cloudflare can EDGE-CACHE these (a Set-Cookie makes CF skip caching entirely). They
+// hold no session state: the manifest is token-gated (minted by the authenticated resolver, which is
+// where the Pro/adult gate lives) and each segment URL is HMAC-signed with an expiry. Offloading
+// segments to the CF edge is the single biggest scale win — origin PHP stops proxying every segment.
+Route::withoutMiddleware([
+    \Illuminate\Session\Middleware\StartSession::class,
+    \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+    \Illuminate\Cookie\Middleware\EncryptCookies::class,
+    \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+    \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class,
+])->group(function () {
+    Route::get('/stream/{episode}/index.m3u8', [StreamController::class, 'manifest'])
+        ->middleware('throttle:60,1')->name('stream.manifest');
+    Route::get('/stream/{episode}/segment', [StreamController::class, 'segment'])->name('stream.segment');
+});
 Route::get('/stream/{episode}/video.mp4', [StreamController::class, 'mp4'])->name('stream.mp4');
 
 // Browser player health ping (ok=played / !ok=couldn't play) → auto-suspend dead titles.
