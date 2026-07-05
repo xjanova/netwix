@@ -439,21 +439,21 @@ function nxDreamBg() {
         DPR = Math.min(1.75, window.devicePixelRatio || 1);
         W = c.width = Math.floor(innerWidth * DPR); H = c.height = Math.floor(innerHeight * DPR);
         c.style.width = innerWidth + 'px'; c.style.height = innerHeight + 'px';
-        const n = Math.round(Math.min(80, innerWidth / 18));
+        const n = Math.round(Math.min(120, innerWidth / 12));
         parts = Array.from({ length: n }, () => ({
             x: Math.random() * W, y: Math.random() * H, col: cols[(Math.random() * cols.length) | 0],
-            w: (0.5 + Math.random() * 1.1) * DPR, spd: (0.5 + Math.random() * 0.9) * DPR,
+            w: (0.7 + Math.random() * 1.4) * DPR, spd: (0.5 + Math.random() * 0.9) * DPR,
         }));
         ctx.fillStyle = '#07050c'; ctx.fillRect(0, 0, W, H);
     };
     const angle = (x, y, t) => Math.sin(x * 0.0016 + t * 0.00018) * 1.7 + Math.cos(y * 0.0018 - t * 0.00015) * 1.7;
     const frame = (t) => {
-        ctx.fillStyle = 'rgba(7,5,12,0.05)'; ctx.fillRect(0, 0, W, H);   // fade → trails
+        ctx.fillStyle = 'rgba(7,5,12,0.036)'; ctx.fillRect(0, 0, W, H);   // slow fade → longer, brighter trails
         ctx.globalCompositeOperation = 'lighter';
         for (const p of parts) {
             const a = angle(p.x, p.y, t);
             const nx = p.x + Math.cos(a) * p.spd * 2.4, ny = p.y + Math.sin(a) * p.spd * 2.4;
-            ctx.strokeStyle = p.col; ctx.globalAlpha = 0.16; ctx.lineWidth = p.w;
+            ctx.strokeStyle = p.col; ctx.globalAlpha = 0.32; ctx.lineWidth = p.w;
             ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(nx, ny); ctx.stroke();
             p.x = nx; p.y = ny;
             if (p.x < 0 || p.x > W || p.y < 0 || p.y > H) { p.x = Math.random() * W; p.y = Math.random() * H; }
