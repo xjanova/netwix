@@ -405,6 +405,100 @@ window.Alpine = Alpine;
 Alpine.start();
 
 /**
+ * Ambient "dream fibers" — a full-page flow-field of glowing filaments in the NetWix pink/purple,
+ * drifting slowly behind everything so the page never reads as flat black. Fading trails + additive
+ * blending make the streaks look like silk threads. Cheap (a few dozen 1px line segments/frame),
+ * pauses on a hidden tab, and skips entirely when the user asked for reduced motion.
+ */
+function nxDreamBg() {
+    const c = document.getElementById('nx-dream');
+    if (!c || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+    const ctx = c.getContext('2d');
+    const cols = ['#ff2d55', '#b026ff', '#8b2ff0'];
+    let W, H, DPR, parts = [], raf = null;
+    const resize = () => {
+        DPR = Math.min(1.75, window.devicePixelRatio || 1);
+        W = c.width = Math.floor(innerWidth * DPR); H = c.height = Math.floor(innerHeight * DPR);
+        c.style.width = innerWidth + 'px'; c.style.height = innerHeight + 'px';
+        const n = Math.round(Math.min(64, innerWidth / 24));
+        parts = Array.from({ length: n }, () => ({
+            x: Math.random() * W, y: Math.random() * H, col: cols[(Math.random() * cols.length) | 0],
+            w: (0.5 + Math.random() * 1.1) * DPR, spd: (0.5 + Math.random() * 0.9) * DPR,
+        }));
+        ctx.fillStyle = '#07050c'; ctx.fillRect(0, 0, W, H);
+    };
+    const angle = (x, y, t) => Math.sin(x * 0.0016 + t * 0.00018) * 1.7 + Math.cos(y * 0.0018 - t * 0.00015) * 1.7;
+    const frame = (t) => {
+        ctx.fillStyle = 'rgba(7,5,12,0.05)'; ctx.fillRect(0, 0, W, H);   // fade → trails
+        ctx.globalCompositeOperation = 'lighter';
+        for (const p of parts) {
+            const a = angle(p.x, p.y, t);
+            const nx = p.x + Math.cos(a) * p.spd * 2.4, ny = p.y + Math.sin(a) * p.spd * 2.4;
+            ctx.strokeStyle = p.col; ctx.globalAlpha = 0.085; ctx.lineWidth = p.w;
+            ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(nx, ny); ctx.stroke();
+            p.x = nx; p.y = ny;
+            if (p.x < 0 || p.x > W || p.y < 0 || p.y > H) { p.x = Math.random() * W; p.y = Math.random() * H; }
+        }
+        ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+        raf = requestAnimationFrame(frame);
+    };
+    let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(resize, 200); });
+    resize(); raf = requestAnimationFrame(frame);
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) { cancelAnimationFrame(raf); raf = null; }
+        else if (!raf) raf = requestAnimationFrame(frame);
+    });
+}
+
+/**
+ * Footer fireflies — warm little lights that drift up and gently blink, contained to the footer.
+ * Soft radial glow so it feels magical without stealing attention from the links.
+ */
+function nxFireflies() {
+    const c = document.getElementById('nx-fireflies');
+    if (!c || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+    const ctx = c.getContext('2d');
+    let W, H, DPR, flies = [], raf = null, t = 0;
+    const spawn = () => ({
+        x: Math.random() * W, y: Math.random() * H,
+        vx: (Math.random() - 0.5) * 0.3 * DPR, vy: (-0.1 - Math.random() * 0.28) * DPR,
+        r: (1 + Math.random() * 1.5) * DPR, ph: Math.random() * 6.28, sp: 0.6 + Math.random() * 1.3,
+    });
+    const resize = () => {
+        const r = c.parentElement.getBoundingClientRect();
+        DPR = Math.min(1.75, window.devicePixelRatio || 1);
+        W = c.width = Math.max(1, Math.floor(r.width * DPR)); H = c.height = Math.max(1, Math.floor(r.height * DPR));
+        c.style.width = r.width + 'px'; c.style.height = r.height + 'px';
+        flies = Array.from({ length: Math.round(Math.min(30, r.width / 42)) }, spawn);
+    };
+    const frame = () => {
+        t += 0.016; ctx.clearRect(0, 0, W, H);
+        for (const f of flies) {
+            f.x += f.vx + Math.sin(t * 0.6 + f.ph) * 0.15 * DPR; f.y += f.vy;
+            if (f.y < -12) { f.y = H + 12; f.x = Math.random() * W; }
+            if (f.x < -12) f.x = W + 12; else if (f.x > W + 12) f.x = -12;
+            const glow = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(t * f.sp * 2 + f.ph));
+            const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r * 7);
+            g.addColorStop(0, 'rgba(255,224,140,' + (0.85 * glow) + ')');
+            g.addColorStop(0.4, 'rgba(255,180,90,' + (0.3 * glow) + ')');
+            g.addColorStop(1, 'rgba(255,150,60,0)');
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * 7, 0, 6.283); ctx.fill();
+            ctx.fillStyle = 'rgba(255,242,200,' + glow + ')'; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 6.283); ctx.fill();
+        }
+        raf = requestAnimationFrame(frame);
+    };
+    let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(resize, 200); });
+    resize(); raf = requestAnimationFrame(frame);
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) { cancelAnimationFrame(raf); raf = null; }
+        else if (!raf) raf = requestAnimationFrame(frame);
+    });
+}
+
+nxDreamBg();
+nxFireflies();
+
+/**
  * Admin hover-zoom: any element carrying data-zoom-src shows a large, cursor-following
  * floating preview of that image on hover. Rendered at <body> level with position:fixed so it
  * never gets clipped by a table's overflow — used where posters/thumbnails are shown small

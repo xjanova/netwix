@@ -3,7 +3,14 @@
 <head>
     @include('partials.head')
 </head>
-<body class="bg-ink text-cream antialiased min-h-screen">
+<body class="text-cream antialiased min-h-screen">
+    {{-- Ambient "dream fibers" background (see nxDreamBg in app.js). The base ink colour lives on
+         <html> so this fixed canvas at z-index:-1 shows through the transparent body. --}}
+    <style>
+        html { background: #07050c; }
+        #nx-dream { position: fixed; inset: 0; z-index: -1; pointer-events: none; display: block; }
+    </style>
+    <canvas id="nx-dream" aria-hidden="true"></canvas>
     @include('partials.nav')
 
     <main>
