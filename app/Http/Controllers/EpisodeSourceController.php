@@ -52,7 +52,9 @@ class EpisodeSourceController extends Controller
             return response()->json([
                 'ready' => true,
                 'kind' => 'hls',
-                'url' => route('stream.manifest', $episode),
+                // Short-lived token so only this authenticated resolve can hand out a playable
+                // manifest URL — see StreamController::manifest.
+                'url' => route('stream.manifest', $episode).'?t='.StreamController::token($episode),
             ]);
         }
 

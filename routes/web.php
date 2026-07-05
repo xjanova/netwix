@@ -104,7 +104,8 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::post('/api/content/{content}/comment', [InteractionController::class, 'comment'])->middleware(['throttle:30,1', 'turnstile'])->name('content.comment');
     Route::post('/api/content/{content}/rate', [InteractionController::class, 'rate'])->name('content.rate');
 
-    Route::get('/api/episode/{episode}/source', [EpisodeSourceController::class, 'resolve'])->name('episode.source');
+    Route::get('/api/episode/{episode}/source', [EpisodeSourceController::class, 'resolve'])
+        ->middleware('throttle:60,1')->name('episode.source');
     Route::post('/api/episode/{episode}/thumb', [EpisodeSourceController::class, 'captureThumb'])
         ->middleware('throttle:60,1')->name('episode.thumb');
 
@@ -120,7 +121,8 @@ Route::middleware(['auth', 'profile'])->group(function () {
 // authenticated interaction routes above). This is safe as an open endpoint —
 // segment URLs are HMAC-signed so it can't be abused as an SSRF proxy, and it
 // only exposes the same imported streams the resolver already hands out.
-Route::get('/stream/{episode}/index.m3u8', [StreamController::class, 'manifest'])->name('stream.manifest');
+Route::get('/stream/{episode}/index.m3u8', [StreamController::class, 'manifest'])
+    ->middleware('throttle:60,1')->name('stream.manifest');
 Route::get('/stream/{episode}/segment', [StreamController::class, 'segment'])->name('stream.segment');
 Route::get('/stream/{episode}/video.mp4', [StreamController::class, 'mp4'])->name('stream.mp4');
 

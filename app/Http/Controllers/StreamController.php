@@ -22,8 +22,19 @@ class StreamController extends Controller
 {
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
-    public function manifest(Episode $episode, SourceRegistry $registry)
+    /** Stream token + segment-signature lifetime (seconds). Long enough for one sitting, short
+     *  enough that a scraped URL stops working the same day. */
+    private const TTL = 21600; // 6h
+
+    public function manifest(Episode $episode, Request $request, SourceRegistry $registry)
     {
+        // Require a short-lived token minted by the (authenticated) resolver. Episode ids are
+        // sequential, so without this anyone could enumerate them and hotlink our streams with no
+        // account. The web player AND the app both receive this token from EpisodeSourceController,
+        // so neither needs to send cookies here.
+        abort_unless($this->tokenOk($episode, (string) $request->query('t', '')), 403);
+        $this->blockForeignEmbed($request);
+
         $this->gateAdult($episode);
         $stream = $this->resolve($episode, $registry);
         if (! $stream || $stream->kind !== RemoteStream::KIND_HLS) {
@@ -77,7 +88,8 @@ class StreamController extends Controller
     {
         $url = (string) $request->query('u', '');
         $sig = (string) $request->query('s', '');
-        abort_unless($url !== '' && hash_equals($this->sign($episode, $url), $sig), 403);
+        $exp = (int) $request->query('e', 0);
+        abort_unless($url !== '' && $exp >= time() && hash_equals($this->segSig($episode, $url, $exp), $sig), 403);
         abort_unless(str_starts_with($url, 'https://'), 400);
 
         $ref = (string) $request->query('r', '');
@@ -204,16 +216,55 @@ class StreamController extends Controller
 
     private function proxyUrl(Episode $episode, string $abs, ?string $referer): string
     {
+        $exp = time() + self::TTL;
+
         return route('stream.segment', $episode).'?'.http_build_query([
             'u' => $abs,
-            's' => $this->sign($episode, $abs),
+            'e' => $exp,
+            's' => $this->segSig($episode, $abs, $exp),
             'r' => $referer ?: '',
         ]);
     }
 
-    private function sign(Episode $episode, string $url): string
+    /** HMAC over "app.key" — truncated so signed URLs stay short. */
+    private static function sig(string $data): string
     {
-        return hash_hmac('sha256', $episode->id.'|'.$url, (string) config('app.key'));
+        return substr(hash_hmac('sha256', $data, (string) config('app.key')), 0, 40);
+    }
+
+    /** Expiring signature for one proxied segment (bound to the episode + upstream url + expiry). */
+    private function segSig(Episode $episode, string $url, int $exp): string
+    {
+        return self::sig('seg|'.$episode->id.'|'.$url.'|'.$exp);
+    }
+
+    /**
+     * Short-lived manifest token, minted by EpisodeSourceController (the single, authenticated
+     * resolver) and required by manifest(). Public so the resolver can call it.
+     */
+    public static function token(Episode $episode): string
+    {
+        $exp = time() + self::TTL;
+
+        return $exp.'.'.self::sig('m|'.$episode->id.'|'.$exp);
+    }
+
+    private function tokenOk(Episode $episode, string $tok): bool
+    {
+        [$exp, $s] = array_pad(explode('.', $tok, 2), 2, '');
+
+        return ctype_digit((string) $exp) && (int) $exp >= time()
+            && hash_equals(self::sig('m|'.$episode->id.'|'.$exp), (string) $s);
+    }
+
+    /** Browsers embedding our player on another site send a foreign Referer → block. The native app
+     *  and hls.js/segment fetches send none (or ours) → allowed (the token already gates them). */
+    private function blockForeignEmbed(Request $request): void
+    {
+        $ref = (string) $request->headers->get('referer', '');
+        if ($ref !== '' && ! preg_match('~^https?://(www\.)?netwix\.online~i', $ref)) {
+            abort(403);
+        }
     }
 
     private function baseUrl(string $url): string
