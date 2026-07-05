@@ -117,12 +117,14 @@ class BackupFinder
         }
 
         try {
+            // Range keeps this cheap (a few KB, not a whole ~3 MB segment). The CDN answers 206
+            // Partial Content — successful() accepts any 2xx, unlike ok() which is 200-only.
             $resp = Http::withHeaders($this->headers($stream->referer) + ['Range' => 'bytes=0-8191'])
                 ->connectTimeout(8)->timeout(20)->get($this->absolute($seg, $stream->url));
         } catch (\Throwable) {
             return false;
         }
-        if (! $resp->ok()) {
+        if (! $resp->successful()) {
             return false;
         }
 
