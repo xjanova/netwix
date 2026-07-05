@@ -3,8 +3,10 @@
 namespace App\Services\Import\Sources;
 
 use App\Services\Import\Contracts\MediaSource;
+use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 
@@ -17,7 +19,7 @@ use Illuminate\Support\Facades\Http;
  *                 → getplay-cdn embed hash → HLS at getplay-cdn.com/api/stream/{hash}/index.m3u8
  * PHP port of the Hive Download WowDramaClient.
  */
-class WowDramaSource implements MediaSource
+class WowDramaSource implements MediaSource, ProvidesSynopsis
 {
     public const BASE = 'https://wow-drama.com';
     public const GETPLAY = 'https://getplay-cdn.com';
@@ -199,6 +201,21 @@ class WowDramaSource implements MediaSource
         }
 
         return $out;
+    }
+
+    public function fetchSynopsis(RemoteSeries $series): ?string
+    {
+        $slug = trim((string) ($series->extra['slug'] ?? ''), '/');
+        if ($slug === '') {
+            return null;
+        }
+        try {
+            $html = $this->http()->get(self::BASE.'/'.$slug.'/')->body();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return SynopsisScraper::fromHtml($html);
     }
 
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream

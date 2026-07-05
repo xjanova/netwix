@@ -3,8 +3,10 @@
 namespace App\Services\Import\Sources;
 
 use App\Services\Import\Contracts\MediaSource;
+use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 
@@ -23,7 +25,7 @@ use Illuminate\Support\Facades\Http;
  *  - The single title post_id resolves every episode via the `episode` param.
  *  - Streams are HLS, played through NetWix's server-side proxy (StreamController) like wow-drama.
  */
-class Anime108Source implements MediaSource
+class Anime108Source implements MediaSource, ProvidesSynopsis
 {
     public const BASE = 'https://www.anime108.com';
     public const PLAYER = 'https://main.108player.com';
@@ -280,6 +282,21 @@ class Anime108Source implements MediaSource
         }
 
         return array_map(fn ($n) => ['number' => $n, 'ref' => (string) $n], $nums);
+    }
+
+    public function fetchSynopsis(RemoteSeries $series): ?string
+    {
+        $slug = trim((string) ($series->extra['slug'] ?? $series->sourceKey), '/');
+        if ($slug === '') {
+            return null;
+        }
+        try {
+            $html = $this->http()->get(self::BASE.'/'.$slug.'/')->body();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return SynopsisScraper::fromHtml($html);
     }
 
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream

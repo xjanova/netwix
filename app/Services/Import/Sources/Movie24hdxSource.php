@@ -6,6 +6,7 @@ use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 
@@ -324,38 +325,7 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
             return null;
         }
 
-        return $this->extractSynopsis($html);
-    }
-
-    /**
-     * The plot synopsis is the longest non-boilerplate Thai text block on the detail page — it is NOT
-     * exposed via WP REST (content/excerpt are empty), so we scrape it. Nav/SEO lines and the
-     * "ตัวอย่างหนัง" (trailer) heading are filtered out; the longest survivor is the plot.
-     */
-    private function extractSynopsis(string $html): ?string
-    {
-        $h = preg_replace('#<(script|style)[^>]*>.*?</\1>#is', ' ', $html) ?? $html;
-        if (! preg_match_all('/>([^<]{60,})</u', $h, $m)) {
-            return null;
-        }
-        $best = null;
-        $bestLen = 0;
-        foreach ($m[1] as $raw) {
-            $s = trim(preg_replace('/\s+/', ' ', html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
-            $len = mb_strlen($s);
-            if ($len < 60 || ! preg_match('/[\x{0E00}-\x{0E7F}]/u', $s)) {
-                continue; // must be a real Thai text block
-            }
-            if (preg_match('/ดูหนังฟรี|ไม่มีโฆ|24-?HD|Smart ?TV|ดูหนังออนไลน์|ตัวอย่าง/iu', $s)) {
-                continue; // SEO / boilerplate / trailer heading
-            }
-            if ($len > $bestLen) {
-                $best = $s;
-                $bestLen = $len;
-            }
-        }
-
-        return $best !== null ? mb_substr($best, 0, 1500) : null;
+        return SynopsisScraper::fromHtml($html);
     }
 
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream
