@@ -123,11 +123,16 @@ class ImportService
         }
     }
 
-    /** Movie titles auto-split to type=movie when auto_type is on; otherwise the chosen/default type. */
+    /**
+     * With auto_type on, split by the source's own is_movie flag BOTH ways — movies → movie,
+     * everything else → series (so a movie source like 24-hdx files its ซีรีส์ as type=series with
+     * real episodes, and anime108 movies still become type=movie). Sources that don't carry the flag
+     * (rongyok=vertical, wowdrama) are untouched and keep their default type.
+     */
     private function resolveType(MediaSource $source, SourceTitle $st, array $opts): string
     {
-        if (($opts['auto_type'] ?? false) && ($st->extra['is_movie'] ?? false)) {
-            return 'movie';
+        if (($opts['auto_type'] ?? false) && is_array($st->extra) && array_key_exists('is_movie', $st->extra)) {
+            return $st->extra['is_movie'] ? 'movie' : 'series';
         }
 
         return $opts['type'] ?? $source->defaultContentType();

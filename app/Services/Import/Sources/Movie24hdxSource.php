@@ -268,8 +268,38 @@ class Movie24hdxSource implements MediaSource
 
     public function fetchEpisodes(RemoteSeries $series): array
     {
-        // Movies are a single video; expose one playable episode (ref=1 → resolveByRef episode=1).
-        return [['number' => 1, 'ref' => '1']];
+        // Movies are a single video → one playable episode.
+        if ($series->extra['is_movie'] ?? true) {
+            return [['number' => 1, 'ref' => '1']];
+        }
+
+        // Series: the detail page carries an episode <select> of
+        // <option value="N"> ตอนที่ N</option> (the language <select> is value="Thai", so the
+        // "ตอนที่" anchor keeps them apart). Each option value is a playable `episode` param.
+        $slug = trim((string) ($series->extra['slug'] ?? ''), '/');
+        if ($slug === '') {
+            return [['number' => 1, 'ref' => '1']];
+        }
+        try {
+            $html = $this->http()->withHeaders(['Referer' => self::BASE.'/'])
+                ->get(self::BASE.'/'.$slug.'/')->body();
+        } catch (\Throwable) {
+            return [['number' => 1, 'ref' => '1']];
+        }
+
+        $nums = [];
+        if (preg_match_all('~<option[^>]*value="(\d+)"[^>]*>\s*ตอนที่~u', $html, $m)) {
+            foreach ($m[1] as $n) {
+                $nums[(int) $n] = true;
+            }
+        }
+        $nums = array_keys($nums);
+        sort($nums);
+        if ($nums === []) {
+            $nums = [1]; // episode list not found → expose one playable episode
+        }
+
+        return array_map(fn ($n) => ['number' => $n, 'ref' => (string) $n], $nums);
     }
 
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream
