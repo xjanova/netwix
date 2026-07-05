@@ -44,8 +44,11 @@ class EpisodeSourceController extends Controller
             return response()->json(['ready' => false, 'error' => 'no_source'], 404);
         }
 
-        // wow-drama & anime108 play through the server-side HLS proxy.
-        if (in_array($episode->source, ['wowdrama', 'anime108'], true)) {
+        // wow-drama / anime108 / 24-hdx are HLS — they play through the server-side proxy (it adds the
+        // upstream Referer the browser can't send and rewrites the segment URLs). Without this a raw
+        // .m3u8 is handed back and the browser can't fetch its Referer-gated segments (web won't play,
+        // even though the native app, which sends its own Referer, does).
+        if (in_array($episode->source, ['wowdrama', 'anime108', '24hdx'], true)) {
             return response()->json([
                 'ready' => true,
                 'kind' => 'hls',
