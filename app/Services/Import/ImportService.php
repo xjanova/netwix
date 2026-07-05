@@ -6,6 +6,7 @@ use App\Models\Content;
 use App\Models\Genre;
 use App\Models\SourceTitle;
 use App\Services\Import\Contracts\MediaSource;
+use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Support\VerticalGenre;
 use Illuminate\Support\Str;
 
@@ -85,10 +86,41 @@ class ImportService
         $this->ensureUmbrella($content, $source);
         $this->ensureVerticalGenre($content, $title);
         $count = $this->importEpisodes($source, $st, $content, $type);
+        $this->fillSynopsis($source, $st, $content);
 
         $st->update(['content_id' => $content->id, 'episodes_count' => $count]);
 
         return $content;
+    }
+
+    /**
+     * Some sources hide the plot synopsis behind a detail page (not in the catalogue feed). When the
+     * title still has no synopsis, scrape it once and store it on both the content and the source
+     * title (so a re-import doesn't scrape again). Best-effort — never fail an import over it.
+     */
+    private function fillSynopsis(MediaSource $source, SourceTitle $st, Content $content): void
+    {
+        if (! $source instanceof ProvidesSynopsis || filled($content->synopsis)) {
+            return;
+        }
+        try {
+            $rs = new RemoteSeries(
+                source: $st->source,
+                sourceKey: $st->source_key,
+                title: $st->title,
+                cleanTitle: $st->displayTitle(),
+                extra: $st->extra ?? [],
+            );
+            $syn = $source->fetchSynopsis($rs);
+        } catch (\Throwable $e) {
+            return;
+        }
+        if (filled($syn)) {
+            $content->forceFill(['synopsis' => $syn])->save();
+            if (blank($st->description)) {
+                $st->forceFill(['description' => $syn])->save();
+            }
+        }
     }
 
     /**
