@@ -3,7 +3,8 @@
 @section('meta_description', 'ดูหนัง ซีรีส์ และซีรีส์แนวตั้งออนไลน์ที่ NetWix สตรีมไม่จำกัด ดูฟรี ชวนเพื่อนรับสิทธิ์ Pro และของรางวัลมากมาย รับชมได้ทั้งมือถือ แท็บเล็ต และทีวี')
 
 @section('content')
-<div class="bg-ink text-cream">
+{{-- no bg-ink here: <html> carries the base ink so the ambient #nx-dream fibers show through --}}
+<div class="text-cream">
 
     {{-- ================= HERO ================= --}}
     <section class="relative overflow-hidden">
@@ -108,7 +109,7 @@
             <h2 class="mb-5 text-xl font-bold sm:text-2xl">มาแรงตอนนี้</h2>
             <div class="nx-rail pb-3">
                 @foreach ($trending as $i => $c)
-                    <a href="{{ route('login') }}" class="group relative w-[168px] shrink-0 pl-10 sm:w-[196px] sm:pl-12">
+                    <a href="{{ route('title.show', $c) }}" class="group relative w-[168px] shrink-0 pl-10 sm:w-[196px] sm:pl-12">
                         <span class="pointer-events-none absolute -bottom-2 left-0 z-0 text-[88px] font-black leading-none text-transparent sm:text-[104px]"
                               style="-webkit-text-stroke:2px rgba(244,241,248,0.35)">{{ $i + 1 }}</span>
                         <div class="relative z-10 aspect-[2/3] overflow-hidden rounded-lg shadow-xl ring-1 ring-white/10 transition duration-200 group-hover:scale-105 group-hover:ring-white/30"

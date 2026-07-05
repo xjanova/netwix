@@ -33,11 +33,16 @@
     html {
         scrollbar-width: thin;
         scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+        /* Base backdrop lives here (not on <body>) so the fixed ambient #nx-dream fibers canvas,
+           which sits at z-index:-1, renders ABOVE the page colour instead of being painted over. */
+        background: var(--color-ink);
     }
 
     body {
         margin: 0;
-        background: var(--color-ink);
+        /* transparent (was var(--color-ink)) — let the ambient fibers show through the body. Layouts
+           that want an opaque base (admin, player) still set their own bg-ink/bg-black on <body>. */
+        background: transparent;
         color: var(--color-cream);
         font-family: var(--font-sans);
         -webkit-font-smoothing: antialiased;

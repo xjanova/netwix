@@ -3,7 +3,7 @@
 
 @section('content')
 <div class="relative flex min-h-screen items-center justify-center overflow-hidden p-6"
-     style="background:radial-gradient(circle at 12% 18%, rgba(255,45,85,0.22), transparent 42%), radial-gradient(circle at 88% 82%, rgba(139,47,240,0.24), transparent 46%), #07050c;">
+     style="background:radial-gradient(circle at 12% 18%, rgba(255,45,85,0.22), transparent 42%), radial-gradient(circle at 88% 82%, rgba(139,47,240,0.24), transparent 46%);">
     @include('partials.logo-bg', ['video' => 'logomedia1.mp4'])
 
     <form method="POST" action="{{ route('login') }}"
