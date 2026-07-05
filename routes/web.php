@@ -133,12 +133,15 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::delete('debug', [Admin\DebugLogController::class, 'clear'])->name('debug.clear');
 
     // Batch episode-cover generation (ffmpeg → WebP), with a live progress bar.
-    // fpm can't run ffmpeg, so the page enqueues GenerateEpisodeThumb jobs onto
-    // the `thumbs` queue (drained by the scheduled CLI worker) and polls progress.
+    // fpm can't run ffmpeg, so `begin` dispatches a SeedEpisodeThumbs job that
+    // enqueues GenerateEpisodeThumb jobs onto the `thumbs` queue (drained by the
+    // scheduled CLI worker). The run is server-side + resumable: a reopened page
+    // re-attaches via `active`, and `redo-failed` re-runs only the failures.
     Route::get('thumbs', [Admin\ThumbController::class, 'index'])->name('thumbs.index');
     Route::get('thumbs/search', [Admin\ThumbController::class, 'search'])->name('thumbs.search');
+    Route::get('thumbs/active', [Admin\ThumbController::class, 'active'])->name('thumbs.active');
     Route::post('thumbs/begin', [Admin\ThumbController::class, 'begin'])->name('thumbs.begin');
-    Route::post('thumbs/enqueue', [Admin\ThumbController::class, 'enqueue'])->name('thumbs.enqueue');
+    Route::post('thumbs/redo-failed', [Admin\ThumbController::class, 'redoFailed'])->name('thumbs.redo-failed');
     Route::get('thumbs/progress', [Admin\ThumbController::class, 'progress'])->name('thumbs.progress');
     Route::post('thumbs/stop', [Admin\ThumbController::class, 'stop'])->name('thumbs.stop');
 

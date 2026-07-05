@@ -104,11 +104,29 @@ class GenerateEpisodeThumb implements ShouldQueue
         Cache::increment($key.'proc');
         if (! $ok) {
             Cache::increment($key.'fail');
+            // Remember exactly which episodes failed (not the ones we skipped on a
+            // hard-stop) so the admin can re-run ONLY the failures later with zero
+            // catalogue rescan — see ThumbController::redoFailed().
+            if ($status !== 'stopped') {
+                $this->rememberFailure();
+            }
         }
         Cache::put($key.'last', [
             'ok' => $ok,
             'text' => $label ?: '—',
             'reason' => $status,
         ], now()->addMinutes(30));
+    }
+
+    /** Add this episode id to the batch's failed-set (Redis, self-expiring 6h). */
+    private function rememberFailure(): void
+    {
+        try {
+            $key = "netwix:thumbs:{$this->batchId}:failed";
+            Redis::sadd($key, $this->episodeId);
+            Redis::expire($key, 6 * 3600);
+        } catch (Throwable $e) {
+            // best-effort — a missed redo-list entry must never fail the job
+        }
     }
 }
