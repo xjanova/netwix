@@ -110,6 +110,12 @@ class ThumbController extends Controller
             'pending' => (int) DB::table('jobs')->whereIn('queue', ['thumbs-now', 'thumbs'])->count(),
             // One entry per currently-working agent → the live "Agent" cards.
             'agents' => $this->activeAgents(),
+            // Real catalogue-wide "still missing a cover" count for the top card.
+            // Cached ~5s so a 1.2s poll can't hammer this 240k-row count query.
+            'missing' => Cache::remember('thumbs:missing_count', now()->addSeconds(5), fn () => (int) Episode::query()
+                ->whereNull('thumbnail_path')
+                ->whereHas('content', fn ($c) => $c->where('is_published', true))
+                ->count()),
         ]);
     }
 

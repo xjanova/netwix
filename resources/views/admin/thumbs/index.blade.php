@@ -12,7 +12,7 @@
         </div>
         <div class="rounded-xl bg-white/[0.03] p-4">
             <div class="text-[12px] text-cream/50">ยังไม่มีปก</div>
-            <div class="text-2xl font-bold text-[#ffb454]">{{ number_format($missing) }}</div>
+            <div class="text-2xl font-bold text-[#ffb454] transition-all" x-text="liveMissing.toLocaleString()"></div>
         </div>
     </div>
 
@@ -136,6 +136,7 @@ function thumbGen() {
         scope: 'title', genreId: '{{ $genres->first()->id ?? '' }}',
         titleQ: '', titleResults: [], contentId: null, contentLabel: '',
         skipExisting: true,
+        liveMissing: {{ (int) $missing }},
         running: false, stopped: false, phase: 'idle', batch: null, priority: false,
         total: 0, processed: 0, failed: 0, after: 0, pending: 0, elapsed: 0, t0: 0, agents: [], log: [],
 
@@ -206,6 +207,7 @@ function thumbGen() {
                 this.failed = p.failed || 0;
                 this.pending = p.pending || 0;
                 this.agents = p.agents || [];
+                if (typeof p.missing === 'number') this.liveMissing = p.missing;
                 this.elapsed = Math.round((Date.now() - this.t0) / 1000);
                 if (p.last && p.last.text && p.last.text !== lastText) {
                     lastText = p.last.text;
