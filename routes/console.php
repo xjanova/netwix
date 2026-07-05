@@ -28,6 +28,12 @@ Schedule::command('netwix:previews --limit=40')
 Schedule::command('netwix:auto-import')
     ->dailyAt('05:00')->withoutOverlapping()->runInBackground();
 
+// Daily backup-link finder: re-source auto-suspended (un-playable) titles from another Halim pool
+// site and auto-republish. Self-gates on the admin toggle `backup_finder_enabled` (set on
+// /admin/backups). Runs after auto-import so any newly-imported titles are considered too.
+Schedule::command('netwix:find-backups')
+    ->dailyAt('05:30')->withoutOverlapping()->runInBackground();
+
 // Drains DownloadPreviewJob (queued when a viewer opens an un-mirrored title).
 Schedule::command('queue:work --stop-when-empty --max-time=55')
     ->everyMinute()->withoutOverlapping();

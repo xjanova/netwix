@@ -187,14 +187,14 @@ class StreamController extends Controller
                 ? new RemoteStream(str_contains($episode->video_url, '.m3u8') ? RemoteStream::KIND_HLS : RemoteStream::KIND_MP4, $episode->video_url)
                 : null;
         }
-        $source = $registry->get($episode->source);
-        if (! $source) {
-            return null;
-        }
-        $key = $episode->content->source_key ?? '';
 
-        $cached = Cache::remember("ep_raw:{$episode->id}", now()->addMinutes(10), function () use ($source, $key, $episode) {
-            $s = $source->resolveByRef($key, $episode->source_ref);
+        $cached = Cache::remember("ep_raw:{$episode->id}", now()->addMinutes(10), function () use ($episode, $registry) {
+            // Primary source first; if its link is dead, fall back to a bot-applied backup stream on
+            // another Halim site (see App\Support\BackupFinder / netwix:find-backups).
+            $s = $this->resolveVia($registry, $episode->source, $episode->content->source_key ?? '', (string) $episode->source_ref);
+            if ($s === null && $episode->backup_source && $episode->backup_key) {
+                $s = $this->resolveVia($registry, $episode->backup_source, (string) $episode->backup_key, (string) ($episode->backup_ref ?: $episode->source_ref));
+            }
 
             return $s ? ['kind' => $s->kind, 'url' => $s->url, 'referer' => $s->referer] : null;
         });
@@ -205,6 +205,17 @@ class StreamController extends Controller
         }
 
         return new RemoteStream($cached['kind'], $cached['url'], $cached['referer'] ?? null);
+    }
+
+    /** Resolve a fresh stream from a registered source's stored keys, or null (unknown source / empty keys). */
+    private function resolveVia(SourceRegistry $registry, string $sourceId, string $key, string $ref): ?RemoteStream
+    {
+        $source = $registry->get($sourceId);
+        if (! $source || $key === '' || $ref === '') {
+            return null;
+        }
+
+        return $source->resolveByRef($key, $ref);
     }
 
     private function headers(?string $referer): array

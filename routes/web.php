@@ -167,6 +167,10 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('suspended', [Admin\SuspendedController::class, 'index'])->name('suspended.index');
     Route::post('suspended/{content}/republish', [Admin\SuspendedController::class, 'republish'])->name('suspended.republish');
 
+    // Titles running on a backup stream (netwix:find-backups) + the daily-finder on/off toggle.
+    Route::get('backups', [Admin\BackupController::class, 'index'])->name('backups.index');
+    Route::post('backups/toggle', [Admin\BackupController::class, 'toggle'])->name('backups.toggle');
+
     Route::get('import', [Admin\ImportController::class, 'index'])->name('import.index');
     Route::post('import/sync', [Admin\ImportController::class, 'sync'])->name('import.sync');
     Route::post('import/auto-toggle', [Admin\ImportController::class, 'autoToggle'])->name('import.auto-toggle');

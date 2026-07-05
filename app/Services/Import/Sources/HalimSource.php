@@ -11,80 +11,57 @@ use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 
 /**
- * 24-hdx.com — WordPress + Halim theme hosting Thai-dubbed/subbed MOVIES (~6,500 titles).
- * Same stack as [Anime108Source]; the differences are all constants (see the site API map note
- * "24-hdx.com — site API map"). Verified flow (2026-07):
- *   1. catalog  → WP REST /wp-json/wp/v2/posts (100/page) + /media posters + /categories genres
- *   2. episodes → single video → one playable episode (movies)
- *   3. resolve  → POST https://api.24-hdx.com/get.php (action=halim_ajax_player, postid, episode,
- *                 server=1, lang=Thai — lang is REQUIRED) → iframe main.24playerhd.com/index_th.php?id={hash}
- *                 → HLS master newplaylist/{hash}/{hash}.m3u8 → pick best-bitrate variant
+ * Config-driven source for any WordPress + Halim-theme site (24-hdx, anime108, …). All per-site
+ * differences live in the [HalimSiteConfig] this is constructed with, so adding a site = one config
+ * in [HalimSites], not a subclass. Verified flow (2026-07):
+ *   1. catalogue → WP REST /wp-json/wp/v2/posts (100/page) + /media posters + /categories genres
+ *   2. episodes  → movie = single video; series = parse the detail-page episode <select>/links
+ *   3. resolve   → POST {apiUrl} (action=halim_ajax_player, postid, episode, server, lang)
+ *                  → iframe {playerHost}/index_th.php?id={hash}
+ *                  → HLS master newplaylist/{hash}/{hash}.m3u8 → pick best-bitrate variant
  *
- * Key differences from anime108:
- *  - the player ajax lives on a SEPARATE subdomain https://api.24-hdx.com/get.php (absolute), not /api/get.php
- *  - `lang=Thai` MUST be sent (empty/other → "ไม่พบรายการ ... ภาษาที่คุณเลือกไม่มีอยู่")
- *  - these are real movies → defaultContentType=movie and NO anime umbrella (so they land on /movies).
+ * Streams are HLS, played through NetWix's server-side proxy ([StreamController]).
  */
-class Movie24hdxSource implements MediaSource, ProvidesSynopsis
+class HalimSource implements MediaSource, ProvidesSynopsis
 {
-    public const BASE = 'https://www.24-hdx.com';
-    public const API = 'https://api.24-hdx.com/get.php';   // Halim player ajax — separate subdomain
-    public const PLAYER = 'https://main.24playerhd.com';
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
-    /** Category slug that marks a title as a multi-episode series (else it's a movie). */
-    private const CAT_SERIES_SLUG = 'series';
+    public function __construct(private HalimSiteConfig $config) {}
 
-    /**
-     * Player language values to try at resolve time, in preference order. Each title only carries
-     * SOME of these (the language <select> on its page) and get.php returns "ไม่พบรายการ" for a
-     * language it doesn't have — so we try Thai dub first, then the original Sound Track. (Hardcoding
-     * one value made every Sound-Track-only movie fail to play.)
-     */
-    private const LANGS = ['Thai', 'Sound Track'];
-
-    /**
-     * 24-hdx category slug → NetWix genre name (Thai). Only real NetWix genres are targeted, and
-     * NEVER the anime umbrellas (อนิเมะ/การ์ตูน) — those get filtered off /movies. The main story
-     * genres below cover virtually every movie, so each import lands in at least one /movies row.
-     */
-    private const GENRE_MAP = [
-        'action' => 'แอ็กชัน', 'action-2' => 'แอ็กชัน', 'superhero' => 'แอ็กชัน',
-        'marvel-universe' => 'แอ็กชัน', 'war' => 'แอ็กชัน',
-        'adventure' => 'ผจญภัย', 'adventure-2' => 'ผจญภัย',
-        'comedy' => 'ตลก', 'comedy-2' => 'ตลก',
-        'drama' => 'ดราม่า', 'drama-2' => 'ดราม่า', 'biography' => 'ดราม่า', 'family' => 'ดราม่า',
-        'romance' => 'โรแมนติก', 'musical' => 'โรแมนติก',
-        'horror' => 'สยองขวัญ', 'horror-2' => 'สยองขวัญ',
-        'thriller' => 'อาชญากรรม', 'thriller-2' => 'อาชญากรรม', 'crime' => 'อาชญากรรม',
-        'crime-2' => 'อาชญากรรม', 'mystry' => 'อาชญากรรม',
-        'fantasy' => 'แฟนตาซี & ไซไฟ', 'fantasy-2' => 'แฟนตาซี & ไซไฟ', 'sci-fi' => 'แฟนตาซี & ไซไฟ',
-        'history' => 'ย้อนยุค',
-    ];
+    public function config(): HalimSiteConfig
+    {
+        return $this->config;
+    }
 
     public function id(): string
     {
-        return '24hdx';
+        return $this->config->id;
     }
 
     public function displayName(): string
     {
-        return '24-HDX (ภาพยนตร์)';
+        return $this->config->displayName;
     }
 
     public function defaultContentType(): string
     {
-        return 'movie';
+        return $this->config->defaultContentType;
     }
 
     public function isProgressive(): bool
     {
-        return false;   // HLS — streams through the server proxy, no stored preview needed
+        return false;   // Halim = HLS — streams through the server proxy, no stored preview needed
     }
 
     public function umbrellaGenre(): ?string
     {
-        return null;    // real movies — no umbrella, so they show on /movies (not /anime)
+        return $this->config->umbrellaGenre;
+    }
+
+    /** Eligible to serve as a backup stream for another site's un-playable title. */
+    public function isBackupPool(): bool
+    {
+        return $this->config->backupPool;
     }
 
     private function http(): PendingRequest
@@ -101,7 +78,7 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
         $total = 0;
 
         for ($page = 1; $page <= $maxPages; $page++) {
-            $resp = $this->http()->get(self::BASE.'/wp-json/wp/v2/posts', [
+            $resp = $this->http()->get($this->config->base.'/wp-json/wp/v2/posts', [
                 'per_page' => 100,
                 'page' => $page,
                 '_fields' => 'id,slug,title,featured_media,categories,date',
@@ -114,28 +91,7 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
                 break;
             }
 
-            /** @var RemoteSeries[] $items */
-            $items = [];
-            $mediaIds = [];
-            foreach ($posts as $el) {
-                if (($s = $this->parsePost($el, $cats)) !== null) {
-                    $items[] = $s;
-                    if (! empty($s->extra['media_id'])) {
-                        $mediaIds[] = $s->extra['media_id'];
-                    }
-                }
-            }
-
-            if ($mediaIds) {
-                $posters = $this->fetchPosters(array_values(array_unique($mediaIds)));
-                foreach ($items as $s) {
-                    $mid = $s->extra['media_id'] ?? 0;
-                    if ($mid && isset($posters[$mid])) {
-                        $s->posterUrl = $posters[$mid];
-                    }
-                }
-            }
-
+            $items = $this->parsePosts($posts, $cats);
             $onBatch($items);
             $total += count($items);
 
@@ -145,6 +101,72 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
         }
 
         return $total;
+    }
+
+    /**
+     * Full-text search this site's catalogue (WP REST ?search=) → RemoteSeries[] with posters filled.
+     * Used by [App\Support\BackupFinder] to locate a title on a backup site. Best-effort: any failure
+     * returns [].
+     *
+     * @return RemoteSeries[]
+     */
+    public function search(string $query, int $limit = 10): array
+    {
+        $query = trim($query);
+        if ($query === '') {
+            return [];
+        }
+        try {
+            $resp = $this->http()->get($this->config->base.'/wp-json/wp/v2/posts', [
+                'search' => $query,
+                'per_page' => max(1, min(20, $limit)),
+                '_fields' => 'id,slug,title,featured_media,categories,date',
+            ]);
+        } catch (\Throwable) {
+            return [];
+        }
+        if (! $resp->ok()) {
+            return [];
+        }
+        $posts = $resp->json();
+        if (! is_array($posts) || $posts === []) {
+            return [];
+        }
+
+        return $this->parsePosts($posts, $this->fetchCategoryMap());
+    }
+
+    /**
+     * Parse a page of WP REST posts into RemoteSeries, then attach posters in one /media batch.
+     *
+     * @param  array<int,mixed>  $posts
+     * @param  array<int,array{name:string,slug:string}>  $cats
+     * @return RemoteSeries[]
+     */
+    private function parsePosts(array $posts, array $cats): array
+    {
+        $items = [];
+        $mediaIds = [];
+        foreach ($posts as $el) {
+            if (is_array($el) && ($s = $this->parsePost($el, $cats)) !== null) {
+                $items[] = $s;
+                if (! empty($s->extra['media_id'])) {
+                    $mediaIds[] = $s->extra['media_id'];
+                }
+            }
+        }
+
+        if ($mediaIds) {
+            $posters = $this->fetchPosters(array_values(array_unique($mediaIds)));
+            foreach ($items as $s) {
+                $mid = $s->extra['media_id'] ?? 0;
+                if ($mid && isset($posters[$mid])) {
+                    $s->posterUrl = $posters[$mid];
+                }
+            }
+        }
+
+        return $items;
     }
 
     /** @param array<int,array{name:string,slug:string}> $cats */
@@ -159,44 +181,60 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
             ? trim(html_entity_decode((string) $el['title']['rendered'], ENT_QUOTES | ENT_HTML5, 'UTF-8'))
             : $slug;
 
-        $catSlugs = array_filter(array_map(
-            fn ($cid) => $cats[(int) $cid]['slug'] ?? '',
-            (array) ($el['categories'] ?? [])
-        ));
-        $isMovie = ! in_array(self::CAT_SERIES_SLUG, $catSlugs, true);
+        $catIds = array_map('intval', (array) ($el['categories'] ?? []));
+        $catNames = array_filter(array_map(fn ($cid) => $cats[$cid]['name'] ?? '', $catIds));
+        $catSlugs = array_filter(array_map(fn ($cid) => $cats[$cid]['slug'] ?? '', $catIds));
 
-        // Suggested NetWix genres, mapped from the source's own categories (no anime umbrella).
-        $genreNames = [];
+        // Suggested NetWix genres: the umbrella (if any) first, then any mapped source categories.
+        $genreNames = $this->config->umbrellaGenre ? [$this->config->umbrellaGenre] : [];
         foreach ($catSlugs as $s) {
-            if (isset(self::GENRE_MAP[$s])) {
-                $genreNames[] = self::GENRE_MAP[$s];
+            if (isset($this->config->genreMap[$s])) {
+                $genreNames[] = $this->config->genreMap[$s];
             }
         }
         $genreNames = array_values(array_unique($genreNames));
 
-        // Film year: prefer the "(YYYY)" in the title, else the post date.
-        $year = null;
-        if (preg_match('~\((19|20)\d{2}\)~', $rawTitle, $ym)) {
-            $year = (int) trim($ym[0], '()');
-        } elseif (preg_match('~(20\d{2})~', (string) ($el['date'] ?? ''), $ym)) {
-            $year = (int) $ym[1];
-        }
-
         return new RemoteSeries(
-            source: '24hdx',
-            sourceKey: (string) $id,   // WP post id — resolves the stream via api.24-hdx.com/get.php
+            source: $this->config->id,
+            sourceKey: (string) $id,   // WP post id — resolves the stream via {apiUrl}
             title: $rawTitle,
             cleanTitle: $this->cleanTitle($rawTitle),
             posterUrl: null,
-            year: $year,
-            dubType: $this->detectDub($rawTitle),
+            year: $this->parseYear($rawTitle, (string) ($el['date'] ?? '')),
+            dubType: $this->detectDub($rawTitle.' '.implode(' ', $catNames)),
             extra: [
                 'slug' => $slug,
                 'media_id' => (int) ($el['featured_media'] ?? 0),
-                'is_movie' => $isMovie,
+                'is_movie' => $this->isMovie($catSlugs),
                 'genre_names' => $genreNames,
             ],
         );
+    }
+
+    /** @param string[] $catSlugs */
+    private function isMovie(array $catSlugs): bool
+    {
+        if ($this->config->seriesCatSlug !== null) {
+            return ! in_array($this->config->seriesCatSlug, $catSlugs, true); // default movie
+        }
+        if ($this->config->movieCatSlug !== null) {
+            return in_array($this->config->movieCatSlug, $catSlugs, true);    // default series
+        }
+
+        return $this->config->defaultContentType === 'movie';
+    }
+
+    /** Film year: from the title's "(YYYY)" (when the site puts it there), else the post date. */
+    private function parseYear(string $rawTitle, string $date): ?int
+    {
+        if ($this->config->yearFromTitleParen && preg_match('~\((19|20)\d{2}\)~', $rawTitle, $ym)) {
+            return (int) trim($ym[0], '()');
+        }
+        if (preg_match('~(20\d{2})~', $date, $ym)) {
+            return (int) $ym[1];
+        }
+
+        return null;
     }
 
     /** @return array<int,array{name:string,slug:string}> */
@@ -204,7 +242,7 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
     {
         $map = [];
         try {
-            $json = $this->http()->get(self::BASE.'/wp-json/wp/v2/categories', [
+            $json = $this->http()->get($this->config->base.'/wp-json/wp/v2/categories', [
                 'per_page' => 100,
                 '_fields' => 'id,name,slug',
             ])->json();
@@ -219,7 +257,7 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
                 }
             }
         } catch (\Throwable) {
-            // classification is best-effort; genres just stay unset
+            // classification is best-effort; genres/type just stay unset
         }
 
         return $map;
@@ -230,7 +268,7 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
     {
         $map = [];
         try {
-            $json = $this->http()->get(self::BASE.'/wp-json/wp/v2/media', [
+            $json = $this->http()->get($this->config->base.'/wp-json/wp/v2/media', [
                 'include' => implode(',', $mediaIds),
                 'per_page' => 100,
                 '_fields' => 'id,source_url',
@@ -261,12 +299,19 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
         return null;
     }
 
-    /** Strip the trailing "(YYYY)" and dub tags so the display title is just the film name. */
+    /** Strip the trailing "(YYYY)" / dub tags / "| sitename" so the display title is just the name. */
     private function cleanTitle(string $raw): string
     {
+        $tokens = array_values(array_filter([
+            $this->config->stripYearParen ? '\((19|20)\d{2}\)' : null,
+            'พากย์ไทย', 'ซับไทย', 'ซับ', 'พากย์', 'HD',
+            $this->config->siteTagRegex,
+        ]));
+        $pattern = '~\s*('.implode('|', $tokens).')\s*$~ui';
+
         $t = trim($raw);
         for ($i = 0; $i < 3; $i++) {
-            $next = trim(preg_replace('~\s*(\((19|20)\d{2}\)|พากย์ไทย|ซับไทย|ซับ|พากย์|HD|\|\s*24-?hdx)\s*$~ui', '', $t) ?? $t);
+            $next = trim(preg_replace($pattern, '', $t) ?? $t);
             if ($next === $t) {
                 break;
             }
@@ -278,27 +323,29 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
 
     public function fetchEpisodes(RemoteSeries $series): array
     {
-        // Movies are a single video → one playable episode.
-        if ($series->extra['is_movie'] ?? true) {
+        // Movies / single-video titles → one playable episode.
+        if ($series->extra['is_movie'] ?? ($this->config->defaultContentType === 'movie')) {
             return [['number' => 1, 'ref' => '1']];
         }
 
-        // Series: the detail page carries an episode <select> of
-        // <option value="N"> ตอนที่ N</option> (the language <select> is value="Thai", so the
-        // "ตอนที่" anchor keeps them apart). Each option value is a playable `episode` param.
-        $slug = trim((string) ($series->extra['slug'] ?? ''), '/');
+        $slug = trim((string) ($series->extra['slug'] ?? $series->sourceKey), '/');
         if ($slug === '') {
             return [['number' => 1, 'ref' => '1']];
         }
         try {
-            $html = $this->http()->withHeaders(['Referer' => self::BASE.'/'])
-                ->get(self::BASE.'/'.$slug.'/')->body();
+            $html = $this->http()->withHeaders(['Referer' => $this->config->base.'/'])
+                ->get($this->config->base.'/'.$slug.'/')->body();
         } catch (\Throwable) {
             return [['number' => 1, 'ref' => '1']];
         }
 
         $nums = [];
-        if (preg_match_all('~<option[^>]*value="(\d+)"[^>]*>\s*ตอนที่~u', $html, $m)) {
+        $re = $this->config->episodeMode === HalimSiteConfig::EP_SLUG
+            // <a href="/{slug}-ep-N/"> — scope to THIS slug so related-title links can't leak in.
+            ? '~'.preg_quote($slug, '~').'-ep-(\d+)/~i'
+            // <option value="N"> ตอนที่ N  (the lang <select> is value="Thai", so "ตอนที่" keeps them apart)
+            : '~<option[^>]*value="(\d+)"[^>]*>\s*ตอนที่~u';
+        if (preg_match_all($re, $html, $m)) {
             foreach ($m[1] as $n) {
                 $nums[(int) $n] = true;
             }
@@ -314,13 +361,13 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
 
     public function fetchSynopsis(RemoteSeries $series): ?string
     {
-        $slug = trim((string) ($series->extra['slug'] ?? ''), '/');
+        $slug = trim((string) ($series->extra['slug'] ?? $series->sourceKey), '/');
         if ($slug === '') {
             return null;
         }
         try {
-            $html = $this->http()->withHeaders(['Referer' => self::BASE.'/'])
-                ->get(self::BASE.'/'.$slug.'/')->body();
+            $html = $this->http()->withHeaders(['Referer' => $this->config->base.'/'])
+                ->get($this->config->base.'/'.$slug.'/')->body();
         } catch (\Throwable) {
             return null;
         }
@@ -332,16 +379,16 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
     {
         $episode = $sourceRef !== '' ? $sourceRef : '1';
 
-        // A title only has some of the LANGS (and maybe only server 2), so try each combo until the
+        // A title only has some of the langs (and maybe only server 2), so try each combo until the
         // player returns a real iframe hash. First hit wins (usually 1 request for a Thai-dub movie).
-        foreach (['1', '2'] as $server) {
-            foreach (self::LANGS as $lang) {
+        foreach ($this->config->servers as $server) {
+            foreach ($this->config->langs as $lang) {
                 $playerId = $this->playerHash($sourceKey, $episode, $server, $lang);
                 if ($playerId === null) {
                     continue;
                 }
-                $referer = self::PLAYER."/index_th.php?id={$playerId}";
-                $masterUrl = self::PLAYER."/newplaylist/{$playerId}/{$playerId}.m3u8";
+                $referer = $this->config->playerHost."/index_th.php?id={$playerId}";
+                $masterUrl = $this->config->playerHost."/newplaylist/{$playerId}/{$playerId}.m3u8";
 
                 // The master lists bitrate variants. NetWix's HLS proxy re-points nested playlists
                 // back to the manifest route (which would loop on a master), so resolve down to a
@@ -364,10 +411,10 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
     {
         try {
             $resp = $this->http()->asForm()->withHeaders([
-                'Referer' => self::BASE.'/',
-                'Origin' => self::BASE,
+                'Referer' => $this->config->base.'/',
+                'Origin' => $this->config->base,
                 'X-Requested-With' => 'XMLHttpRequest',
-            ])->post(self::API, [
+            ])->post($this->config->apiUrl, [
                 'action' => 'halim_ajax_player',
                 'nonce' => '',
                 'episode' => $episode,
@@ -383,7 +430,7 @@ class Movie24hdxSource implements MediaSource, ProvidesSynopsis
             return null;
         }
 
-        // Response is an iframe → main.24playerhd.com/index_th.php?id={hash} (server 2 = new_player.php).
+        // Response is an iframe → {playerHost}/index_th.php?id={hash} (server 2 = new_player.php).
         return preg_match('~(?:index_th|new_player)\.php\?id=([a-f0-9]+)~i', $resp->body(), $m) ? $m[1] : null;
     }
 

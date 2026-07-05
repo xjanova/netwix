@@ -44,18 +44,14 @@ class EpisodeSourceController extends Controller
             return response()->json(['ready' => false, 'error' => 'no_source'], 404);
         }
 
-        // wow-drama / anime108 / 24-hdx are HLS — they play through the server-side proxy (it adds the
-        // upstream Referer the browser can't send and rewrites the segment URLs). Without this a raw
+        // HLS sources (wow-drama / any Halim site) play through the server-side proxy: it adds the
+        // upstream Referer the browser can't send and rewrites the segment URLs. Without this a raw
         // .m3u8 is handed back and the browser can't fetch its Referer-gated segments (web won't play,
-        // even though the native app, which sends its own Referer, does).
-        if (in_array($episode->source, ['wowdrama', 'anime108', '24hdx'], true)) {
-            return response()->json([
-                'ready' => true,
-                'kind' => 'hls',
-                // Short-lived token so only this authenticated resolve can hand out a playable
-                // manifest URL — see StreamController::manifest.
-                'url' => route('stream.manifest', $episode).'?t='.StreamController::token($episode),
-            ]);
+        // even though the native app, which sends its own Referer, does). Gate on !isProgressive() so a
+        // newly-added Halim source is covered automatically (no per-id whitelist to keep in sync).
+        $primary = $registry->get($episode->source);
+        if ($primary && ! $primary->isProgressive()) {
+            return $this->hlsReady($episode);
         }
 
         // Signed-CDN sources (rongyok): the URL expires ~24h, so resolve on demand and cache the
@@ -71,14 +67,20 @@ class EpisodeSourceController extends Controller
             return response()->json(['ready' => false], 202);
         }
 
-        $source = $registry->get($episode->source);
         $seriesKey = $episode->content?->source_key;
-        if (! $source || ! $seriesKey) {
+        if (! $primary || ! $seriesKey) {
             return response()->json(['ready' => false, 'error' => 'no_source'], 404);
         }
 
-        $stream = $source->resolveByRef((string) $seriesKey, (string) $episode->source_ref);
+        $stream = $primary->resolveByRef((string) $seriesKey, (string) $episode->source_ref);
         if (! $stream) {
+            // Primary CDN link is dead — if the bot found an HLS backup on another Halim site, play it
+            // through the proxy instead (same fallback the StreamController resolve applies).
+            $backup = $episode->backup_source ? $registry->get($episode->backup_source) : null;
+            if ($backup && ! $backup->isProgressive()) {
+                return $this->hlsReady($episode);
+            }
+
             // Transient (source down / just rotated again) — the client shows "preparing" and retries.
             Cache::put($cacheKey.':miss', 1, now()->addSeconds(15));
 
@@ -93,6 +95,19 @@ class EpisodeSourceController extends Controller
         Cache::put($cacheKey, $stream->url, now()->addSeconds($ttl));
 
         return response()->json(['ready' => true, 'kind' => $stream->kind, 'url' => $stream->url]);
+    }
+
+    /**
+     * "Ready" response for an HLS episode: hand back the proxied manifest URL with a short-lived token
+     * so only this authenticated resolve can mint a playable manifest — see StreamController::manifest.
+     */
+    private function hlsReady(Episode $episode): JsonResponse
+    {
+        return response()->json([
+            'ready' => true,
+            'kind' => 'hls',
+            'url' => route('stream.manifest', $episode).'?t='.StreamController::token($episode),
+        ]);
     }
 
     /**

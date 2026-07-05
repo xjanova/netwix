@@ -13,6 +13,7 @@ class Episode extends Model
 
     protected $fillable = [
         'content_id', 'season_id', 'source', 'source_ref', 'number', 'title',
+        'backup_source', 'backup_key', 'backup_ref',
         'description', 'duration_minutes', 'video_url', 'thumbnail_path', 'sort',
         'mirrored_at', 'file_size', 'mirror_requested_at', 'mirror_requests', 'mirror_trigger',
         'mirror_attempts', 'mirror_failed_at',

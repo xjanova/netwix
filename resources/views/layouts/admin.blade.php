@@ -10,6 +10,7 @@
         ['route' => 'admin.dashboard', 'label' => 'แดชบอร์ด'],
         ['route' => 'admin.contents.index', 'label' => 'จัดการคอนเทนต์', 'badge' => \App\Models\Content::count()],
         ['route' => 'admin.suspended.index', 'label' => 'หยุดเผยแพร่ (ปัญหา)'] + ($suspendedCount > 0 ? ['badge' => $suspendedCount, 'alert' => true] : []),
+        ['route' => 'admin.backups.index', 'label' => 'หนังที่ใช้ลิ้งค์สำรอง'],
         ['route' => 'admin.import.index', 'label' => 'นำเข้าหนัง'],
         ['route' => 'admin.storage.index', 'label' => 'จัดเก็บสื่อ'],
         ['route' => 'admin.thumbs.index', 'label' => 'สร้างปกตอน'],
