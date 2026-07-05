@@ -52,21 +52,25 @@
             <span class="truncate text-lg font-bold">เลือกตอน · {{ $content->title }}</span>
             <button @click="epMenu = false" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-lg hover:bg-white/20">✕</button>
         </div>
-        <div class="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto overscroll-contain px-4 pb-8 sm:px-6"
-             style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr))">
+        <div class="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain px-4 pb-8 sm:px-6"
+             style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
             <template x-for="(ep, i) in episodes" :key="i">
-                <button @click="go(i)" style="aspect-ratio:2/3"
-                        class="group relative overflow-hidden rounded-lg ring-1 ring-white/10 transition hover:ring-2 hover:ring-white/40"
-                        :class="i === index ? '!ring-2 !ring-brand' : ''">
-                    <div class="absolute inset-0" style="background:linear-gradient(160deg,#241a33,#130f1c)"></div>
-                    <img :src="ep.thumb" x-show="ep.thumb" loading="lazy" referrerpolicy="no-referrer"
-                         class="absolute inset-0 h-full w-full object-cover" onerror="this.style.display='none'">
-                    <div class="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/90 via-black/45 to-transparent"></div>
-                    <div class="absolute inset-x-0 bottom-2 text-center leading-none">
-                        <div class="text-[20px] font-extrabold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]" x-text="ep.n"></div>
-                        <div class="mt-0.5 text-[10px] font-medium tracking-wide text-cream/55">ตอน</div>
+                {{-- one self-contained card per episode: image + its own footer label + a
+                     visible border/shadow, so cards never blur into each other even when
+                     several episodes share the same (fallback) cover image. --}}
+                <button @click="go(i)"
+                        class="group flex flex-col overflow-hidden rounded-xl border border-white/12 bg-[#181022] shadow-md shadow-black/50 transition hover:-translate-y-0.5 hover:border-brand/60 hover:shadow-lg"
+                        :class="i === index ? '!border-brand ring-1 ring-brand' : ''">
+                    <div class="relative w-full overflow-hidden" style="aspect-ratio:2/3">
+                        <div class="absolute inset-0" style="background:linear-gradient(160deg,#241a33,#130f1c)"></div>
+                        <img :src="ep.thumb" x-show="ep.thumb" loading="lazy" referrerpolicy="no-referrer"
+                             class="absolute inset-0 h-full w-full object-cover transition duration-300 group-hover:scale-105" onerror="this.style.display='none'">
+                        <div class="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent"></div>
+                        <span x-show="i === index" x-cloak class="nx-gradient absolute left-1.5 top-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold">● กำลังดู</span>
                     </div>
-                    <span x-show="i === index" x-cloak class="nx-gradient absolute inset-x-1.5 top-1.5 rounded py-0.5 text-center text-[10px] font-bold">● กำลังดู</span>
+                    <div class="flex items-center justify-center border-t border-white/10 bg-black/35 py-2 leading-none">
+                        <span class="text-[13px] font-bold text-cream/90" x-text="'ตอน ' + ep.n"></span>
+                    </div>
                 </button>
             </template>
         </div>
