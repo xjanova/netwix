@@ -28,9 +28,21 @@
             if (this.playing) return;
             this.playing = true;
             const v = this.$refs.clip;
-            this.playT = setTimeout(() => {
+            this.playT = setTimeout(async () => {
                 if (! this.playing) return;
-                if (! v.src) v.src = v.dataset.src;                 // lazy: fetch only once shown
+                if (v.dataset.src) {
+                    if (! v.src) v.src = v.dataset.src;             // stored clip — lazy fetch once shown
+                } else if (v.dataset.resolve && ! v._nxResolved) {
+                    // Movies have no stored clip → resolve + play their LIVE stream. Desktop hover ONLY
+                    // (never the mobile scroll-autoplay), so it never resolves a stream per centred card.
+                    if (! this.hoverCapable) { this.playing = false; return; }
+                    v._nxResolved = true;
+                    try {
+                        const d = await fetch(v.dataset.resolve, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json());
+                        if (! this.playing || ! d || ! d.ready || ! d.url) return;
+                        window.nxAttachVideo(v, d.url);            // handles HLS via hls.js
+                    } catch (e) { return; }
+                }
                 window.nxRandomSeek(v);                              // start from a random point, not the top
                 v.play().then(() => { if (this.playing) this.hv = true; })  // crossfade once a frame paints
                         .catch(() => {});
@@ -41,7 +53,10 @@
             clearTimeout(this.playT);
             this.hv = false;
             const v = this.$refs.clip;
-            if (v) { v.pause(); v.removeAttribute('src'); v.load(); } // free the buffer off-screen
+            if (v) {
+                if (v._nxHls) { try { v._nxHls.destroy(); } catch (e) {} v._nxHls = null; }
+                v.pause(); v.removeAttribute('src'); v.load(); v._nxResolved = false; // free + allow re-resolve
+            }
         },
         async toggleList() {
             if (this.busy) return; this.busy = true;
@@ -69,11 +84,13 @@
          @keydown.enter="$dispatch('open-title', '{{ route('title.modal', $content) }}')"
          class="block w-full cursor-pointer text-left {{ $ranked ? 'ml-6' : '' }}">
         @php
-            // The real hover preview is the stored ep1 clip. When a title has no
-            // clip yet, fall back to the animated logo — but only if there's no
-            // cover art (a logo looping over a real poster looks off).
+            // Hover preview: a stored ep1 clip when we have one; movies/HLS have none, so we resolve +
+            // play their LIVE stream on hover instead (desktop only — see arm()). When a title has
+            // neither, fall back to the animated logo, but only if there's no cover art.
+            $resolveUrl = (! $preview && ($pe = $content->previewEpisode) && $pe->source) ? route('episode.source', $pe) : null;
+            $hasRealPreview = (bool) ($preview || $resolveUrl);
             $logoClip = asset('assets/'.($content->id % 2 ? 'logomedia2.mp4' : 'logomedia1.mp4'));
-            $hoverClip = $preview ?: (! $content->poster_url ? $logoClip : null);
+            $hoverClip = $preview ?: ((! $hasRealPreview && ! $content->poster_url) ? $logoClip : null);
         @endphp
         <div class="relative aspect-[9/16] overflow-hidden rounded-xl ring-1 ring-white/5 transition duration-200 group-hover:ring-2 group-hover:ring-white/25"
              style="background:{{ $content->poster_url ? '#0e0a17' : $content->gradient }}">
@@ -94,11 +111,13 @@
                  whenever the card is on screen — muted, looping, no controls.
                  Lazy — src is only fetched once visible (see initPreview/arm), so
                  nothing downloads for cards that never scroll into view. --}}
-            @if ($hoverClip)
-                <video x-ref="clip" aria-hidden="true" data-src="{{ $hoverClip }}"
+            @if ($hoverClip || $resolveUrl)
+                <video x-ref="clip" aria-hidden="true"
+                       @if ($hoverClip) data-src="{{ $hoverClip }}" @endif
+                       @if ($resolveUrl) data-resolve="{{ $resolveUrl }}" @endif
                        muted loop playsinline preload="none"
-                       class="absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-300 {{ $preview ? '' : 'mix-blend-screen' }}"
-                       :class="hv ? '{{ $preview ? 'opacity-100' : 'opacity-90' }}' : 'opacity-0'"></video>
+                       class="absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-300 {{ $hasRealPreview ? '' : 'mix-blend-screen' }}"
+                       :class="hv ? '{{ $hasRealPreview ? 'opacity-100' : 'opacity-90' }}' : 'opacity-0'"></video>
             @endif
 
             <div class="absolute left-2 top-2 z-10 flex flex-col items-start gap-1">
