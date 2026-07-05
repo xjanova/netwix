@@ -22,6 +22,23 @@ window.nxPost = async function (url, body = {}) {
 };
 
 /**
+ * Start a preview clip from a RANDOM point (10–70% of its length) instead of always the top —
+ * never the very start, never near the end. Used by every silent preview (poster cards + the
+ * detail/hero background) so the same title looks different each time you land on it.
+ */
+window.nxRandomSeek = function (v) {
+    if (!v) return;
+    const seek = () => {
+        const d = v.duration;
+        if (isFinite(d) && d > 6) {
+            try { v.currentTime = d * (0.1 + Math.random() * 0.6); } catch (e) {}
+        }
+    };
+    if (isFinite(v.duration) && v.duration > 1) seek();
+    else v.addEventListener('loadedmetadata', seek, { once: true });
+};
+
+/**
  * Attach an HLS (.m3u8) or progressive source to a <video> element.
  * Lazily loads hls.js only when an .m3u8 needs it.
  */
@@ -320,6 +337,7 @@ window.nxCardPreview = (src) => ({
         this.playT = setTimeout(() => {
             if (!this.playing) return;
             if (!v.src) v.src = v.dataset.src;                 // lazy: fetch only once shown
+            window.nxRandomSeek(v);
             v.play().then(() => { if (this.playing) this.hv = true; }).catch(() => {});
         }, 180);
     },
@@ -357,6 +375,7 @@ window.heroPreview = (cfg) => ({
         }
         if (!url) return;
         window.nxAttachVideo(v, url);
+        window.nxRandomSeek(v);   // start the background preview from a random point, not the top
         v.muted = this.muted;
         this.ready = true;
         this.tryPlay();        // loops + keeps playing as the header background; no pause-on-scroll
@@ -420,7 +439,7 @@ function nxDreamBg() {
         DPR = Math.min(1.75, window.devicePixelRatio || 1);
         W = c.width = Math.floor(innerWidth * DPR); H = c.height = Math.floor(innerHeight * DPR);
         c.style.width = innerWidth + 'px'; c.style.height = innerHeight + 'px';
-        const n = Math.round(Math.min(64, innerWidth / 24));
+        const n = Math.round(Math.min(80, innerWidth / 18));
         parts = Array.from({ length: n }, () => ({
             x: Math.random() * W, y: Math.random() * H, col: cols[(Math.random() * cols.length) | 0],
             w: (0.5 + Math.random() * 1.1) * DPR, spd: (0.5 + Math.random() * 0.9) * DPR,
@@ -434,7 +453,7 @@ function nxDreamBg() {
         for (const p of parts) {
             const a = angle(p.x, p.y, t);
             const nx = p.x + Math.cos(a) * p.spd * 2.4, ny = p.y + Math.sin(a) * p.spd * 2.4;
-            ctx.strokeStyle = p.col; ctx.globalAlpha = 0.085; ctx.lineWidth = p.w;
+            ctx.strokeStyle = p.col; ctx.globalAlpha = 0.16; ctx.lineWidth = p.w;
             ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(nx, ny); ctx.stroke();
             p.x = nx; p.y = ny;
             if (p.x < 0 || p.x > W || p.y < 0 || p.y > H) { p.x = Math.random() * W; p.y = Math.random() * H; }

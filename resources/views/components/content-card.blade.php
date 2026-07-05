@@ -31,6 +31,7 @@
             this.playT = setTimeout(() => {
                 if (! this.playing) return;
                 if (! v.src) v.src = v.dataset.src;                 // lazy: fetch only once shown
+                window.nxRandomSeek(v);                              // start from a random point, not the top
                 v.play().then(() => { if (this.playing) this.hv = true; })  // crossfade once a frame paints
                         .catch(() => {});
             }, 180);
