@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
@@ -105,9 +106,43 @@ class ThumbController extends Controller
             'processed' => (int) Cache::get("thumbs:{$batch}:proc", 0),
             'failed' => (int) Cache::get("thumbs:{$batch}:fail", 0),
             'last' => Cache::get("thumbs:{$batch}:last"),
-            // Live server-side queue depth (both lanes) — proof the worker is alive.
+            // Live server-side queue depth (both lanes) — proof the workers are alive.
             'pending' => (int) DB::table('jobs')->whereIn('queue', ['thumbs-now', 'thumbs'])->count(),
+            // One entry per currently-working agent → the live "Agent" cards.
+            'agents' => $this->activeAgents(),
         ]);
+    }
+
+    /** Currently-working agents from the shared activity hash (drops stale PIDs). */
+    private function activeAgents(): array
+    {
+        $agents = [];
+        try {
+            $raw = Redis::hgetall('netwix:thumbs:agents') ?: [];
+            $now = time();
+            $stale = [];
+            foreach ($raw as $pid => $json) {
+                $a = json_decode((string) $json, true);
+                if (! is_array($a) || $now - (int) ($a['ts'] ?? 0) > 8) {
+                    $stale[] = $pid; // dead/finished worker
+
+                    continue;
+                }
+                $agents[] = [
+                    'title' => $a['title'] ?? '—',
+                    'ep' => (int) ($a['ep'] ?? 0),
+                    'done' => (int) ($a['done'] ?? 0),
+                ];
+            }
+            if ($stale) {
+                Redis::hdel('netwix:thumbs:agents', ...$stale);
+            }
+            usort($agents, fn ($x, $y) => $y['done'] <=> $x['done']);
+        } catch (Throwable $e) {
+            // best-effort — no agents panel is fine
+        }
+
+        return $agents;
     }
 
     /** Hard-stop: queued-but-unprocessed jobs skip their work on pickup. */

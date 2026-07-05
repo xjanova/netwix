@@ -10,6 +10,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Redis;
 use Throwable;
 
 /**
@@ -57,9 +58,35 @@ class GenerateEpisodeThumb implements ShouldQueue
             return;
         }
 
+        $pid = getmypid() ?: 0;
+        $this->reportAgent($pid, $ep, false);           // "this agent is now working on …"
         $status = $thumbnailer->generate($ep, $this->force);
         $ok = in_array($status, ['ok', 'exists'], true);
+        $this->reportAgent($pid, $ep, true);            // bump this agent's done count
         $this->tally($ok, $status, trim(($ep->content?->title ?? '—').' · ตอน '.$ep->number));
+    }
+
+    /**
+     * Publish this worker's live activity to a shared hash so the admin page can
+     * render one "Agent" card per running worker. Keyed by PID; each field also
+     * carries a timestamp so the reader can drop entries from dead/finished
+     * workers (no per-field TTL in a Redis hash).
+     */
+    private function reportAgent(int $pid, Episode $ep, bool $completed): void
+    {
+        try {
+            $key = 'netwix:thumbs:agents';
+            $cur = json_decode((string) Redis::hget($key, (string) $pid), true) ?: [];
+            Redis::hset($key, (string) $pid, json_encode([
+                'title' => $ep->content?->title ?? '—',
+                'ep' => (int) $ep->number,
+                'done' => (int) ($cur['done'] ?? 0) + ($completed ? 1 : 0),
+                'ts' => time(),
+            ], JSON_UNESCAPED_UNICODE));
+            Redis::expire($key, 120); // whole hash self-cleans if every worker stops
+        } catch (Throwable $e) {
+            // activity reporting is best-effort — never fail a job over it
+        }
     }
 
     /** Final failure (throw / timeout) still counts, so the bar never stalls. */

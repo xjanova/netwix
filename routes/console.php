@@ -31,19 +31,21 @@ Schedule::command('queue:work --stop-when-empty --max-time=55')
 // These run in CLI (proc_open enabled) — php-fpm has proc_open/exec DISABLED,
 // so ffmpeg can only be spawned here, not in the admin web request.
 //
-// TWO lanes: an on-demand "by title" click lands on `thumbs-now`, a big
-// "whole site"/genre run lands on `thumbs`. Worker A drains now-first so a
-// small title never queues behind a huge bulk backlog; worker B drains
-// bulk-first for throughput (a different --queue order = a different mutex, so
-// both run in parallel).
+// A POOL of 3 parallel agents drains the cover queue. All prioritise the
+// on-demand `thumbs-now` lane (a "by title" click) over the bulk `thumbs` lane,
+// so a small title never queues behind a big "whole site"/genre backlog — yet
+// when only bulk work exists all 3 chew it in parallel (~3x faster). The DB
+// queue's row-locking guarantees no two agents grab the same episode.
 //
-// NB: deliberately NO --stop-when-empty. The workers stay alive polling every
-// 1s for the whole --max-time window, so a freshly-clicked job is picked up in
-// ~1-2s (not up to a minute) and the admin progress bar moves in near real
-// time. --max-time=110 recycles each worker every ~2 min (fresh code + the
-// withoutOverlapping(5) mutex self-heals if a worker is ever killed).
-Schedule::command('queue:work --queue=thumbs-now,thumbs --sleep=1 --max-time=110 --timeout=150 --memory=256 --tries=2')
-    ->everyMinute()->withoutOverlapping(5)->runInBackground();
-
-Schedule::command('queue:work --queue=thumbs,thumbs-now --sleep=1 --max-time=110 --timeout=150 --memory=256 --tries=2')
-    ->everyMinute()->withoutOverlapping(5)->runInBackground();
+// Slightly different --max-time per agent = a different command string = a
+// different withoutOverlapping mutex, which is what lets all 3 run at once.
+//
+// NB: deliberately NO --stop-when-empty. Agents stay alive polling every 1s for
+// the whole --max-time window, so a freshly-clicked job is picked up in ~1-2s
+// (not up to a minute) and the progress bar moves in near real time. Each agent
+// recycles every ~2 min (fresh code + the withoutOverlapping(5) mutex self-heals
+// if an agent is ever killed).
+foreach ([110, 112, 114] as $maxTime) {
+    Schedule::command("queue:work --queue=thumbs-now,thumbs --sleep=1 --max-time={$maxTime} --timeout=150 --memory=256 --tries=2")
+        ->everyMinute()->withoutOverlapping(5)->runInBackground();
+}

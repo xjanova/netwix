@@ -98,6 +98,24 @@
             ส่งงานเข้าคิวแล้ว กำลังรอเซิร์ฟเวอร์หยิบไปทำ (ปกติ 1–2 วินาที) — ระบบทำงานอยู่ ไม่ได้ค้าง
         </div>
 
+        {{-- Live agent grid — one card per worker currently generating --}}
+        <div x-show="agents.length" x-cloak class="mt-4">
+            <div class="mb-2 text-[12px] text-cream/45" x-text="'เอเจนที่กำลังทำงาน (' + agents.length + ')'"></div>
+            <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                <template x-for="(a,i) in agents" :key="i">
+                    <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
+                        <div class="flex items-center gap-2">
+                            <span class="inline-block h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-white/15 border-t-brand-2"></span>
+                            <span class="text-[12px] font-semibold text-brand-2" x-text="'Agent ' + (i+1)"></span>
+                            <span class="ml-auto rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-cream/50" x-text="'ทำแล้ว ' + a.done"></span>
+                        </div>
+                        <div class="mt-2 truncate text-[13px] font-medium text-cream/85" x-text="a.title" :title="a.title"></div>
+                        <div class="text-[12px] text-cream/45" x-text="'กำลังสร้างปก · ตอน ' + a.ep"></div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
         {{-- Live log --}}
         <div x-show="log.length" class="mt-3 max-h-64 overflow-y-auto rounded-lg border border-white/5 bg-black/25 p-3 font-mono text-[12px] leading-relaxed">
             <template x-for="(row,i) in log" :key="i">
@@ -119,7 +137,7 @@ function thumbGen() {
         titleQ: '', titleResults: [], contentId: null, contentLabel: '',
         skipExisting: true,
         running: false, stopped: false, phase: 'idle', batch: null, priority: false,
-        total: 0, processed: 0, failed: 0, after: 0, pending: 0, elapsed: 0, t0: 0, log: [],
+        total: 0, processed: 0, failed: 0, after: 0, pending: 0, elapsed: 0, t0: 0, agents: [], log: [],
 
         get force() { return !this.skipExisting; },
         get pct() { return this.total ? Math.min(100, Math.round(this.processed / this.total * 100)) : 0; },
@@ -154,7 +172,7 @@ function thumbGen() {
         async start() {
             if (this.running) return;
             this.running = true; this.stopped = false;
-            this.processed = 0; this.failed = 0; this.after = 0; this.pending = 0; this.elapsed = 0; this.log = []; this.batch = null;
+            this.processed = 0; this.failed = 0; this.after = 0; this.pending = 0; this.elapsed = 0; this.agents = []; this.log = []; this.batch = null;
 
             // 1) Open the batch (snapshot the denominator).
             this.phase = 'counting';
@@ -187,6 +205,7 @@ function thumbGen() {
                 this.processed = p.processed || 0;
                 this.failed = p.failed || 0;
                 this.pending = p.pending || 0;
+                this.agents = p.agents || [];
                 this.elapsed = Math.round((Date.now() - this.t0) / 1000);
                 if (p.last && p.last.text && p.last.text !== lastText) {
                     lastText = p.last.text;
@@ -198,7 +217,7 @@ function thumbGen() {
                 await sleep(1200);
             }
             this.phase = this.stopped ? 'stopped' : 'done';
-            this.running = false;
+            this.running = false; this.agents = [];
         },
         stop() {
             this.stopped = true;
