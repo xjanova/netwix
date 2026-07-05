@@ -27,6 +27,7 @@
 <div class="relative h-[100dvh] w-full bg-black"
      x-data="watchPlayer({
         progressUrl: '{{ route('content.progress', $content) }}',
+        reportUrl: '{{ route('playback.report', $content) }}',
         episodes: @js($eps),
         start: {{ $startIndex }},
         youtube: @js($youtubeId),
@@ -117,6 +118,7 @@
     function watchPlayer(cfg) {
         return {
             episodes: cfg.episodes || [],
+            reportUrl: cfg.reportUrl,
             index: Math.min(cfg.start || 0, Math.max(0, (cfg.episodes || []).length - 1)),
             epMenu: false,
             err: '',
@@ -172,7 +174,7 @@
                 if (!v || !this._url) return;
                 const t = v.currentTime || 0;
                 this.stall();                                      // show the connecting loader
-                window.nxAttachVideo(v, this._url);
+                window.nxAttachVideo(v, this._url, this.reportUrl);
                 const seekBack = () => {
                     v.removeEventListener('loadedmetadata', seekBack);
                     try { if (t > 1 && isFinite(v.duration)) v.currentTime = Math.max(0, t - 1); } catch (e) {}
@@ -213,7 +215,7 @@
                 this._reloads = 0; this._lastT = 0; this._stuck = 0;   // fresh recovery budget per source
                 this.stall();
                 const v = this.$refs.video;
-                window.nxAttachVideo(v, url);
+                window.nxAttachVideo(v, url, this.reportUrl);
                 v.play?.().catch(() => {});
             },
 

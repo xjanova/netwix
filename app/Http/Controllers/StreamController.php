@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Episode;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
+use App\Support\PlaybackHealth;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -26,6 +27,10 @@ class StreamController extends Controller
         $this->gateAdult($episode);
         $stream = $this->resolve($episode, $registry);
         if (! $stream || $stream->kind !== RemoteStream::KIND_HLS) {
+            // Upstream link is dead — count this viewer toward auto-suspend (see PlaybackHealth).
+            if ($episode->content) {
+                PlaybackHealth::recordFailure($episode->content, PlaybackHealth::viewer(), 'no_source');
+            }
             abort(404);
         }
 
@@ -110,7 +115,12 @@ class StreamController extends Controller
     {
         $this->gateAdult($episode);
         $stream = $this->resolve($episode, $registry);
-        abort_if(! $stream, 404);
+        if (! $stream) {
+            if ($episode->content) {
+                PlaybackHealth::recordFailure($episode->content, PlaybackHealth::viewer(), 'no_source');
+            }
+            abort(404);
+        }
 
         $range = $request->header('Range');
         try {

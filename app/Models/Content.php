@@ -22,6 +22,7 @@ class Content extends Model
     protected $fillable = [
         'title', 'slug', 'source', 'source_key', 'type', 'synopsis', 'year', 'maturity', 'dub_type',
         'match_score', 'rating', 'is_original', 'is_featured', 'is_published',
+        'suspended_at', 'suspend_reason', 'playback_fail_count',
         'poster_path', 'backdrop_path', 'trailer_youtube_id', 'video_url',
         'duration_minutes', 'views', 'sort',
     ];
@@ -32,8 +33,15 @@ class Content extends Model
             'is_original' => 'boolean',
             'is_featured' => 'boolean',
             'is_published' => 'boolean',
+            'suspended_at' => 'datetime',
             'rating' => 'decimal:1',
         ];
+    }
+
+    /** Auto-suspended (un-playable) titles parked for admin review. */
+    public function scopeSuspended(Builder $q): Builder
+    {
+        return $q->whereNotNull('suspended_at');
     }
 
     public function getRouteKeyName(): string

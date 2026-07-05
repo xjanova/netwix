@@ -25,8 +25,17 @@ window.nxPost = async function (url, body = {}) {
  * Attach an HLS (.m3u8) or progressive source to a <video> element.
  * Lazily loads hls.js only when an .m3u8 needs it.
  */
-window.nxAttachVideo = async function (video, src) {
+window.nxAttachVideo = async function (video, src, reportUrl = null) {
     if (!video || !src) return;
+
+    // Report playback health once per attach — the server auto-suspends a title once enough distinct
+    // viewers can't play it. Only the real watch/vertical players pass reportUrl; previews don't.
+    let _reported = false;
+    const nxReport = (ok) => {
+        if (!reportUrl || _reported) return;
+        _reported = true;
+        try { window.nxPost(reportUrl, { ok: ok }).catch(() => {}); } catch (e) {}
+    };
 
     // Tear down a previous hls.js instance on this element (e.g. switching episodes) so loaders
     // don't pile up and leak.
@@ -54,16 +63,21 @@ window.nxAttachVideo = async function (video, src) {
                 nudgeMaxRetry: 12,
             });
             video._nxHls = hls;
-            let mediaRecover = 0;
+            let mediaRecover = 0, netRetry = 0;
+            hls.on(Hls.Events.FRAG_BUFFERED, function () { nxReport(true); }); // a segment played → alive
             hls.on(Hls.Events.ERROR, function (_evt, data) {
                 if (!data || !data.fatal) return;   // non-fatal errors are retried by hls.js itself
                 if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                    try { hls.startLoad(); } catch (e) {}          // a proxy hiccup → resume loading
+                    // A dead manifest (404/timeout) never recovers by reloading — report it + stop,
+                    // instead of looping startLoad forever (which is what "the source is gone" looks like).
+                    const dead = /manifestLoad/i.test(data.details || '');
+                    if (dead || netRetry++ >= 4) { nxReport(false); try { hls.destroy(); } catch (e) {} video._nxHls = null; }
+                    else { try { hls.startLoad(); } catch (e) {} }   // a transient proxy hiccup → resume
                 } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
                     if (mediaRecover++ < 3) { try { hls.recoverMediaError(); } catch (e) {} }
-                    else { try { hls.destroy(); } catch (e) {} video._nxHls = null; }
+                    else { nxReport(false); try { hls.destroy(); } catch (e) {} video._nxHls = null; }
                 } else {
-                    try { hls.destroy(); } catch (e) {} video._nxHls = null;
+                    nxReport(false); try { hls.destroy(); } catch (e) {} video._nxHls = null;
                 }
             });
             hls.loadSource(src);
@@ -87,6 +101,7 @@ window.nxAttachVideo = async function (video, src) {
         video.load();
         video.play?.().catch(() => {});
     };
+    video.addEventListener('playing', () => nxReport(true), { once: true });
     video.addEventListener('error', onCoErr);
     video.src = src;
 };

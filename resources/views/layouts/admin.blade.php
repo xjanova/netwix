@@ -5,9 +5,11 @@
 </head>
 <body class="bg-ink text-cream antialiased">
 @php
+    $suspendedCount = \App\Support\PlaybackHealth::suspendedCount();
     $nav = [
         ['route' => 'admin.dashboard', 'label' => 'แดชบอร์ด'],
         ['route' => 'admin.contents.index', 'label' => 'จัดการคอนเทนต์', 'badge' => \App\Models\Content::count()],
+        ['route' => 'admin.suspended.index', 'label' => 'หยุดเผยแพร่ (ปัญหา)'] + ($suspendedCount > 0 ? ['badge' => $suspendedCount, 'alert' => true] : []),
         ['route' => 'admin.import.index', 'label' => 'นำเข้าหนัง'],
         ['route' => 'admin.storage.index', 'label' => 'จัดเก็บสื่อ'],
         ['route' => 'admin.thumbs.index', 'label' => 'สร้างปกตอน'],
@@ -41,7 +43,7 @@
                     <span class="h-1.5 w-1.5 rounded-full {{ $active ? 'nx-gradient' : 'bg-cream/25' }}"></span>
                     <span>{{ $item['label'] }}</span>
                     @isset($item['badge'])
-                        <span class="nx-gradient ml-auto rounded-full px-2 py-0.5 text-[10.5px] font-bold">{{ $item['badge'] }}</span>
+                        <span class="ml-auto rounded-full px-2 py-0.5 text-[10.5px] font-bold {{ ($item['alert'] ?? false) ? 'bg-[#e5484d] text-white' : 'nx-gradient' }}">{{ $item['badge'] }}</span>
                     @endisset
                 </a>
             @endforeach

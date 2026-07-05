@@ -18,7 +18,7 @@
 
 @section('content')
 <div
-    x-data="verticalPlayer({ episodes: @js($eps), start: {{ $start }}, progressUrl: '{{ route('content.progress', $content) }}' })"
+    x-data="verticalPlayer({ episodes: @js($eps), start: {{ $start }}, progressUrl: '{{ route('content.progress', $content) }}', reportUrl: '{{ route('playback.report', $content) }}' })"
     x-init="init()"
     @wheel.prevent="onWheel($event)"
     @touchstart.passive="onTouchStart($event)"
@@ -164,6 +164,7 @@
     function verticalPlayer(cfg) {
         return {
             episodes: cfg.episodes,
+            reportUrl: cfg.reportUrl,
             index: Math.min(cfg.start, Math.max(0, cfg.episodes.length - 1)),
             lock: false,
             touchY: 0,
@@ -257,7 +258,7 @@
                 this.preparing = false;
                 this.stall();   // show the loader only if the stream takes >700ms to start
                 const v = this.$refs.video;
-                window.nxAttachVideo(v, url);
+                window.nxAttachVideo(v, url, this.reportUrl);
                 v.muted = this.muted;
                 v.volume = this.volume;
                 const p = v.play?.();

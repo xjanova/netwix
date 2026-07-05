@@ -124,6 +124,10 @@ Route::get('/stream/{episode}/index.m3u8', [StreamController::class, 'manifest']
 Route::get('/stream/{episode}/segment', [StreamController::class, 'segment'])->name('stream.segment');
 Route::get('/stream/{episode}/video.mp4', [StreamController::class, 'mp4'])->name('stream.mp4');
 
+// Browser player health ping (ok=played / !ok=couldn't play) → auto-suspend dead titles.
+Route::post('/api/playback/{content}/report', [\App\Http\Controllers\PlaybackController::class, 'report'])
+    ->middleware('throttle:60,1')->name('playback.report');
+
 // ---- Admin -------------------------------------------------------------
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/', [Admin\DashboardController::class, 'index'])->name('dashboard');
@@ -144,6 +148,10 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('thumbs/redo-failed', [Admin\ThumbController::class, 'redoFailed'])->name('thumbs.redo-failed');
     Route::get('thumbs/progress', [Admin\ThumbController::class, 'progress'])->name('thumbs.progress');
     Route::post('thumbs/stop', [Admin\ThumbController::class, 'stop'])->name('thumbs.stop');
+
+    // Auto-suspended (un-playable) titles for review — re-publish or delete.
+    Route::get('suspended', [Admin\SuspendedController::class, 'index'])->name('suspended.index');
+    Route::post('suspended/{content}/republish', [Admin\SuspendedController::class, 'republish'])->name('suspended.republish');
 
     Route::get('import', [Admin\ImportController::class, 'index'])->name('import.index');
     Route::post('import/sync', [Admin\ImportController::class, 'sync'])->name('import.sync');
