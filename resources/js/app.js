@@ -431,12 +431,19 @@ window.nxCardPreview = (src) => ({
         const v = this.$refs.clip;
         if (!v || !this.src || this.reduced || this.hoverCapable) return;   // hover devices use @mouseenter
         this.io = new IntersectionObserver((e) => {
-            (e[0].isIntersecting && e[0].intersectionRatio >= 0.75) ? this.arm() : this.release();
+            (e[0].isIntersecting && e[0].intersectionRatio >= 0.75 && !window.nxPreviewsSuspended) ? this.arm() : this.release();
         }, { threshold: [0, 0.75] });
         this.io.observe(this.$root);
+        // While a title modal is open these clips are hidden behind it, but the observer still sees them
+        // on-screen — so free them, or 200 of them starve the modal's own preview on phones. On close,
+        // re-observing re-fires the callback with the current visibility so the on-screen ones resume.
+        this._nxSus = () => this.release();
+        this._nxRes = () => { if (this.io) { this.io.disconnect(); this.io.observe(this.$root); } };
+        window.addEventListener('nx-previews-suspend', this._nxSus);
+        window.addEventListener('nx-previews-resume', this._nxRes);
     },
     arm() {
-        if (this.playing || !this.src) return;
+        if (this.playing || !this.src || window.nxPreviewsSuspended) return;
         this.playing = true;
         const v = this.$refs.clip;
         this.playT = setTimeout(() => {

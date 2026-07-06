@@ -48,6 +48,13 @@
                 async open(url) {
                     this.visible = true;
                     document.body.style.overflow = 'hidden';
+                    // Freeze every background preview (poster-card clips + the hero billboard) while the
+                    // modal is open. They sit hidden behind it but their IntersectionObserver still thinks
+                    // they're on-screen, so they keep decoding — and on phones (a tiny media-element
+                    // budget) 200 vertical-card clips starve the modal's OWN preview, which then reloads
+                    // and loses its mute state (owner: กดลำโพงแล้วเสียงไม่ปิด/วิดีโอเปลี่ยนไปเรื่อยๆ).
+                    window.nxPreviewsSuspended = true;
+                    window.dispatchEvent(new Event('nx-previews-suspend'));
                     this.html = '<div class="p-16 text-center text-cream/60">กำลังโหลด…</div>';
                     try {
                         const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
@@ -63,6 +70,8 @@
                     // IntersectionObserver disconnects — otherwise every opened title leaks a background
                     // video + observer and the tab eventually hangs after a long session.
                     this.html = '';
+                    window.nxPreviewsSuspended = false;
+                    window.dispatchEvent(new Event('nx-previews-resume'));
                 },
             };
         }

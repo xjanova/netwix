@@ -104,6 +104,11 @@
                     vis ? this.playClip() : this.stopClip();
                 }, { threshold: [0, 0.35] });
                 this._io.observe(this.$root);
+                // Freeze while a title modal is open — the billboard sits behind it but keeps rotating +
+                // streaming otherwise, which both wastes the media budget and is the "วิดีโอเปลี่ยนไปเรื่อยๆ"
+                // the viewer sees around the popup.
+                window.addEventListener('nx-previews-suspend', () => { this._suspended = true; this.stopClip(); });
+                window.addEventListener('nx-previews-resume', () => { this._suspended = false; if (this.inView) this.playClip(); });
                 this.arm();
             },
             arm() {
@@ -130,7 +135,7 @@
                 } catch (e) {}
             },
             playClip() {
-                if (!this.video || this.reduced || !this.inView) return;
+                if (!this.video || this.reduced || !this.inView || this._suspended) return;
                 const token = ++this._seq;       // any in-flight resolve for the previous slide is now stale
                 this.stopClip();
                 this.attach(this.cur, token);
