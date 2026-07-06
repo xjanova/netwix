@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Jobs\DownloadPreviewJob;
 use App\Models\Content;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -16,8 +15,9 @@ class TitleController extends Controller
         $content->load(['genres', 'seasons.episodes', 'episodes']);
         $profile = $request->attributes->get('profile');
 
-        // Warm the hero preview: fetch & store ep1 in the background if we never have.
-        DownloadPreviewJob::maybeDispatch($content);
+        // NB: ep1 is NOT pre-mirrored on open anymore — it resolves on demand like every
+        // other episode (and like other sites). The mirror system still exists for deliberate
+        // admin use (/admin/storage); it's just no longer auto-triggered here.
 
         $related = Content::published()
             ->whereKeyNot($content->id)
@@ -40,8 +40,6 @@ class TitleController extends Controller
 
         $content->load(['genres', 'seasons.episodes', 'episodes']);
         $profile = $request->attributes->get('profile');
-
-        DownloadPreviewJob::maybeDispatch($content);
 
         return view('frontend.partials.title-modal', [
             'content' => $content,

@@ -11,17 +11,20 @@ Artisan::command('inspire', function () {
 // ---- Automatic catalogue pipeline -----------------------------------------
 // Requires ONE cron line on the server:
 //   * * * * * cd <app> && php artisan schedule:run >> /dev/null 2>&1
-// Sync + import new titles from the sources, keep episode-1 preview clips
-// topped up, and drain the DB queue (on-demand ep1 downloads dispatched from
-// the title page). withoutOverlapping() means a slow run never stacks up.
+// Sync + import new titles from the sources. withoutOverlapping() means a slow
+// run never stacks up.
 Schedule::command('netwix:import rongyok --limit=12 --sync')
     ->everySixHours()->withoutOverlapping()->runInBackground();
 
 Schedule::command('netwix:import wowdrama --limit=8 --sync')
     ->dailyAt('04:10')->withoutOverlapping()->runInBackground();
 
-Schedule::command('netwix:previews --limit=40')
-    ->hourly()->withoutOverlapping()->runInBackground();
+// DISABLED — auto ep1 mirroring turned off (owner: unnecessary + eats disk). ep1 now streams
+// on demand like every other episode / other sites. The mirror system is intact and can be
+// driven manually: `php artisan netwix:previews` (ep1 clips) or /admin/storage (any episode /
+// whole title). Re-enable auto top-up by uncommenting the line below.
+// Schedule::command('netwix:previews --limit=40')
+//     ->hourly()->withoutOverlapping()->runInBackground();
 
 // Daily auto top-up of new releases. Self-gates on the admin toggle `auto_import_enabled` (set on
 // /admin/import), so it's safe to always schedule — it no-ops when the admin has it off.
@@ -40,7 +43,8 @@ Schedule::command('netwix:find-backups')
 Schedule::command('usdt:watch')
     ->everyMinute()->withoutOverlapping()->runInBackground();
 
-// Drains DownloadPreviewJob (queued when a viewer opens an un-mirrored title).
+// Drains the default DB queue (thumb seeding, etc.). DownloadPreviewJob is no longer
+// auto-dispatched, but stays queue-drainable if invoked manually.
 Schedule::command('queue:work --stop-when-empty --max-time=55')
     ->everyMinute()->withoutOverlapping();
 
