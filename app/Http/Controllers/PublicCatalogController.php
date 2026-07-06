@@ -16,29 +16,50 @@ use Illuminate\View\View;
  * umbrella genre, which empties /movies (every movie is also anime-tagged — see the taxonomy note).
  * An empty hub is a thin page that HURTS SEO, so here each hub lists EVERY public title of its type.
  * Consequence: anime-tagged movies appear on both /movies and /anime — acceptable category overlap.
+ *
+ * Auth-aware (Phase 3): a signed-in member WITH an active profile is handed the personalised member
+ * page (BrowseController) at the SAME URL, so the nav, bilingual cards, views and continue-watching
+ * match /browse. Guests + crawlers (always session-less) keep the SEO hub above — same canonical URL,
+ * no cloaking (Googlebot sees exactly what a guest sees).
  */
 class PublicCatalogController extends Controller
 {
     public function movies(Request $request): View
     {
+        if ($this->activeMemberProfile($request)) {
+            return app(BrowseController::class)->movies($request);
+        }
+
         return $this->hub($request, 'movie', 'browse.movies', 'ภาพยนตร์', 'Movies',
             'รวมภาพยนตร์ออนไลน์บน NetWix — หนังใหม่ หนังเก่า พากย์ไทยและซับไทย ครบทุกแนว ดูฟรีชัดระดับ HD เล่นได้ทุกอุปกรณ์');
     }
 
     public function series(Request $request): View
     {
+        if ($this->activeMemberProfile($request)) {
+            return app(BrowseController::class)->series($request);
+        }
+
         return $this->hub($request, 'series', 'browse.series', 'ซีรี่ส์', 'Series',
             'รวมซีรีส์ออนไลน์ — ซีรี่ย์เกาหลี จีน ไทย ฝรั่ง พากย์ไทย/ซับไทย อัปเดตตอนใหม่ทุกสัปดาห์ ดูฟรีชัด HD');
     }
 
     public function vertical(Request $request): View
     {
+        if ($this->activeMemberProfile($request)) {
+            return app(BrowseController::class)->vertical($request);
+        }
+
         return $this->hub($request, 'vertical', 'browse.vertical', 'ซีรีส์แนวตั้ง', 'Shorts',
             'รวมซีรีส์แนวตั้ง โรงหยกและละครสั้นจีน — ดูจบไว ปัดขึ้น–ลงเหมือนโซเชียล ซับไทย/พากย์ไทย ดูฟรี');
     }
 
     public function anime(Request $request): View
     {
+        if ($this->activeMemberProfile($request)) {
+            return app(BrowseController::class)->anime($request);
+        }
+
         return $this->hub($request, 'anime', 'browse.anime', 'อนิเมะ / การ์ตูน', 'Anime',
             'รวมอนิเมะและการ์ตูนออนไลน์ — ซับไทยและพากย์ไทย อัปเดตไว ดูฟรีทุกเรื่อง ชัดระดับ HD');
     }

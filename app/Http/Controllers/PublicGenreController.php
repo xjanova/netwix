@@ -12,11 +12,19 @@ use Illuminate\View\View;
  * and login-gated — this renders a plain, crawlable grid so Google can index the genre page and reach
  * every title in it. Adult titles are excluded via Content::publicListing (guests have no profile, so
  * MaturityScope can't hide them here). Playback is still gated on the title/watch pages themselves.
+ *
+ * Auth-aware (Phase 3): a signed-in member with an active profile gets the personalised member genre
+ * page (BrowseController::genre) at this same URL — same nav/cards/continue-watching as /browse — while
+ * guests + crawlers keep the SEO grid below. Same canonical URL, no cloaking (crawler == guest view).
  */
 class PublicGenreController extends Controller
 {
     public function show(Request $request, Genre $genre): View
     {
+        if ($this->activeMemberProfile($request)) {
+            return app(BrowseController::class)->genre($request, $genre);
+        }
+
         $sort = (string) $request->query('sort', 'random');
         $dir = $request->query('dir') === 'asc' ? 'asc' : 'desc';
 

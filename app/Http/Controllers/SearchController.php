@@ -4,24 +4,33 @@ namespace App\Http\Controllers;
 
 use App\Models\Content;
 use App\Models\SearchQuery;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 /**
- * PUBLIC search — guests + members. Results are the crawlable public listing (published, non-suspended,
- * non-adult), so adult titles never surface to a signed-out visitor. The results page itself is
- * noindex,follow (thin/near-infinite) but links out to indexable title pages.
+ * Search — guests + members share the URL. A signed-in member (with an active profile) gets the
+ * personalised results page (member nav + content-card modal + my-list state), searching their full
+ * catalog (Content::published — MaturityScope still hides adult from KIDS profiles). Guests + crawlers
+ * get the crawlable public listing (published, non-suspended, non-adult), so adult titles never surface
+ * to a signed-out visitor; that results page is noindex,follow (thin/near-infinite) but links out to
+ * indexable title pages. Same canonical URL for both, no cloaking (crawler is always session-less).
  */
 class SearchController extends Controller
 {
     public function index(Request $request): View
     {
         $q = trim((string) $request->query('q', ''));
+        $profile = $this->activeMemberProfile($request);
+
+        // Member → full personalised scope (adult shown to adult profiles, hidden from kids by
+        // MaturityScope); guest/crawler → hard non-adult publicListing gate.
+        $base = $profile ? Content::published() : Content::publicListing();
 
         $results = $q === ''
             ? collect()
-            : $this->query($q)->with('genres')->take(60)->get();
+            : $this->query($q, $base)->with('genres')->take(60)->get();
 
         // Anonymous content-gap logging: term + result count only, no user linkage (PDPA-safe).
         // Zero-result terms are the import shortlist; see the admin SEO dashboard.
@@ -38,6 +47,14 @@ class SearchController extends Controller
             }
         }
 
+        if ($profile) {
+            return view('frontend.search', [
+                'q' => $q,
+                'results' => $results,
+                'myListIds' => $profile->myList()->pluck('contents.id')->all(),
+            ]);
+        }
+
         return view('frontend.public.search', [
             'q' => $q,
             'results' => $results,
@@ -48,7 +65,12 @@ class SearchController extends Controller
     {
         $q = trim((string) $request->query('q', ''));
 
-        $results = $q === '' ? collect() : $this->query($q)->take(6)->get(['id', 'title', 'slug', 'year', 'type']);
+        // The type-ahead always uses publicListing — its rows link to route('title.show'), which 404s
+        // adult titles, so surfacing adult here (even to an adult member) would dead-link. Members still
+        // find adult titles on the full results page above, where cards open the gated in-app modal.
+        $results = $q === ''
+            ? collect()
+            : $this->query($q, Content::publicListing())->take(6)->get(['id', 'title', 'slug', 'year', 'type']);
 
         return response()->json([
             'results' => $results->map(fn (Content $c) => [
@@ -59,9 +81,9 @@ class SearchController extends Controller
         ]);
     }
 
-    private function query(string $q)
+    private function query(string $q, Builder $base): Builder
     {
-        return Content::publicListing()
+        return $base
             ->where(fn ($w) => $w->where('title', 'like', "%{$q}%")
                 ->orWhere('synopsis', 'like', "%{$q}%"))
             ->orderByDesc('views');

@@ -18,6 +18,17 @@ class PublicTitleController extends Controller
     public function show(Request $request, Content $content): View|RedirectResponse
     {
         abort_unless($content->is_published, 404);
+
+        // Signed-in member with an active profile → the personalised member title page (their nav +
+        // list/like state + preview warming) at this same URL. Gating matches the in-app modal
+        // (published only); a KIDS profile still can't open an adult title. Guest/crawler behaviour
+        // (below) is untouched, so the crawlable surface is unchanged.
+        if ($profile = $this->activeMemberProfile($request)) {
+            abort_if($content->is_adult && $profile->is_kids, 404);
+
+            return app(TitleController::class)->show($request, $content);
+        }
+
         abort_if($content->suspended_at !== null, 404);
 
         // Adults-only content is not part of the public/crawlable surface at all — 404 it here. It
