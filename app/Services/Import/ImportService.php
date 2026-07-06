@@ -17,15 +17,21 @@ class ImportService
     /**
      * Sync a source's remote catalogue into `source_titles` (upsert). Returns the number synced.
      * Persists per page/batch so a timeout still keeps earlier pages.
+     *
+     * $onProgress (optional) is invoked after each persisted batch with the running synced count — used
+     * by [App\Jobs\SyncCatalogJob] to drive the live progress poll AND to abort mid-run (it throws
+     * [App\Jobs\SyncStopped] when the admin presses stop; fetchCatalog lets that propagate out).
      */
-    public function sync(string $sourceId, int $maxPages = 100): int
+    public function sync(string $sourceId, int $maxPages = 100, ?callable $onProgress = null): int
     {
         $source = $this->registry->get($sourceId);
         if (! $source) {
             return 0;
         }
 
-        return $source->fetchCatalog(function (array $batch) use ($sourceId) {
+        $running = 0;
+
+        return $source->fetchCatalog(function (array $batch) use ($sourceId, $onProgress, &$running) {
             foreach ($batch as $rs) {
                 /** @var RemoteSeries $rs */
                 SourceTitle::updateOrCreate(
@@ -42,6 +48,10 @@ class ImportService
                         'synced_at' => now(),
                     ],
                 );
+                $running++;
+            }
+            if ($onProgress) {
+                $onProgress($running);
             }
         }, $maxPages);
     }

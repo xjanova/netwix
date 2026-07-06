@@ -3,13 +3,13 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncCatalogJob;
 use App\Models\Content;
 use App\Models\Genre;
 use App\Models\Setting;
 use App\Models\SourceTitle;
 use App\Services\Import\ImportService;
 use App\Services\Import\SourceRegistry;
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -105,6 +105,13 @@ class ImportController extends Controller
         return $hints;
     }
 
+    /**
+     * Kick off a catalogue sync in the BACKGROUND (dispatch [SyncCatalogJob] to the `sync` queue, drained
+     * by the scheduled worker) and return immediately. A full scrape outran Cloudflare's ~100s timeout →
+     * the browser retried while the first run was still going → 5+ stacked 30-min scrapes (incident
+     * 2026-07-06). Now the request just queues the job; the admin UI polls [syncProgress]. Single-flight:
+     * a start while a run is already queued/running is a no-op that just reports the existing run.
+     */
     public function sync(Request $request): RedirectResponse|JsonResponse
     {
         $data = $request->validate([
@@ -113,65 +120,65 @@ class ImportController extends Controller
         ]);
         abort_unless($this->registry->has($data['source']), 404);
         $source = $data['source'];
+        $key = 'sync:'.$source;
 
-        // SINGLE-FLIGHT: only one sync per source may run at a time. A full catalogue sync can outrun
-        // Cloudflare's ~100s proxy timeout → the browser sees a failed request and (per the retry rule)
-        // fires another — while the first is STILL running server-side (set_time_limit был 0). That
-        // stacked into 5+ concurrent 30-minute scrapes hammering the source (incident 2026-07-06; no
-        // duplicate rows thanks to the (source,source_key) unique index, but crippling load + likely why
-        // the source throttled us). The lock makes a concurrent/retried sync return "busy" instantly
-        // instead of starting a second run. 30-min TTL auto-frees it if the worker is hard-killed.
-        $lock = Cache::lock('import:sync:'.$source, 1800);
-        if (! $lock->get()) {
-            $msg = 'กำลังซิงค์แหล่งนี้อยู่แล้ว กรุณารอให้รอบปัจจุบันเสร็จก่อน (ระบบกันการซิงค์ซ้อน)';
+        // Already running/queued? Don't dispatch a second — just point the UI at the live run. (A queued
+        // job that never got picked up within 2 min is treated as stale so a genuine retry can proceed.)
+        $status = (string) Cache::get("{$key}:status", 'idle');
+        $queuedAt = (int) Cache::get("{$key}:queued_at", 0);
+        $active = $status === 'running' || ($status === 'queued' && (time() - $queuedAt) < 120);
+        if ($active) {
             if ($request->expectsJson()) {
-                // 409 = non-retriable on the client → nxPostRetry stops instead of stacking more runs.
-                return response()->json(['ok' => false, 'retriable' => false, 'busy' => true, 'error' => $msg], 409);
+                return response()->json(['ok' => true, 'queued' => true, 'already' => true, 'status' => $status,
+                    'message' => 'กำลังซิงค์แหล่งนี้อยู่แล้ว']);
             }
 
-            return back()->withErrors(['sync' => $msg]);
+            return back()->with('status', 'กำลังซิงค์แหล่งนี้อยู่แล้ว');
         }
 
-        // Bounded (not 0): if the browser has already given up (CF 524) we don't want this orphaned
-        // worker scraping for 30 min — cap it. sync() persists per page, so a capped run keeps its
-        // progress and a later run continues via upsert.
-        @set_time_limit(300);
-        @ini_set('memory_limit', '512M');
+        $ttl = now()->addHours(2);
+        Cache::put("{$key}:status", 'queued', $ttl);
+        Cache::put("{$key}:queued_at", time(), $ttl);
+        Cache::put("{$key}:synced", 0, $ttl);
+        Cache::put("{$key}:added", 0, $ttl);
+        Cache::forget("{$key}:stop");
+        Cache::forget("{$key}:error");
+        Cache::forget("{$key}:message");
 
-        try {
-            $before = SourceTitle::where('source', $source)->count();
-            $count = $this->importer->sync($source, $data['max_pages'] ?? 30);
-            $new = max(0, SourceTitle::where('source', $source)->count() - $before);
+        SyncCatalogJob::dispatch($source, $data['max_pages'] ?? 100)->onQueue('sync');
 
-            $msg = "ซิงค์แคตตาล็อกจาก {$this->registry->get($source)->displayName()} แล้ว ({$count} เรื่อง"
-                .($new > 0 ? " · ใหม่ {$new} เรื่อง" : ' · ไม่มีเรื่องใหม่').')';
-
-            if ($request->expectsJson()) {
-                return response()->json(['ok' => true, 'count' => $count, 'new' => $new, 'message' => $msg]);
-            }
-
-            return redirect()
-                ->route('admin.import.index', ['source' => $source])
-                ->with('status', $msg);
-        } catch (ConnectionException $e) {
-            // A dropped connection to the source is transient — signal it as retriable (HTTP 503) so the
-            // admin UI re-runs the sync automatically (owner rule: retry, don't stop). sync() upserts
-            // per page, so a re-run resumes without duplicating anything. The lock is released first (in
-            // finally), so the retry re-acquires cleanly.
-            if ($request->expectsJson()) {
-                return response()->json(['ok' => false, 'retriable' => true, 'error' => 'เชื่อมต่อแหล่งต้นทางไม่ได้ชั่วคราว'], 503);
-            }
-
-            return back()->withErrors(['sync' => 'เชื่อมต่อแหล่งต้นทางไม่ได้ชั่วคราว กรุณาลองใหม่อีกครั้ง']);
-        } catch (\Throwable $e) {
-            if ($request->expectsJson()) {
-                return response()->json(['ok' => false, 'retriable' => false, 'error' => 'ซิงค์ไม่สำเร็จ: '.$e->getMessage()], 422);
-            }
-
-            return back()->withErrors(['sync' => 'ซิงค์ไม่สำเร็จ: '.$e->getMessage()]);
-        } finally {
-            $lock->release();
+        if ($request->expectsJson()) {
+            return response()->json(['ok' => true, 'queued' => true, 'message' => 'เริ่มซิงค์แล้ว — ทำงานเบื้องหลัง']);
         }
+
+        return back()->with('status', 'เริ่มซิงค์แคตตาล็อกแล้ว (ทำงานเบื้องหลัง) — จำนวนจะอัปเดตเมื่อเสร็จ');
+    }
+
+    /** Live progress of a source's background sync — polled by the admin UI. */
+    public function syncProgress(Request $request): JsonResponse
+    {
+        $source = (string) $request->query('source', '');
+        abort_unless($this->registry->has($source), 404);
+        $key = 'sync:'.$source;
+
+        return response()->json([
+            'status' => (string) Cache::get("{$key}:status", 'idle'), // idle|queued|running|done|stopped|error
+            'synced' => (int) Cache::get("{$key}:synced", 0),
+            'added' => (int) Cache::get("{$key}:added", 0),
+            'total' => SourceTitle::where('source', $source)->count(),
+            'message' => Cache::get("{$key}:message"),
+            'error' => Cache::get("{$key}:error"),
+        ]);
+    }
+
+    /** Ask a running background sync to stop at the next page boundary (it flips to "stopped"). */
+    public function syncStop(Request $request): JsonResponse
+    {
+        $source = (string) $request->input('source', '');
+        abort_unless($this->registry->has($source), 404);
+        Cache::put('sync:'.$source.':stop', true, now()->addHours(2));
+
+        return response()->json(['ok' => true]);
     }
 
     /**

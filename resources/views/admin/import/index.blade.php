@@ -14,12 +14,8 @@
                 นำเข้าอัตโนมัติทุกวัน · {{ $autoImport ? 'เปิด' : 'ปิด' }}
             </button>
         </form>
-        <form method="POST" action="{{ route('admin.import.sync') }}" x-data="syncer()" @submit.prevent="run($el)">
+        <form method="POST" action="{{ route('admin.import.sync') }}" x-data="syncer()" @submit.prevent="run()">
             @csrf
-            <input type="hidden" name="source" value="{{ $sourceId }}">
-            {{-- 100 pages × 100 = up to 10k titles. sync() persists per page, so even if a big
-                 catalogue (e.g. 24-hdx ~6.5k) outruns the request timeout, every fetched page is kept. --}}
-            <input type="hidden" name="max_pages" value="100">
             <button type="submit" x-bind:disabled="running"
                     class="nx-gradient flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-40" style="box-shadow:0 8px 22px rgba(176,38,255,0.32)">
                 <span x-show="!running">⟳ ซิงค์แคตตาล็อก</span>
@@ -37,21 +33,21 @@
                             <div class="h-full rounded-full nx-gradient" style="width:34%;animation:nxIndet 1.15s ease-in-out infinite"></div>
                         </div>
 
-                        <div x-show="retrying" x-cloak class="mb-3 rounded-lg px-3 py-2 text-xs font-semibold" style="background:rgba(245,197,66,.14);color:#f5c542">
-                            ⟳ เชื่อมต่อแหล่งต้นทางไม่ได้ชั่วคราว — กำลังลองใหม่อัตโนมัติ (ครั้งที่ <span x-text="retryAttempt"></span>)…
+                        <div x-show="!done" class="mb-1 text-sm text-cream/70">
+                            ซิงค์แล้ว <span class="font-bold text-cream" x-text="synced.toLocaleString()"></span> เรื่อง
+                            <span x-show="stopping" class="text-cream/50"> · กำลังหยุด…</span>
                         </div>
+                        <p x-show="!done" class="text-xs text-cream/45">ทำงานเบื้องหลัง — ปิดหน้านี้ได้ ระบบจะซิงค์ต่อจนเสร็จ (หน้าจะจำสถานะเมื่อเปิดใหม่)</p>
 
-                        <p class="text-sm text-cream/70"
-                           x-text="done ? '' : (retrying ? 'ระบบจะลองเชื่อมต่อใหม่เองจนกว่าจะสำเร็จ' : 'กำลังดึงรายการจากแหล่งต้นทาง โปรดรอสักครู่…')"></p>
                         <p x-show="done && message" x-cloak class="text-sm text-success" x-text="message"></p>
                         <p x-show="done && error" x-cloak class="text-sm" style="color:#ff6b81" x-text="error"></p>
 
                         <div class="mt-5 flex justify-end gap-2">
-                            <button type="button" x-show="!done" @click="cancelled = true"
-                                    class="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15">หยุดกลางคัน</button>
-                            <button type="button" x-show="done && ok" @click="window.location.reload()"
+                            <button type="button" x-show="!done" @click="stop()" x-bind:disabled="stopping"
+                                    class="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15 disabled:opacity-40">หยุดกลางคัน</button>
+                            <button type="button" x-show="done" @click="window.location.reload()"
                                     class="btn-brand px-5 py-2 text-sm">รีเฟรชรายการ</button>
-                            <button type="button" x-show="done && !ok" @click="done = false; running = false"
+                            <button type="button" x-show="done" @click="done = false"
                                     class="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15">ปิด</button>
                         </div>
                     </div>
@@ -223,42 +219,94 @@ window.importer = () => ({
     },
 });
 
-// Sync the source catalogue over AJAX so it gets the same treatment as import: a live overlay, a
-// "หยุดกลางคัน" button, and auto-retry on a dropped connection. sync() is idempotent (per-page upsert),
-// so a retry safely resumes. Its own Alpine component because the button lives in the header, apart
-// from the import form.
+// Catalogue sync runs as a BACKGROUND JOB (SyncCatalogJob on the `sync` queue) so a big/slow scrape
+// never blocks a web request past Cloudflare's ~100s timeout — which used to make the browser retry
+// and stack concurrent 30-min scrapes (incident 2026-07-06). This component just STARTS the job then
+// POLLS progress; it re-attaches on page reload, shows a live count, and can stop the run. Its own
+// Alpine component because the button lives in the header, apart from the import form.
 window.syncer = () => ({
-    running: false, done: false, cancelled: false, stopped: false, ok: false,
-    retrying: false, retryAttempt: 0, message: '', error: '',
+    source: @js($sourceId),
+    startUrl: '{{ route('admin.import.sync') }}',
+    progressUrl: '{{ route('admin.import.sync.progress') }}',
+    stopUrl: '{{ route('admin.import.sync.stop') }}',
+    running: false, done: false, ok: false, stopped: false, stopping: false,
+    synced: 0, total: 0, message: '', error: '',
+    poller: null, ticks: 0,
+    tok() { return document.querySelector('meta[name="csrf-token"]')?.content || ''; },
+    // Alpine auto-calls init() once. Re-attach to a sync already running server-side (page reloaded
+    // mid-sync) so the admin sees it instead of a blank button — and can't accidentally start another.
+    init() { this.resume(); },
+    async resume() {
+        const s = await this.poll();
+        if (s && (s.status === 'running' || s.status === 'queued')) {
+            this.running = true; this.done = false;
+            this.synced = s.synced || 0; this.total = s.total || 0;
+            this.startPolling();
+        }
+    },
+    async poll() {
+        try {
+            const r = await fetch(this.progressUrl + '?source=' + encodeURIComponent(this.source),
+                { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+            return r.ok ? await r.json() : null;
+        } catch (e) { return null; }
+    },
+    async run() {
+        if (this.running) return;
+        this.running = true; this.done = false; this.ok = false; this.stopped = false; this.stopping = false;
+        this.synced = 0; this.message = ''; this.error = ''; this.ticks = 0;
+        // START is fast (just queues the job) — retry a dropped connection so the click isn't lost.
+        try {
+            const body = new URLSearchParams();
+            body.set('_token', this.tok());
+            body.set('source', this.source);
+            body.set('max_pages', '100');
+            await window.nxPostRetry(this.startUrl, body, { isCancelled: () => false, onRetry: () => {} });
+        } catch (e) {
+            this.running = false; this.done = true;
+            this.error = 'เริ่มซิงค์ไม่สำเร็จ: ' + (e.message || '');
+            return;
+        }
+        this.startPolling();
+    },
+    startPolling() {
+        this.stopPolling();
+        this.tick();
+        this.poller = setInterval(() => this.tick(), 2000);
+    },
+    stopPolling() { if (this.poller) { clearInterval(this.poller); this.poller = null; } },
+    async tick() {
+        // Safety cap (~13 min) — the job's own timeout is 10 min, so past this it's not coming back;
+        // don't poll forever. It keeps running server-side either way.
+        if (++this.ticks > 400) { this.stopPolling(); this.finish(false, false, '', 'ยังทำงานอยู่เบื้องหลัง — รีเฟรชหน้าเพื่อดูผลล่าสุด'); return; }
+        const s = await this.poll();
+        if (!s) return;                        // transient poll failure — retry next tick
+        this.synced = s.synced || 0;
+        this.total = s.total || 0;
+        if (s.status === 'done')    return this.finish(true, false, s.message, '');
+        if (s.status === 'stopped') return this.finish(false, true, s.message, '');
+        if (s.status === 'error')   return this.finish(false, false, '', s.error || 'ซิงค์ไม่สำเร็จ');
+        // queued | running → keep polling
+    },
+    finish(ok, stopped, message, error) {
+        this.stopPolling();
+        this.ok = ok; this.stopped = stopped;
+        this.message = message || ''; this.error = error || '';
+        this.done = true; this.running = false;
+    },
+    async stop() {
+        this.stopping = true;
+        try {
+            const body = new URLSearchParams();
+            body.set('_token', this.tok());
+            body.set('source', this.source);
+            await fetch(this.stopUrl, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, body });
+        } catch (e) { /* the next page boundary flips it to "stopped" anyway */ }
+    },
     get title() {
-        if (!this.done) return 'กำลังซิงค์แคตตาล็อก…';
+        if (!this.done) return this.stopping ? 'กำลังหยุด…' : 'กำลังซิงค์แคตตาล็อก…';
         if (this.stopped) return 'หยุดการซิงค์แล้ว';
         return this.ok ? 'ซิงค์เสร็จสิ้น ✓' : 'ซิงค์ไม่สำเร็จ';
-    },
-    async run(form) {
-        if (this.running) return;
-        this.running = true; this.done = false; this.cancelled = false; this.stopped = false;
-        this.ok = false; this.retrying = false; this.retryAttempt = 0; this.message = ''; this.error = '';
-        const fd = new FormData(form);
-        const body = new URLSearchParams();
-        body.set('_token', fd.get('_token'));
-        body.set('source', fd.get('source'));
-        body.set('max_pages', fd.get('max_pages') || '100');
-        try {
-            const j = await window.nxPostRetry(form.action, body, {
-                isCancelled: () => this.cancelled,
-                onRetry: (n) => { this.retrying = true; this.retryAttempt = n; },
-            });
-            this.retrying = false;
-            this.ok = !!j.ok;
-            this.message = j.message || (j.ok ? 'ซิงค์เสร็จสิ้น' : '');
-            if (!j.ok) this.error = j.error || 'ซิงค์ไม่สำเร็จ';
-        } catch (e) {
-            this.retrying = false;
-            if (e instanceof window.NxCancelled) { this.stopped = true; }
-            else { this.error = (e.data && (e.data.error || e.data.message)) || e.message || 'ซิงค์ไม่สำเร็จ'; }
-        }
-        this.done = true;
     },
 });
 </script>

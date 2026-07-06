@@ -226,7 +226,10 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('force-link/clear', [Admin\ForceLinkController::class, 'clear'])->name('force-link.clear');
 
     Route::get('import', [Admin\ImportController::class, 'index'])->name('import.index');
+    // Catalogue sync runs as a background job; `sync` queues it, these two drive the live overlay.
     Route::post('import/sync', [Admin\ImportController::class, 'sync'])->name('import.sync');
+    Route::get('import/sync/progress', [Admin\ImportController::class, 'syncProgress'])->name('import.sync.progress');
+    Route::post('import/sync/stop', [Admin\ImportController::class, 'syncStop'])->name('import.sync.stop');
     Route::post('import/auto-toggle', [Admin\ImportController::class, 'autoToggle'])->name('import.auto-toggle');
     Route::post('import/batch', [Admin\ImportController::class, 'batch'])->name('import.batch');
     Route::post('import/auto', [Admin\ImportController::class, 'auto'])->name('import.auto');

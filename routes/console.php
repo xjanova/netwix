@@ -48,6 +48,14 @@ Schedule::command('usdt:watch')
 Schedule::command('queue:work --stop-when-empty --max-time=55')
     ->everyMinute()->withoutOverlapping();
 
+// Catalogue sync worker (SyncCatalogJob). A manual "ซิงค์แคตตาล็อก" runs here in the background, NOT in
+// the web request: a full scrape (24hdx=66 pages, 9nung=92) outran Cloudflare's ~100s timeout, so the
+// browser retried and stacked concurrent 30-min scrapes (incident 2026-07-06). Long --timeout so even a
+// slow/throttled source finishes; --stop-when-empty so idle minutes exit fast; withoutOverlapping so
+// only one sync worker runs (single-flight is also enforced per source by the job middleware).
+Schedule::command('queue:work --queue=sync --stop-when-empty --max-time=600 --timeout=650 --memory=512 --tries=1')
+    ->everyMinute()->withoutOverlapping()->runInBackground();
+
 // Workers for the admin "สร้างปกตอน" cover generation (GenerateEpisodeThumb).
 // These run in CLI (proc_open enabled) — php-fpm has proc_open/exec DISABLED,
 // so ffmpeg can only be spawned here, not in the admin web request.
