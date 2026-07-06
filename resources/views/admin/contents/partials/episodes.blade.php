@@ -85,11 +85,14 @@
                 <h3 class="text-base font-semibold">ดู / เลือกปก · ตอนที่ <span x-text="ep?.num"></span></h3>
                 <button type="button" @click="close()" class="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 hover:bg-white/20">✕</button>
             </div>
-            <video x-ref="vid" x-show="ep && !loading && !playError" controls playsinline class="mb-3 max-h-[58vh] w-full rounded-lg bg-black"></video>
+            <video x-ref="vid" x-show="ep && !loading && !playError && !embedUrl" controls playsinline class="mb-3 max-h-[58vh] w-full rounded-lg bg-black"></video>
+            <iframe x-show="embedUrl" x-cloak :src="embedUrl"
+                    sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" allow="autoplay; fullscreen; encrypted-media"
+                    class="mb-3 aspect-video max-h-[58vh] w-full rounded-lg border-0 bg-black"></iframe>
             <div x-show="loading" x-cloak class="mb-3 rounded-lg border border-dashed border-white/10 bg-white/[0.02] py-10 text-center text-sm text-cream/50">⏳ กำลังเตรียมวิดีโอจากแหล่ง…</div>
             <div x-show="playError" x-cloak class="mb-3 rounded-lg border border-dashed border-[#ff6b81]/20 bg-[#ff6b81]/[0.05] py-10 text-center text-sm text-[#ff6b81]">เล่นไม่ได้ — แหล่งอาจไม่ตอบสนอง หรือลิงก์หมดอายุ (ยังอัปโหลดรูปปกเองได้)</div>
             <div class="flex flex-wrap items-center gap-3">
-                <button type="button" x-show="ep && !loading && !playError" @click="capture()" x-bind:disabled="saving"
+                <button type="button" x-show="ep && !loading && !playError && !embedUrl" @click="capture()" x-bind:disabled="saving"
                         class="btn-brand px-5 py-2.5 text-sm disabled:opacity-50" x-text="saving ? 'กำลังบันทึก…' : '📸 ใช้เฟรมนี้เป็นปก'"></button>
                 <button type="button" @click="$refs.file.click()" x-bind:disabled="saving"
                         class="rounded-lg bg-white/10 px-4 py-2.5 text-sm hover:bg-white/15 disabled:opacity-50" title="อัปโหลดรูปปกจากเครื่อง (jpg/png/webp/gif…) ระบบจะแปลงเป็น WebP ให้">⬆ อัปโหลดรูป</button>
@@ -104,17 +107,19 @@
     <script>
         function thumbPicker() {
             return {
-                ep: null, loading: false, playError: false, saving: false, ok: false, msg: '',
+                ep: null, loading: false, playError: false, embedUrl: null, saving: false, ok: false, msg: '',
                 // Resolve the episode through the admin QA endpoint (gate-free, every source) then play.
                 open(ep) {
-                    this.ep = ep; this.msg = ''; this.ok = false; this.playError = false; this.loading = true;
+                    this.ep = ep; this.msg = ''; this.ok = false; this.playError = false; this.embedUrl = null; this.loading = true;
                     this.$nextTick(async () => {
                         const v = this.$refs.vid;
                         try {
                             const r = await fetch(ep.resolve, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
                             const d = r.ok ? await r.json() : null;
                             this.loading = false;
-                            if (d && d.ready && d.url) {
+                            if (d && d.ready && d.url && d.kind === 'embed') {
+                                this.embedUrl = d.url;   // 9nung/abyss → sandboxed iframe (no frame-capture)
+                            } else if (d && d.ready && d.url) {
                                 window.nxAttachVideo ? window.nxAttachVideo(v, d.url) : (v.src = d.url);
                                 v.play?.().catch(() => {});
                             } else {
@@ -128,7 +133,7 @@
                 close() {
                     const v = this.$refs.vid;
                     if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
-                    this.ep = null; this.loading = false; this.playError = false;
+                    this.ep = null; this.loading = false; this.playError = false; this.embedUrl = null;
                 },
                 async capture() {
                     const v = this.$refs.vid;

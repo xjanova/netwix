@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Episode;
+use App\Services\Import\Contracts\EmbedPlayback;
+use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
 use App\Support\ImageStore;
 use Illuminate\Http\JsonResponse;
@@ -71,6 +73,13 @@ class EpisodeSourceController extends Controller
         // even though the native app, which sends its own Referer, does). Gate on !isProgressive() so a
         // newly-added Halim source is covered automatically (no per-id whitelist to keep in sync).
         $primary = $registry->get($episode->source);
+
+        // Embed source (9nung/abyss): playback is a 3rd-party player iframe, not a stream we can proxy.
+        // Hand back the embed page for a sandboxed <iframe> in the player (see [EmbedPlayback]).
+        if ($primary instanceof EmbedPlayback) {
+            return $this->embedReady($episode, $primary);
+        }
+
         if ($primary && ! $primary->isProgressive()) {
             return $this->hlsReady($episode);
         }
@@ -116,6 +125,32 @@ class EpisodeSourceController extends Controller
         Cache::put($cacheKey, $stream->url, now()->addSeconds($ttl));
 
         return response()->json(['ready' => true, 'kind' => $stream->kind, 'url' => $stream->url]);
+    }
+
+    /**
+     * "Ready" response for an EMBED episode (9nung/abyss): resolve the 3rd-party embed page once and
+     * cache it briefly (the abyss id lives on the source's detail page, which we don't want to scrape on
+     * every poll). The front-end renders it in a sandboxed <iframe> — popups blocked, no proxy.
+     */
+    private function embedReady(Episode $episode, EmbedPlayback $source): JsonResponse
+    {
+        $cacheKey = "episode:embed:{$episode->id}";
+        $url = Cache::get($cacheKey);
+
+        if (! is_string($url) || $url === '') {
+            $seriesKey = (string) ($episode->content?->source_key ?? '');
+            $stream = $seriesKey !== '' ? $source->resolveByRef($seriesKey, (string) $episode->source_ref) : null;
+            if (! $stream || $stream->kind !== RemoteStream::KIND_EMBED || $stream->url === '') {
+                // Detail page didn't yield an embed id (title may have no real stream) — client shows "preparing".
+                Cache::put($cacheKey.':miss', 1, now()->addSeconds(20));
+
+                return response()->json(['ready' => false], 202);
+            }
+            $url = $stream->url;
+            Cache::put($cacheKey, $url, now()->addMinutes(30));
+        }
+
+        return response()->json(['ready' => true, 'kind' => 'embed', 'url' => $url]);
     }
 
     /**

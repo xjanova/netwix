@@ -78,7 +78,7 @@
              overlay UI + locks landscape. The native one fullscreens the bare <video>, dropping that UI,
              and on this full-viewport player looked like it "did nothing". (iOS ignores controlsList but
              its native video fullscreen works, and our button falls back to it there.) --}}
-        <video x-ref="video" controls controlsList="nofullscreen" autoplay playsinline
+        <video x-ref="video" x-show="!embedUrl" controls controlsList="nofullscreen" autoplay playsinline
                @timeupdate.throttle.10000ms="saveProgress()"
                @timeupdate="resume()"
                @ended="onEnded()"
@@ -86,6 +86,13 @@
                @playing="resume(); maybeCapture()" @canplay="resume()" @loadeddata="resume()" x-on:error="resume()"
                @volumechange="if (! $refs.video.muted) forcedMute = false"
                class="h-full w-full bg-black object-contain"></video>
+
+        {{-- 9nung/abyss: a sandboxed 3rd-party player iframe. sandbox WITHOUT allow-popups blocks the
+             source's casino/pop-under ads; allow-scripts/same-origin let the player run. --}}
+        <iframe x-ref="embed" x-show="embedUrl" x-cloak :src="embedUrl" @load="resume()"
+                sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
+                allow="autoplay; fullscreen; encrypted-media"
+                class="absolute inset-0 h-full w-full border-0 bg-black"></iframe>
 
         {{-- iPad forces muted autoplay → one-tap unmute so a silent start isn't a mystery --}}
         <button x-show="forcedMute" x-cloak @click.stop="unmute()"
@@ -149,6 +156,7 @@
             forcedMute: false,   // true only when iPad refused sound-autoplay and we fell back to muted
             loading: cfg.hasMedia,
             ui: true,
+            embedUrl: null,      // set when the episode resolves to a 3rd-party player iframe (9nung/abyss)
             _uiT: null,
             _stallT: null,
             _poll: null,
@@ -220,7 +228,7 @@
                 if (ep.url) { this.attach(ep.url); return; }
 
                 const d = await this.tryResolve(ep);
-                if (d && d.ready && d.url) { this.attach(d.url); return; }
+                if (d && d.ready && d.url) { this.attach(d.url, d.kind); return; }
 
                 // Not resolvable yet — show the loader and poll until it becomes available.
                 this.stall();
@@ -228,7 +236,7 @@
                 this._poll = setInterval(async () => {
                     if (this.index !== my) { this.stopPoll(); return; }
                     const r = await this.tryResolve(ep);
-                    if (r && r.ready && r.url) { this.stopPoll(); this.attach(r.url); }
+                    if (r && r.ready && r.url) { this.stopPoll(); this.attach(r.url, r.kind); }
                 }, 10000);
             },
             async tryResolve(ep) {
@@ -238,13 +246,25 @@
                     return await r.json();
                 } catch (e) { return null; }
             },
-            attach(url) {
+            attach(url, kind) {
+                // 9nung/abyss: a 3rd-party player iframe, not a stream — show the sandboxed iframe instead
+                // of the <video> (popups are blocked by its sandbox). No proxy, no watchdog.
+                if (kind === 'embed') { this.attachEmbed(url); return; }
+                this.embedUrl = null;
                 this._url = url;
                 this._reloads = 0; this._lastT = 0; this._stuck = 0;   // fresh recovery budget per source
                 this.stall();
                 const v = this.$refs.video;
                 window.nxAttachVideo(v, url, this.reportUrl);
                 this.tryPlay(v);
+            },
+            attachEmbed(url) {
+                // Stop any <video> playback and hand over to the iframe player.
+                const v = this.$refs.video;
+                if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
+                this._url = '';
+                this.stall();
+                this.embedUrl = url;   // :src on the iframe → loads the abyss player; @load clears the loader
             },
 
             // iPad/iPadOS blocks autoplay-WITH-SOUND that isn't triggered by a user tap — and landing on

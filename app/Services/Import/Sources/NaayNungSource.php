@@ -3,6 +3,7 @@
 namespace App\Services\Import\Sources;
 
 use App\Services\Import\Contracts\BackupPoolSource;
+use App\Services\Import\Contracts\EmbedPlayback;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Services\Import\RemoteSeries;
@@ -28,14 +29,17 @@ use Illuminate\Support\Facades\Http;
  * Adult: the site's `erotic` genre ("R18+") is flagged `extra.adult` so [App\Services\Import\
  * ImportService] imports those titles as 18+ AND VIP-premium (is_vip) — owner rule 2026-07-06.
  */
-class NaayNungSource implements BackupPoolSource, MediaSource, ProvidesSynopsis
+class NaayNungSource implements BackupPoolSource, EmbedPlayback, MediaSource, ProvidesSynopsis
 {
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
     private const BASE = 'https://9.9nung.com';
 
-    /** HLS host the fembed player resolves to (the master playlist lives here, keyed by the fembed id). */
+    /** HLS host the LEGACY fembed player resolved to (older, un-migrated titles only). */
     private const MEDIA_HOST = 'https://media.vdohls.com';
+
+    /** Current player: 9nung frames abyssplayer.com/{id} (Hydrax). Embedded as-is (see [EmbedPlayback]). */
+    private const PLAYER_EMBED = 'https://abyssplayer.com';
 
     /** The real player host — its Referer is what the vdohls CDN expects. */
     private const EMBED_REFERER = 'https://fembed.co/';
@@ -276,16 +280,24 @@ class NaayNungSource implements BackupPoolSource, MediaSource, ProvidesSynopsis
             return null;
         }
 
-        // The stream is lazy-loaded in the player iframe's data-src (NOT src, which is a YouTube decoy).
-        if (! preg_match('~fembed\.php\?v=embed/([A-Za-z0-9_\-]+)~i', $html, $m)) {
-            return null;
+        // 2026-07: 9nung migrated its player fembed.co → abyss/hydrax. The detail page now embeds
+        // <iframe data-litespeed-src="/stream.php?v={ID}"> which frames abyssplayer.com/{ID}. Abyss
+        // decrypts the real URL client-side + is Cloudflare-gated → NOT server-resolvable, so hand back
+        // the abyss embed page for a sandboxed <iframe> (see [App\Services\Import\Contracts\EmbedPlayback]).
+        if (preg_match('~stream\.php\?v=([A-Za-z0-9_\-]+)~i', $html, $m)) {
+            return new RemoteStream(RemoteStream::KIND_EMBED, self::PLAYER_EMBED.'/'.$m[1]);
         }
-        $fembedId = $m[1];
 
-        $master = self::MEDIA_HOST.'/'.$fembedId.'/playlist.m3u8';
-        $media = $this->resolveMediaPlaylist($master, self::EMBED_REFERER);
+        // Legacy fembed→vdohls path (older titles not yet migrated) — a proxyable HLS stream, preferred
+        // over an embed when still present.
+        if (preg_match('~fembed\.php\?v=embed/([A-Za-z0-9_\-]+)~i', $html, $m)) {
+            $media = $this->resolveMediaPlaylist(self::MEDIA_HOST.'/'.$m[1].'/playlist.m3u8', self::EMBED_REFERER);
+            if ($media !== null) {
+                return new RemoteStream(RemoteStream::KIND_HLS, $media, self::EMBED_REFERER);
+            }
+        }
 
-        return $media !== null ? new RemoteStream(RemoteStream::KIND_HLS, $media, self::EMBED_REFERER) : null;
+        return null;
     }
 
     private function detailHtml(string $sourceKey): ?string

@@ -77,6 +77,11 @@ class AdminPreviewController extends Controller
     /** Build a {ready,kind,url} where url is a signed admin proxy for this upstream (url + referer). */
     private function play(string $url, ?string $referer, string $kind): JsonResponse
     {
+        // Embed sources (9nung/abyss) aren't proxyable — hand the embed page straight to the iframe.
+        if ($kind === RemoteStream::KIND_EMBED) {
+            return response()->json(['ready' => true, 'kind' => 'embed', 'url' => $url]);
+        }
+
         $exp = time() + self::TTL;
         $route = $kind === RemoteStream::KIND_HLS ? 'admin.preview.manifest' : 'admin.preview.mp4';
         $proxied = route($route).'?'.http_build_query([

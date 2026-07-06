@@ -123,17 +123,18 @@ window.importer = () => ({
     total: 0, processed: 0, ok: 0, failed: 0, log: [],
     chunkSize: 4,
     // Pre-import preview: watch a source title's ep-1 before deciding to import it.
-    pv: null, pvLoading: false, pvError: false,
+    pv: null, pvLoading: false, pvError: false, pvEmbed: null,
     pvBase: '{{ url('admin/preview/source') }}',
     async preview(id, title) {
-        this.pv = { id, title }; this.pvLoading = true; this.pvError = false;
+        this.pv = { id, title }; this.pvLoading = true; this.pvError = false; this.pvEmbed = null;
         this.$nextTick(async () => {
             const v = this.$refs.pvVid;
             try {
                 const r = await fetch(this.pvBase + '/' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
                 const d = r.ok ? await r.json() : null;
                 this.pvLoading = false;
-                if (d && d.ready && d.url) { window.nxAttachVideo(v, d.url); v.play?.().catch(() => {}); }
+                if (d && d.ready && d.url && d.kind === 'embed') { this.pvEmbed = d.url; }   // 9nung/abyss → iframe
+                else if (d && d.ready && d.url) { window.nxAttachVideo(v, d.url); v.play?.().catch(() => {}); }
                 else { this.pvError = true; }
             } catch (e) { this.pvLoading = false; this.pvError = true; }
         });
@@ -141,7 +142,7 @@ window.importer = () => ({
     pvClose() {
         const v = this.$refs.pvVid;
         if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
-        this.pv = null; this.pvLoading = false; this.pvError = false;
+        this.pv = null; this.pvLoading = false; this.pvError = false; this.pvEmbed = null;
     },
     get pct() { return this.total ? Math.round(this.processed / this.total * 100) : 0; },
     titleFor(id) {
@@ -540,7 +541,10 @@ window.syncer = () => ({
                     <h3 class="truncate text-base font-semibold">ดูก่อนนำเข้า · <span x-text="pv?.title"></span></h3>
                     <button type="button" @click="pvClose()" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20">✕</button>
                 </div>
-                <video x-ref="pvVid" x-show="pv && !pvLoading && !pvError" controls playsinline class="mb-2 max-h-[60vh] w-full rounded-lg bg-black"></video>
+                <video x-ref="pvVid" x-show="pv && !pvLoading && !pvError && !pvEmbed" controls playsinline class="mb-2 max-h-[60vh] w-full rounded-lg bg-black"></video>
+                <iframe x-show="pvEmbed" x-cloak :src="pvEmbed"
+                        sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" allow="autoplay; fullscreen; encrypted-media"
+                        class="mb-2 aspect-video max-h-[60vh] w-full rounded-lg border-0 bg-black"></iframe>
                 <div x-show="pvLoading" x-cloak class="mb-2 rounded-lg border border-dashed border-white/10 bg-white/[0.02] py-12 text-center text-sm text-cream/50">⏳ กำลังขอวิดีโอจากแหล่งต้นทาง…</div>
                 <div x-show="pvError" x-cloak class="mb-2 rounded-lg border border-dashed border-[#ff6b81]/20 bg-[#ff6b81]/[0.05] py-12 text-center text-sm text-[#ff6b81]">เล่นไม่ได้ — แหล่งอาจไม่ตอบสนอง หรือเรื่องนี้ยังไม่มีลิงก์ (ตอนที่ 1)</div>
                 <p class="text-xs text-cream/40">ตัวอย่างตอนที่ 1 จากแหล่งต้นทาง — ยังไม่ได้นำเข้าเข้าคลัง</p>

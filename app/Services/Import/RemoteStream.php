@@ -7,6 +7,7 @@ class RemoteStream
 {
     public const KIND_MP4 = 'mp4';   // progressive, browser-playable
     public const KIND_HLS = 'hls';   // .m3u8
+    public const KIND_EMBED = 'embed'; // 3rd-party player iframe (e.g. 9nung/abyss) — url is the embed page, not a stream
 
     public function __construct(
         public string $kind,
