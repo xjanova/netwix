@@ -27,6 +27,7 @@ class User extends Authenticatable
         'referred_by',
         'pro_until',
         'coins',
+        'gold_coins',
     ];
 
     protected $hidden = [
@@ -41,6 +42,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'pro_until' => 'datetime',
             'coins' => 'integer',
+            'gold_coins' => 'integer',
         ];
     }
 

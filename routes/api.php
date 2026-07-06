@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\App\FeedbackController;
 use App\Http\Controllers\Api\App\LibraryController;
 use App\Http\Controllers\Api\App\MembershipController;
 use App\Http\Controllers\Api\App\SourceController;
+use App\Http\Controllers\Api\App\WalletController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -76,5 +77,17 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
         Route::post('coins/earn', [MembershipController::class, 'earn']);
         Route::get('content/{content:id}/access', [MembershipController::class, 'access']);
         Route::post('episodes/{episode}/unlock', [MembershipController::class, 'unlock']);
+
+        // Gold wallet + VIP zone: balances/rules, silver→gold convert, VIP unlock, buy Pro with gold.
+        Route::get('wallet', [WalletController::class, 'state']);
+        Route::post('gold/convert', [WalletController::class, 'convert']);
+        Route::post('pro/buy-gold', [WalletController::class, 'buyProWithGold']);
+        Route::get('content/{content:id}/vip', [WalletController::class, 'vipAccess']);
+        Route::post('content/{content:id}/vip/unlock', [WalletController::class, 'unlockVip']);
+
+        // USDT (BSC) payments: create an order, then poll it (live-verifies on the chain).
+        Route::post('usdt/order', [WalletController::class, 'createOrder']);
+        Route::get('usdt/order/{order}', [WalletController::class, 'orderStatus']);
+        Route::post('usdt/order/{order}/check', [WalletController::class, 'orderStatus']);
     });
 });

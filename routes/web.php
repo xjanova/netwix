@@ -120,6 +120,8 @@ Route::middleware(['auth', 'profile'])->group(function () {
 
     Route::post('/api/content/{content}/list', [InteractionController::class, 'toggleMyList'])->name('content.list');
     Route::post('/api/content/{content}/like', [InteractionController::class, 'toggleLike'])->name('content.like');
+    Route::post('/api/content/{content}/vip/unlock', [\App\Http\Controllers\WalletController::class, 'unlockVip'])
+        ->middleware('throttle:30,1')->name('content.vip.unlock');
     Route::post('/api/content/{content}/progress', [InteractionController::class, 'progress'])->name('content.progress');
     Route::post('/api/content/{content}/comment', [InteractionController::class, 'comment'])->middleware(['throttle:30,1', 'turnstile'])->name('content.comment');
     Route::post('/api/content/{content}/rate', [InteractionController::class, 'rate'])->name('content.rate');
@@ -133,6 +135,16 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::get('/account', [\App\Http\Controllers\AccountController::class, 'index'])->name('account');
     Route::post('/account/redeem', [\App\Http\Controllers\AccountController::class, 'redeem'])
         ->middleware('throttle:10,1')->name('account.redeem');
+
+    // Gold wallet + real USDT (BSC) top-up on the account page.
+    Route::post('/account/gold/convert', [\App\Http\Controllers\WalletController::class, 'convert'])
+        ->middleware('throttle:30,1')->name('account.gold.convert');
+    Route::post('/account/pro/buy-gold', [\App\Http\Controllers\WalletController::class, 'buyProWithGold'])
+        ->middleware('throttle:30,1')->name('account.pro.buy-gold');
+    Route::post('/account/usdt/order', [\App\Http\Controllers\WalletController::class, 'createOrder'])
+        ->middleware('throttle:20,1')->name('account.usdt.order');
+    Route::get('/account/usdt/order/{order}', [\App\Http\Controllers\WalletController::class, 'orderStatus'])
+        ->middleware('throttle:120,1')->name('account.usdt.status');
 });
 
 // ---- Public streaming proxy (guests can watch) -------------------------
@@ -223,6 +235,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('contents/reset-all-thumbs', [Admin\ContentController::class, 'resetAllThumbs'])->name('contents.reset-all-thumbs');
     Route::resource('contents', Admin\ContentController::class)->except('show');
     Route::post('contents/{content}/reset-thumbs', [Admin\ContentController::class, 'resetThumbs'])->name('contents.reset-thumbs');
+    Route::post('contents/{content}/review-ignore', [Admin\ContentController::class, 'toggleReviewIgnore'])->name('contents.review-ignore');
     Route::post('contents/{content}/episodes', [Admin\EpisodeController::class, 'store'])->name('contents.episodes.store');
     Route::delete('contents/{content}/episodes/{episode}', [Admin\EpisodeController::class, 'destroy'])->name('contents.episodes.destroy');
 
@@ -247,6 +260,10 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
 
     Route::get('membership', [Admin\MembershipController::class, 'index'])->name('membership.index');
     Route::put('membership', [Admin\MembershipController::class, 'update'])->name('membership.update');
+
+    // Gold pricing, silver→gold conversion, VIP default price, and real USDT (BSC) payment settings.
+    Route::get('payments', [Admin\PaymentController::class, 'index'])->name('payments.index');
+    Route::put('payments', [Admin\PaymentController::class, 'update'])->name('payments.update');
 
     Route::get('analytics', [Admin\AnalyticsController::class, 'index'])->name('analytics');
 

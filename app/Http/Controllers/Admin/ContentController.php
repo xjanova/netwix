@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Content;
 use App\Models\Episode;
 use App\Models\Genre;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -59,6 +60,21 @@ class ContentController extends Controller
             ],
             'dupIds' => self::duplicateContentIds(),
         ]);
+    }
+
+    /**
+     * Admin: "ตรวจแล้ว ลิงก์ปกติ" — tick to stop this title being flagged for review (and clear its
+     * current flag); untick to allow it back on the review list if playback fails again later.
+     */
+    public function toggleReviewIgnore(Request $request, Content $content): JsonResponse
+    {
+        $ignored = $request->boolean('ignored');
+        $content->update([
+            'review_ignored' => $ignored,
+            'review_flagged_at' => $ignored ? null : $content->review_flagged_at,
+        ]);
+
+        return response()->json(['ok' => true, 'ignored' => $ignored]);
     }
 
     /**
@@ -173,6 +189,8 @@ class ContentController extends Controller
             'is_original' => ['sometimes', 'boolean'],
             'is_featured' => ['sometimes', 'boolean'],
             'is_published' => ['sometimes', 'boolean'],
+            'is_vip' => ['sometimes', 'boolean'],
+            'vip_price_gold' => ['nullable', 'integer', 'between:0,1000000'],
             'poster_path' => ['nullable', 'string', 'max:2048'],
             'backdrop_path' => ['nullable', 'string', 'max:2048'],
             'trailer_youtube_id' => ['nullable', 'string', 'max:64'],
@@ -189,7 +207,7 @@ class ContentController extends Controller
     private function payload(array $data): array
     {
         $data['slug'] = $data['slug'] ?? Str::slug($data['title']) ?: Str::random(8);
-        foreach (['is_original', 'is_featured', 'is_published'] as $flag) {
+        foreach (['is_original', 'is_featured', 'is_published', 'is_vip'] as $flag) {
             $data[$flag] = (bool) ($data[$flag] ?? false);
         }
         unset($data['genres'], $data['primary_genre']);

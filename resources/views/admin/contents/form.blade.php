@@ -225,6 +225,12 @@
                 <label class="flex items-center gap-2.5"><input type="checkbox" name="is_original" value="1" class="accent-brand" @checked($val('is_original'))> NetWix Original</label>
                 <label class="flex items-center gap-2.5"><input type="checkbox" name="is_featured" value="1" class="accent-brand" @checked($val('is_featured'))> แสดงเป็น Hero (แนะนำ)</label>
                 <label class="flex items-center gap-2.5"><input type="checkbox" name="is_published" value="1" class="accent-brand" @checked($val('is_published', true))> เผยแพร่</label>
+                <label class="flex items-center gap-2.5"><input type="checkbox" name="is_vip" value="1" class="accent-brand" @checked($val('is_vip'))> ⭐ โซน VIP (ปลดล็อกด้วยเหรียญทอง)</label>
+            </div>
+            <div class="mt-3">
+                <label class="mb-1.5 block text-xs text-cream/60">ราคาปลดล็อก VIP (เหรียญทอง)</label>
+                <input name="vip_price_gold" type="number" min="0" max="1000000" value="{{ $val('vip_price_gold') }}" class="nx-input" placeholder="เว้นว่าง = ใช้ราคากลางจากหน้าโปรโมชัน">
+                <p class="mt-1 text-[11px] leading-tight text-cream/40">ใช้เมื่อติ๊ก “โซน VIP” เท่านั้น — สมาชิก Pro ดูโซน VIP ได้ฟรี (ตั้งค่าที่หน้าโปรโมชัน)</p>
             </div>
         </div>
 

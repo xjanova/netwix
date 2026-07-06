@@ -54,6 +54,34 @@ class Membership
             'from_pro' => true,        // upline earns % when a downline activates Pro
             'pro_base_coins' => 129,   // coin base a Pro activation pays dividend on
         ],
+        // Gold — the premium currency (bought with USDT, spends on VIP + Pro).
+        'gold' => [
+            'per_usdt' => 100,             // 1 USDT → how many gold (admin-set price)
+            'min_usdt' => 1,               // smallest gold top-up, in USDT
+            'convert_enabled' => true,     // allow silver → gold conversion
+            'convert_rate' => 100,         // silver per 1 gold (the "100 เงิน = 1 ทอง" rule)
+            'convert_fee_pct' => 0,        // surcharge on the silver cost of a conversion
+            'convert_daily_cap' => 10,     // max GOLD a user can mint via convert per day (0 = ∞)
+        ],
+        // VIP zone — titles flagged is_vip need gold to watch (or an active Pro).
+        'vip' => [
+            'unlock_cost_gold' => 20,      // default gold to unlock one VIP title
+            'pro_unlocks' => true,         // Pro members watch the VIP zone without paying gold
+        ],
+        // Real USDT (BEP20 / BSC) payment. The wallet ADDRESS + BscScan API key are
+        // NOT here (address = Setting `usdt_wallet_address`; key = secret Setting
+        // `bscscan_api_key`) — only pricing/policy that's safe to expose lives in config.
+        'usdt' => [
+            'enabled' => true,
+            'chain' => 'bsc',
+            'contract' => '0x55d398326f99059fF775485246999027B3197955', // USDT (BEP20) on BSC — 18 decimals
+            'decimals' => 18,
+            'min_confirmations' => 12,     // block confirmations before crediting
+            'order_ttl_minutes' => 60,     // a pending order's payment window
+            'pro_price_usdt' => 3,         // buy Pro with USDT
+            'pro_days' => 30,              // Pro days granted per purchase (USDT or gold)
+            'buy_pro_gold' => 300,         // buy Pro with gold instead (0 = disabled)
+        ],
     ];
 
     private const KEY = 'membership_config';
@@ -70,6 +98,16 @@ class Membership
     public function saveConfig(array $config): void
     {
         Setting::write(self::KEY, json_encode($config, JSON_UNESCAPED_UNICODE));
+    }
+
+    /**
+     * Overwrite only the given slice(s) of the config, preserving every other
+     * section. Two admin pages (the promo builder + the payment/gold page) each
+     * own part of the same JSON — merging keeps one from wiping the other's keys.
+     */
+    public function mergeConfig(array $patch): void
+    {
+        $this->saveConfig(array_replace_recursive($this->config(), $patch));
     }
 
     // ---- Pro status ----------------------------------------------------
@@ -334,6 +372,7 @@ class Membership
             'plan' => $u->plan ?? 'free',
             'pro_until' => optional($u->pro_until)->toIso8601String(),
             'coins' => (int) $u->coins,
+            'gold_coins' => (int) $u->gold_coins,
             'referral_code' => $this->ensureCode($u),
             'referred' => $u->referred_by !== null,
             'referrals_count' => User::where('referred_by', $u->id)->count(),

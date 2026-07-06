@@ -2,19 +2,25 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\GoldWallet;
 use App\Services\Membership;
+use App\Services\UsdtPayment;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 /**
- * Member account page — Pro status, coins, the user's own referral code + share
- * links, and the redeem-a-friend's-code form. Mirrors what the mobile app shows
- * via /api/app/membership.
+ * Member account page — Pro status, coins (silver + gold), the referral code +
+ * share links, the redeem form, and the real USDT top-up / silver→gold convert
+ * widgets. Mirrors what the mobile app shows via /api/app/membership + /wallet.
  */
 class AccountController extends Controller
 {
-    public function __construct(private Membership $m) {}
+    public function __construct(
+        private Membership $m,
+        private GoldWallet $gold,
+        private UsdtPayment $usdt,
+    ) {}
 
     public function index(Request $request): View
     {
@@ -23,6 +29,9 @@ class AccountController extends Controller
         return view('frontend.account', [
             'state' => $this->m->state($user),
             'cfg' => $this->m->config(),
+            'gold' => $this->gold->state($user),
+            'usdtEnabled' => $this->usdt->enabled(),
+            'usdtWallet' => $this->usdt->walletAddress(),
         ]);
     }
 

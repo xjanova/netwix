@@ -39,6 +39,8 @@ class SettingController extends Controller
             'previewRandomSeek' => Setting::flag('preview_random_seek', true),
             // Master kill-switch for the billboard VIDEO layer (off = static rotating backdrops only).
             'previewBillboard' => Setting::flag('preview_billboard_enabled', true),
+            // Auto-unpublish a title when enough viewers can't play it (off = only flag for review).
+            'playbackAutoSuspend' => Setting::flag('playback_auto_suspend', true),
             'genres' => Genre::orderBy('sort')->get(['id', 'name']),
         ]);
     }
@@ -78,6 +80,9 @@ class SettingController extends Controller
 
         // Billboard video kill-switch (unchecked → rotating backdrops only, no stream resolved).
         Setting::write('preview_billboard_enabled', $request->boolean('preview_billboard_enabled') ? '1' : '0');
+
+        // Auto-suspend un-playable titles (unchecked → never auto-unpublish, only flag for review).
+        Setting::write('playback_auto_suspend', $request->boolean('playback_auto_suspend') ? '1' : '0');
 
         // Hero pool/interval/kill-switch changed → drop the cached billboard payloads so it reflects now.
         HeroBillboard::forget();

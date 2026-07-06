@@ -32,6 +32,16 @@ class EpisodeSourceController extends Controller
             return response()->json(['ready' => false, 'error' => 'pro_required'], 403);
         }
 
+        // VIP zone: gold-unlock (or Pro) required. Fails closed for guests/app (no viewer → locked),
+        // so a stream is never handed out for a VIP title without a member who's paid for it.
+        if ($episode->content->is_vip) {
+            $viewer = auth()->user();
+            $access = $viewer ? app(\App\Services\GoldWallet::class)->vipAccess($viewer, $episode->content) : 'locked';
+            if ($access === 'locked') {
+                return response()->json(['ready' => false, 'error' => 'vip_required'], 403);
+            }
+        }
+
         if ($episode->video_url) {
             return response()->json([
                 'ready' => true,

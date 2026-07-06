@@ -21,8 +21,8 @@ class Content extends Model
 
     protected $fillable = [
         'title', 'slug', 'source', 'source_key', 'type', 'synopsis', 'year', 'maturity', 'dub_type',
-        'match_score', 'rating', 'is_original', 'is_featured', 'is_published',
-        'suspended_at', 'suspend_reason', 'playback_fail_count',
+        'match_score', 'rating', 'is_original', 'is_featured', 'is_published', 'is_vip', 'vip_price_gold',
+        'suspended_at', 'suspend_reason', 'playback_fail_count', 'review_flagged_at', 'review_ignored',
         'poster_path', 'backdrop_path', 'trailer_youtube_id', 'video_url',
         'duration_minutes', 'views', 'sort',
     ];
@@ -33,9 +33,18 @@ class Content extends Model
             'is_original' => 'boolean',
             'is_featured' => 'boolean',
             'is_published' => 'boolean',
+            'is_vip' => 'boolean',
             'suspended_at' => 'datetime',
+            'review_flagged_at' => 'datetime',
+            'review_ignored' => 'boolean',
             'rating' => 'decimal:1',
         ];
+    }
+
+    /** A live title whose link is flagged for review (viewers failed to play it) and not yet OK'd. */
+    public function getLinkUnderReviewAttribute(): bool
+    {
+        return $this->review_flagged_at !== null && ! $this->review_ignored && $this->suspended_at === null;
     }
 
     /** Auto-suspended (un-playable) titles parked for admin review. */

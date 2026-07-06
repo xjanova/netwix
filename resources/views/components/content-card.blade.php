@@ -125,6 +125,9 @@
             @endif
 
             <div class="absolute left-2 top-2 z-10 flex flex-col items-start gap-1">
+                @if ($content->link_under_review)
+                    <span class="rounded bg-gold/90 px-1.5 py-0.5 text-[9px] font-bold text-black shadow" title="กำลังตรวจสอบลิงก์ อาจดูไม่ได้ชั่วคราว">🚧 ตรวจสอบลิงก์</span>
+                @endif
                 @if ($content->is_original)
                     <span class="nx-gradient rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest">NETWIX</span>
                 @endif

@@ -58,6 +58,23 @@
         </div>
     </div>
 
+    {{-- ============ PLAYBACK / DEAD LINKS ============ --}}
+    <div class="nx-card p-6">
+        <div class="mb-4 flex items-center gap-2.5">
+            <span class="text-xl">🔗</span>
+            <h3 class="text-base font-bold">ลิงก์เสีย / เล่นไม่ได้</h3>
+        </div>
+        <label class="flex cursor-pointer items-center gap-3">
+            <input type="checkbox" name="playback_auto_suspend" value="1" @checked($playbackAutoSuspend) class="h-5 w-5 accent-brand">
+            <span class="text-sm font-semibold">หยุดเผยแพร่อัตโนมัติเมื่อลิงก์เสีย</span>
+        </label>
+        <p class="mt-2 text-[12.5px] leading-relaxed text-cream/50">
+            เปิด = ถ้ามีคนดูไม่ได้ถึง {{ \App\Support\PlaybackHealth::THRESHOLD }} คน ระบบจะ “หยุดเผยแพร่” เรื่องนั้นให้อัตโนมัติจนกว่าจะแก้ลิงก์ ·
+            ปิด = ไม่หยุดเผยแพร่ ปล่อยให้ดูต่อได้ แค่ขึ้นป้าย “รอตรวจสอบ” ให้แอดมินเช็กเอง ·
+            ทั้งสองแบบ ถ้า <strong>คนเดียวกดเล่นไม่ได้ {{ \App\Support\PlaybackHealth::FAIL_ATTEMPTS }} ครั้ง</strong> จะขึ้นลิสรอตรวจสอบทันที
+        </p>
+    </div>
+
     {{-- ============ GOOGLE ============ --}}
     <div class="nx-card p-6">
         <div class="mb-4 flex items-center justify-between">

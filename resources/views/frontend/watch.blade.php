@@ -35,6 +35,16 @@
      })"
      x-init="init()" @mousemove="poke()" @touchstart="poke()">
 
+    {{-- Non-blocking notice: this title's link is under review (some viewers couldn't play it). Playback
+         still works normally; this just sets expectations. Auto-fades; dismissible. --}}
+    @if ($content->link_under_review)
+        <div x-data="{ show: true }" x-show="show" x-transition.opacity x-init="setTimeout(() => show = false, 8000)"
+             class="absolute inset-x-0 top-16 z-40 mx-auto flex w-fit max-w-[92%] items-center gap-2 rounded-lg bg-gold/95 px-4 py-2.5 text-[13px] font-semibold text-black shadow-lg">
+            🚧 เรื่องนี้กำลังตรวจสอบลิงก์ อาจเล่นไม่ได้ชั่วคราว — ขออภัยในความไม่สะดวก
+            <button type="button" @click="show = false" class="ml-1 text-black/55 hover:text-black">✕</button>
+        </div>
+    @endif
+
     {{-- top bar (auto-hides when idle; any mouse/touch activity brings it back) --}}
     <div x-show="ui" x-transition.opacity class="absolute inset-x-0 top-0 z-30 flex items-center gap-3 bg-gradient-to-b from-black/80 to-transparent p-4">
         <a href="{{ url()->previous() !== url()->current() ? url()->previous() : route('browse') }}"

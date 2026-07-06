@@ -108,12 +108,29 @@
                                 <span>♥ {{ $c->liked_by_count }} · 💬 {{ $c->comments_count }} · ⭐ {{ $c->ratings_avg_stars ? round($c->ratings_avg_stars, 1) : '–' }}</span>
                             </div>
                         </td>
-                        <td class="px-4 py-3">
-                            @if ($c->is_published)
-                                <span class="rounded-full bg-success/15 px-2.5 py-0.5 text-xs text-success">เผยแพร่</span>
-                            @else
-                                <span class="rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-cream/50">ฉบับร่าง</span>
-                            @endif
+                        <td class="px-4 py-3" x-data="{ ok: {{ $c->review_ignored ? 'true' : 'false' }} }">
+                            <div class="flex flex-col items-start gap-1">
+                                @if ($c->suspended_at)
+                                    <span class="rounded-full bg-[#e5484d]/15 px-2.5 py-0.5 text-xs font-semibold text-[#ff6b81]"
+                                          title="ระบบหยุดเผยแพร่อัตโนมัติ เพราะมีคนดูไม่ได้ถึง {{ \App\Support\PlaybackHealth::THRESHOLD }} คน — ลิงก์น่าจะเสีย ควรหาลิงก์ใหม่หรือลบ">⛔ ลิงก์เสีย · หยุดเผยแพร่</span>
+                                @elseif ($c->is_published)
+                                    <span class="rounded-full bg-success/15 px-2.5 py-0.5 text-xs text-success">เผยแพร่</span>
+                                @else
+                                    <span class="rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-cream/50">ฉบับร่าง</span>
+                                @endif
+
+                                @if (! $c->suspended_at && ($c->review_flagged_at || $c->review_ignored))
+                                    @if ($c->review_flagged_at && ! $c->review_ignored)
+                                        <span x-show="!ok" class="rounded-full bg-gold/15 px-2.5 py-0.5 text-xs font-semibold text-gold"
+                                              title="มีลูกค้ากดเล่นแล้วเล่นไม่ได้ — ลิงก์น่าจะมีปัญหา ควรเช็ก/หาลิงก์ใหม่">⚠ ลิงก์มีปัญหา · รอตรวจสอบ</span>
+                                    @endif
+                                    <label class="flex cursor-pointer items-center gap-1.5 text-[11px] text-cream/50">
+                                        <input type="checkbox" x-model="ok" class="h-3.5 w-3.5 accent-brand"
+                                               @change="nxPost('{{ route('admin.contents.review-ignore', $c) }}', { ignored: ok }).catch(() => {})">
+                                        <span x-text="ok ? '✓ ยืนยันลิงก์ปกติแล้ว' : 'ตรวจแล้ว ลิงก์ปกติ — ไม่ต้องเตือนอีก'"></span>
+                                    </label>
+                                @endif
+                            </div>
                         </td>
                         <td class="px-4 py-3">
                             <div class="flex items-center justify-end gap-2">

@@ -39,7 +39,9 @@ class MembershipController extends Controller
             'watch_reward_daily_cap' => ['required', 'integer', 'between:0,10000'],
         ]);
 
-        $this->m->saveConfig([
+        // mergeConfig (not saveConfig): keep the gold / vip / usdt slices that the
+        // payment admin page owns — this form only writes the promo/coin rules.
+        $this->m->mergeConfig([
             'referral' => [
                 'enabled' => $request->boolean('referral_enabled'),
                 'referee_pro_days' => (int) $data['referee_pro_days'],

@@ -34,6 +34,12 @@ Schedule::command('netwix:auto-import')
 Schedule::command('netwix:find-backups')
     ->dailyAt('05:30')->withoutOverlapping()->runInBackground();
 
+// Auto-watcher for real USDT (BSC) deposits: settle paid gold/Pro orders by
+// reading the chain via BscScan. Self-gates when payments are off / no wallet set,
+// so it's safe to always schedule. The "ตรวจสอบเดี๋ยวนี้" button verifies on demand.
+Schedule::command('usdt:watch')
+    ->everyMinute()->withoutOverlapping()->runInBackground();
+
 // Drains DownloadPreviewJob (queued when a viewer opens an un-mirrored title).
 Schedule::command('queue:work --stop-when-empty --max-time=55')
     ->everyMinute()->withoutOverlapping();

@@ -20,6 +20,18 @@ class WatchController extends Controller
             return view('frontend.locked-pro', ['content' => $content]);
         }
 
+        // VIP zone: needs a gold-unlock (or Pro). Fail-closed — same web-auth model as the adult gate.
+        if ($content->is_vip) {
+            $gold = app(\App\Services\GoldWallet::class);
+            if ($gold->vipAccess($request->user(), $content) === 'locked') {
+                return view('frontend.locked-vip', [
+                    'content' => $content,
+                    'cost' => $gold->vipCost($content),
+                    'gold' => (int) $request->user()->gold_coins,
+                ]);
+            }
+        }
+
         // Count the watch (deduped per viewer + title for 6h; same key as the app).
         $vkey = 'view:'.$content->id.':'.sha1((string) $request->ip());
         if (Cache::add($vkey, 1, now()->addHours(6))) {

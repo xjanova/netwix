@@ -22,6 +22,39 @@ window.nxPost = async function (url, body = {}) {
 };
 
 /**
+ * Like nxPost, but returns the parsed JSON body even on a 4xx (so a validation /
+ * business error like "เหรียญไม่พอ" reaches the UI instead of being thrown away).
+ * Only a real network failure rejects. Used by the wallet / VIP-unlock widgets.
+ */
+window.nxPostSoft = async function (url, body = {}) {
+    const token = document.querySelector('meta[name="csrf-token"]')?.content;
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': token,
+            'X-Requested-With': 'XMLHttpRequest',
+            Accept: 'application/json',
+        },
+        body: JSON.stringify(body),
+    });
+    try { return await res.json(); } catch (e) { return { success: false, error: 'เกิดข้อผิดพลาด' }; }
+};
+
+/**
+ * Draw a QR code into a <canvas> for the USDT deposit address (account top-up).
+ * qrcode is lazy-imported so it never weighs down pages that don't show a wallet.
+ * On any failure the visible address text stays as the fallback.
+ */
+window.nxRenderQr = async function (canvas, text, size = 190) {
+    if (!canvas || !text) return;
+    try {
+        const QR = (await import('qrcode')).default;
+        await QR.toCanvas(canvas, text, { width: size, margin: 1, color: { dark: '#0b0710', light: '#ffffff' } });
+    } catch (e) { /* leave the copyable address as the fallback */ }
+};
+
+/**
  * Start a preview clip from a RANDOM point (10–70% of its length) instead of always the top —
  * never the very start, never near the end. Used by every silent preview (poster cards + the
  * detail/hero background) so the same title looks different each time you land on it.
@@ -490,6 +523,95 @@ document.addEventListener('visibilitychange', () => {
             v.play?.().catch(() => {});
         }
     });
+});
+
+/**
+ * Account wallet widget: buy gold / Pro with USDT (creates an order, shows the
+ * address QR + exact amount, then polls the server which live-verifies on the
+ * BSC chain), plus the silver→gold converter and buy-Pro-with-gold. On any
+ * successful settlement it reloads so every server-rendered balance updates.
+ *   x-data="nxWallet(@js([...urls+config...]))"
+ */
+window.nxWallet = (cfg) => ({
+    cfg,
+    tab: 'gold',
+    usdtAmount: cfg.min_usdt || 1,
+    order: null,
+    poller: null,
+    creating: false,
+    checking: false,
+    done: false,
+    error: '',
+    copied: '',
+    convertGold: 1,
+    converting: false,
+    convertMsg: '',
+    convertErr: '',
+    buyingPro: false,
+
+    get goldPreview() {
+        const n = Math.floor((parseFloat(this.usdtAmount) || 0) * (cfg.per_usdt || 0));
+        return n > 0 ? n : 0;
+    },
+    get silverForConvert() {
+        const g = Math.max(0, parseInt(this.convertGold) || 0);
+        return Math.ceil(g * cfg.convert_rate * (1 + (cfg.convert_fee_pct || 0) / 100));
+    },
+
+    async createOrder(purpose) {
+        if (this.creating) return;
+        this.error = ''; this.done = false; this.creating = true;
+        try {
+            const body = purpose === 'gold' ? { purpose, usdt: parseFloat(this.usdtAmount) } : { purpose };
+            const r = await window.nxPostSoft(cfg.orderUrl, body);
+            if (!r || !r.success) { this.error = (r && r.error) || 'สร้างรายการไม่สำเร็จ'; return; }
+            this.order = r.order;
+            this.$nextTick(() => window.nxRenderQr(this.$refs.qr, this.order.qr));
+            this.startPoll();
+        } catch (e) { this.error = 'เกิดข้อผิดพลาด ลองใหม่อีกครั้ง'; }
+        finally { this.creating = false; }
+    },
+    startPoll() { this.stopPoll(); this.poller = setInterval(() => this.check(false), 8000); },
+    stopPoll() { if (this.poller) { clearInterval(this.poller); this.poller = null; } },
+    async check(manual) {
+        if (!this.order || this.checking || this.done) return;
+        this.checking = true;
+        try {
+            const url = cfg.statusUrl.replace('__REF__', encodeURIComponent(this.order.reference));
+            const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' } });
+            const d = await res.json();
+            if (d && d.order) {
+                this.order = d.order;
+                if (d.order.status === 'paid') { this.done = true; this.stopPoll(); setTimeout(() => location.reload(), 1800); }
+                else if (d.order.status === 'expired') { this.stopPoll(); this.error = 'รายการหมดอายุ กรุณาสร้างใหม่'; }
+            }
+        } catch (e) { /* transient — the poll retries */ }
+        finally { this.checking = false; }
+    },
+    cancelOrder() { this.stopPoll(); this.order = null; this.error = ''; this.done = false; },
+    copy(text, tag) { navigator.clipboard.writeText(text).then(() => { this.copied = tag; setTimeout(() => this.copied = '', 1500); }); },
+
+    async convert() {
+        if (this.converting) return;
+        this.convertErr = ''; this.convertMsg = ''; this.converting = true;
+        try {
+            const r = await window.nxPostSoft(cfg.convertUrl, { gold: parseInt(this.convertGold) || 0 });
+            if (r && r.success) { this.convertMsg = 'แปลงสำเร็จ! 🎉'; setTimeout(() => location.reload(), 1200); }
+            else { this.convertErr = (r && r.error) || 'แปลงไม่สำเร็จ'; }
+        } catch (e) { this.convertErr = 'เกิดข้อผิดพลาด'; }
+        finally { this.converting = false; }
+    },
+    async buyProGold() {
+        if (this.buyingPro) return;
+        this.buyingPro = true; this.error = '';
+        try {
+            const r = await window.nxPostSoft(cfg.buyProGoldUrl, {});
+            if (r && r.success) { setTimeout(() => location.reload(), 1000); }
+            else { this.error = (r && r.error) || 'ซื้อไม่สำเร็จ'; }
+        } catch (e) { this.error = 'เกิดข้อผิดพลาด'; }
+        finally { this.buyingPro = false; }
+    },
+    destroy() { this.stopPoll(); },
 });
 
 window.Alpine = Alpine;
