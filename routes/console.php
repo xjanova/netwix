@@ -26,10 +26,31 @@ Schedule::command('netwix:import wowdrama --limit=8 --sync')
 // Schedule::command('netwix:previews --limit=40')
 //     ->hourly()->withoutOverlapping()->runInBackground();
 
-// Daily auto top-up of new releases. Self-gates on the admin toggle `auto_import_enabled` (set on
-// /admin/import), so it's safe to always schedule — it no-ops when the admin has it off.
-Schedule::command('netwix:auto-import')
-    ->dailyAt('05:00')->withoutOverlapping()->runInBackground();
+// Daily auto top-up of new releases. Time + days are admin-configurable (Setting `auto_import_time` =
+// "HH:MM", `auto_import_days` = CSV of 0-6 where 0=Sun; empty = every day) on /admin/import. Reads are
+// cache-backed (Setting::map), so evaluating this every scheduler tick is cheap; wrapped so a DB blip
+// falls back to the 05:00-daily default instead of breaking every other scheduled task. Self-gates on
+// the `auto_import_enabled` toggle inside the command, so it's safe to always schedule.
+$aiTime = '05:00';
+$aiDays = '';
+try {
+    $aiTime = (string) (\App\Models\Setting::get('auto_import_time', '05:00') ?: '05:00');
+    $aiDays = (string) \App\Models\Setting::get('auto_import_days', '');
+} catch (\Throwable $e) {
+    // DB not ready (e.g. pre-migrate) → defaults
+}
+if (! preg_match('/^([01]?\d|2[0-3]):[0-5]\d$/', $aiTime)) {
+    $aiTime = '05:00';
+}
+$autoImport = Schedule::command('netwix:auto-import')
+    ->dailyAt($aiTime)->withoutOverlapping()->runInBackground();
+$aiDayList = array_values(array_filter(
+    array_map('intval', array_filter(explode(',', $aiDays), fn ($d) => trim($d) !== '')),
+    fn ($d) => $d >= 0 && $d <= 6,
+));
+if ($aiDayList) {
+    $autoImport->days($aiDayList);   // restrict to chosen weekdays; empty = every day
+}
 
 // Daily backup-link finder: re-source auto-suspended (un-playable) titles from another Halim pool
 // site and auto-republish. Self-gates on the admin toggle `backup_finder_enabled` (set on

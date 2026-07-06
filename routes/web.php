@@ -231,6 +231,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('import/sync/progress', [Admin\ImportController::class, 'syncProgress'])->name('import.sync.progress');
     Route::post('import/sync/stop', [Admin\ImportController::class, 'syncStop'])->name('import.sync.stop');
     Route::post('import/auto-toggle', [Admin\ImportController::class, 'autoToggle'])->name('import.auto-toggle');
+    Route::post('import/auto-schedule', [Admin\ImportController::class, 'autoSchedule'])->name('import.auto-schedule');
     Route::post('import/batch', [Admin\ImportController::class, 'batch'])->name('import.batch');
     Route::post('import/auto', [Admin\ImportController::class, 'auto'])->name('import.auto');
     Route::post('import', [Admin\ImportController::class, 'import'])->name('import.store');

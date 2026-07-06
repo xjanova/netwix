@@ -334,6 +334,31 @@ window.syncer = () => ({
     <a href="{{ route('admin.storage.index') }}" class="ml-auto text-xs text-brand hover:underline">ดูสถานะ →</a>
 </div>
 
+{{-- When the daily auto-import runs (drives netwix:auto-import via routes/console.php). --}}
+<div class="mb-5 nx-card p-4" x-data="{ days: @js(array_values($autoImportDays)) }">
+    <form method="POST" action="{{ route('admin.import.auto-schedule') }}" class="flex flex-wrap items-center gap-3 text-sm">
+        @csrf
+        <span class="font-semibold text-cream/80">⏰ เวลานำเข้าอัตโนมัติทุกวัน</span>
+        <input type="time" name="time" value="{{ $autoImportTime }}" required
+               class="rounded-md border border-white/10 bg-surface-2 px-2.5 py-1.5 outline-none focus:border-brand">
+        <span class="text-cream/45">เลือกวัน:</span>
+        <div class="flex flex-wrap gap-1.5">
+            @foreach (['0' => 'อา', '1' => 'จ', '2' => 'อ', '3' => 'พ', '4' => 'พฤ', '5' => 'ศ', '6' => 'ส'] as $d => $lbl)
+                <label class="cursor-pointer select-none rounded-md border px-2.5 py-1.5 transition"
+                       :class="days.includes('{{ $d }}') ? 'border-brand bg-white/10 text-cream font-semibold' : 'border-white/10 bg-white/5 text-cream/55'">
+                    <input type="checkbox" name="days[]" value="{{ $d }}" class="hidden" x-model="days">
+                    {{ $lbl }}
+                </label>
+            @endforeach
+        </div>
+        <span class="text-xs text-cream/40" x-show="days.length === 0" x-cloak>= ทุกวัน</span>
+        <button class="ml-auto btn-brand px-4 py-1.5 text-sm">บันทึกเวลา</button>
+    </form>
+    <p class="mt-2 text-xs text-cream/40">
+        ระบบจะดึง “หนังใหม่” จากทุกแหล่งตามเวลาที่ตั้ง แล้วนำเข้าเรื่องยอดนิยมที่ยังไม่มีในคลังโดยอัตโนมัติ (ใส่หมวด/แยกหนัง-ซีรีส์/เรื่องย่อให้เอง) — ทำงานเมื่อเปิดสวิตช์ “นำเข้าอัตโนมัติทุกวัน” ด้านบนเท่านั้น
+    </p>
+</div>
+
 @if ($titles->total() === 0)
     <div class="nx-card p-10 text-center text-cream/55">
         ยังไม่มีข้อมูลจาก {{ $currentSource?->displayName() }} — กด <span class="text-cream">⟳ ซิงค์แคตตาล็อก</span> ด้านบนมุมขวาเพื่อดึงรายการหนังก่อน

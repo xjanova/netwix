@@ -57,7 +57,33 @@ class ImportController extends Controller
             'duplicates' => $this->duplicateHints($titles->getCollection()),
             'pending' => SourceTitle::where('source', $sourceId)->notImported()->count(),
             'autoImport' => Setting::flag('auto_import_enabled', false),
+            'autoImportTime' => Setting::get('auto_import_time', '05:00'),
+            'autoImportDays' => array_values(array_filter(explode(',', (string) Setting::get('auto_import_days', '')), fn ($d) => $d !== '')),
         ]);
+    }
+
+    /** Save WHEN the daily auto-import runs (time + optional weekdays). Read back in routes/console.php. */
+    public function autoSchedule(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'time' => ['required', 'regex:/^([01]?\d|2[0-3]):[0-5]\d$/'],
+            'days' => ['array'],
+            'days.*' => ['integer', 'between:0,6'],
+        ]);
+
+        // Normalise "07:5" style input to zero-padded HH:MM.
+        [$h, $m] = array_pad(explode(':', $data['time']), 2, '00');
+        $time = sprintf('%02d:%02d', (int) $h, (int) $m);
+
+        Setting::write('auto_import_time', $time);
+        Setting::write('auto_import_days', implode(',', $data['days'] ?? []));
+
+        $days = $data['days'] ?? [];
+        $names = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+        sort($days);
+        $when = $days ? implode(',', array_map(fn ($d) => $names[$d] ?? $d, $days)) : 'ทุกวัน';
+
+        return back()->with('status', "ตั้งเวลานำเข้าอัตโนมัติแล้ว: {$when} เวลา {$time} น.");
     }
 
     /** Turn the daily auto-import (netwix:auto-import) on/off. */
