@@ -54,6 +54,17 @@ class EpisodeSourceController extends Controller
             return response()->json(['ready' => false, 'error' => 'no_source'], 404);
         }
 
+        // A manually FORCED backup (admin "บังคับอัพเดทลิ้งค์") dictates playback — including its KIND —
+        // over the primary. Every backup-pool site is HLS, so a forced backup means "play via the proxy"
+        // even if the primary is a signed-CDN (progressive) source. StreamController::resolve then picks
+        // the forced backup's stream first.
+        if ($episode->backup_forced && $episode->backup_source) {
+            $forced = $registry->get($episode->backup_source);
+            if ($forced && ! $forced->isProgressive()) {
+                return $this->hlsReady($episode);
+            }
+        }
+
         // HLS sources (wow-drama / any Halim site) play through the server-side proxy: it adds the
         // upstream Referer the browser can't send and rewrites the segment URLs. Without this a raw
         // .m3u8 is handed back and the browser can't fetch its Referer-gated segments (web won't play,

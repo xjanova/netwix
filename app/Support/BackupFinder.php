@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Content;
+use App\Services\Import\Contracts\BackupPoolSource;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
@@ -42,6 +43,11 @@ class BackupFinder
             if ($source->id() === $content->source) {
                 continue;
             }
+            // The AUTO finder matches by live title search; only the Halim sites have one (9.9nung's is
+            // DB-broken), so it's skipped here and used force-only via ForceLinkController.
+            if (! $source instanceof HalimSource) {
+                continue;
+            }
 
             $match = $this->matchOn($source, $content, $want);
             if ($match === null) {
@@ -62,6 +68,18 @@ class BackupFinder
         }
 
         return null;
+    }
+
+    /**
+     * Resolve a specific remote title on a specific pool site and verify it actually plays — used by
+     * the manual "บังคับอัพเดทลิ้งค์" admin flow, where the admin has already picked the site AND the exact
+     * matching title (so no title-matching here, unlike find()). Returns the playable stream or null.
+     */
+    public function resolveVerified(BackupPoolSource $source, string $sourceKey, string $ref = '1'): ?RemoteStream
+    {
+        $stream = $source->resolveByRef($sourceKey, $ref !== '' ? $ref : '1');
+
+        return ($stream !== null && $this->plays($stream)) ? $stream : null;
     }
 
     /** Best title match on one pool site by normalised-title equality, preferring the same year. */
@@ -152,7 +170,11 @@ class BackupFinder
             return $uri;
         }
         $p = parse_url($base);
-        $origin = ($p['scheme'] ?? 'https').'://'.($p['host'] ?? '');
+        $scheme = $p['scheme'] ?? 'https';
+        if (str_starts_with($uri, '//')) {          // protocol-relative (9.9nung segments on //vh006.xyz)
+            return $scheme.':'.$uri;
+        }
+        $origin = $scheme.'://'.($p['host'] ?? '');
         if (str_starts_with($uri, '/')) {
             return $origin.$uri;
         }

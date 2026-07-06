@@ -61,6 +61,7 @@ class ImportService
 
         $type = $this->resolveType($source, $st, $opts);
         $title = $st->displayTitle();
+        [$maturity, $isVip] = $this->resolveMaturity($st);
 
         $content = Content::updateOrCreate(
             ['source' => $st->source, 'source_key' => $st->source_key],
@@ -70,7 +71,8 @@ class ImportService
                 'type' => $type,
                 'synopsis' => $st->description,
                 'year' => $st->year,
-                'maturity' => '15+',
+                'maturity' => $maturity,
+                'is_vip' => $isVip,
                 'dub_type' => $st->dub_type ?: Content::guessDubType($title),
                 'match_score' => random_int(90, 99),
                 'rating' => round(random_int(78, 96) / 10, 1),
@@ -153,6 +155,27 @@ class ImportService
         if ($gid = VerticalGenre::guessId($title)) {
             $content->genres()->syncWithoutDetaching([$gid => ['is_primary' => true]]);
         }
+    }
+
+    /**
+     * Maturity + VIP for an imported title. A source can flag a title adult via `extra.adult` (9.9nung's
+     * "erotic" R18+ genre — see [App\Services\Import\Sources\NaayNungSource]); such titles import as
+     * 18+ (kids-hidden + Pro-gated) AND is_vip (VIP-premium zone) — owner rule 2026-07-06. Non-adult
+     * titles keep their existing rating/VIP on re-import (don't clobber an admin's manual bump), else
+     * default 15+.
+     *
+     * @return array{0:string,1:bool}  [maturity, is_vip]
+     */
+    private function resolveMaturity(SourceTitle $st): array
+    {
+        if (is_array($st->extra) && ! empty($st->extra['adult'])) {
+            return ['18+', true];
+        }
+
+        $existing = Content::where('source', $st->source)->where('source_key', $st->source_key)
+            ->first(['maturity', 'is_vip']);
+
+        return [$existing?->maturity ?: '15+', (bool) ($existing?->is_vip ?? false)];
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Services\Import\Sources;
 
+use App\Services\Import\Contracts\BackupPoolSource;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Services\Import\RemoteSeries;
@@ -22,7 +23,7 @@ use Illuminate\Support\Facades\Http;
  *
  * Streams are HLS, played through NetWix's server-side proxy ([StreamController]).
  */
-class HalimSource implements MediaSource, ProvidesSynopsis
+class HalimSource implements BackupPoolSource, MediaSource, ProvidesSynopsis
 {
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 

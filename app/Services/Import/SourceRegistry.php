@@ -2,9 +2,11 @@
 
 namespace App\Services\Import;
 
+use App\Services\Import\Contracts\BackupPoolSource;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Sources\HalimSource;
 use App\Services\Import\Sources\HalimSites;
+use App\Services\Import\Sources\NaayNungSource;
 use App\Services\Import\Sources\RongYokSource;
 use App\Services\Import\Sources\WowDramaSource;
 
@@ -15,7 +17,7 @@ class SourceRegistry
 
     public function __construct()
     {
-        $sources = [new RongYokSource, new WowDramaSource];
+        $sources = [new RongYokSource, new WowDramaSource, new NaayNungSource];
         // Every Halim-theme site (24-hdx, anime108, …) is the same engine + a config — see [HalimSites].
         foreach (HalimSites::all() as $config) {
             $sources[] = new HalimSource($config);
@@ -43,16 +45,18 @@ class SourceRegistry
     }
 
     /**
-     * The Halim sites flagged as an independent backup pool (own catalogue + own player CDN), used by
-     * [App\Support\BackupFinder] to re-source an un-playable title from another site.
+     * Sources flagged as an independent backup pool (own catalogue + own player CDN), used by
+     * [App\Support\BackupFinder] (auto) and [App\Http\Controllers\Admin\ForceLinkController] (manual)
+     * to (re)source a title's stream from another site. Includes the Halim sites AND the Dooplay/fembed
+     * site ([NaayNungSource]) — anything implementing [BackupPoolSource] and switched on.
      *
-     * @return array<string,HalimSource>
+     * @return array<string,BackupPoolSource>
      */
     public function backupPool(): array
     {
         return array_filter(
             $this->sources,
-            fn (MediaSource $s) => $s instanceof HalimSource && $s->isBackupPool(),
+            fn (MediaSource $s) => $s instanceof BackupPoolSource && $s->isBackupPool(),
         );
     }
 }

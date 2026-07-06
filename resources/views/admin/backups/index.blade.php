@@ -38,6 +38,9 @@
                     <div class="flex flex-wrap items-center gap-2">
                         <span class="truncate font-semibold">{{ $c->title }}</span>
                         <span class="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-cream/50">{{ ['series' => 'ซีรี่ส์', 'movie' => 'ภาพยนตร์', 'vertical' => 'แนวตั้ง'][$c->type] ?? $c->type }}</span>
+                        @if (!empty($forced[$c->id]))
+                            <span class="rounded-full bg-[#8b5cf6]/20 px-2 py-0.5 text-[11px] font-semibold text-[#c4a5ff]">🔒 บังคับโดยแอดมิน</span>
+                        @endif
                     </div>
                     <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-cream/45">
                         <span class="text-[#8b5cf6]">🔗 ลิ้งค์สำรองจาก <b class="text-cream/70">{{ $siteLabels[$c->id] ?? '—' }}</b></span>

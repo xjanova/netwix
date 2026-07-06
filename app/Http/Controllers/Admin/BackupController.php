@@ -26,16 +26,21 @@ class BackupController extends Controller
             ->orderByDesc('updated_at')
             ->paginate(30);
 
-        // content id → backup site display name (from the first backed-up episode's source).
+        // content id → backup site display name (from the first backed-up episode's source), and whether
+        // it was force-applied by an admin (backup_forced) vs. auto-sourced by the daily bot.
         $siteLabels = [];
+        $forced = [];
         foreach ($items as $c) {
-            $sid = optional($c->episodes->first())->backup_source;
+            $ep = $c->episodes->first();
+            $sid = optional($ep)->backup_source;
             $siteLabels[$c->id] = $sid ? ($this->registry->get($sid)?->displayName() ?? $sid) : '—';
+            $forced[$c->id] = (bool) optional($ep)->backup_forced;
         }
 
         return view('admin.backups.index', [
             'items' => $items,
             'siteLabels' => $siteLabels,
+            'forced' => $forced,
             'enabled' => Setting::flag('backup_finder_enabled', false),
             'poolNames' => collect($this->registry->backupPool())->map(fn ($s) => $s->displayName())->values()->all(),
         ]);

@@ -189,11 +189,17 @@ class StreamController extends Controller
         }
 
         $cached = Cache::remember("ep_raw:{$episode->id}", now()->addMinutes(10), function () use ($episode, $registry) {
-            // Primary source first; if its link is dead, fall back to a bot-applied backup stream on
-            // another Halim site (see App\Support\BackupFinder / netwix:find-backups).
-            $s = $this->resolveVia($registry, $episode->source, $episode->content->source_key ?? '', (string) $episode->source_ref);
-            if ($s === null && $episode->backup_source && $episode->backup_key) {
-                $s = $this->resolveVia($registry, $episode->backup_source, (string) $episode->backup_key, (string) ($episode->backup_ref ?: $episode->source_ref));
+            $hasBackup = $episode->backup_source && $episode->backup_key;
+            $backup = fn () => $this->resolveVia($registry, $episode->backup_source, (string) $episode->backup_key, (string) ($episode->backup_ref ?: $episode->source_ref));
+            $primary = fn () => $this->resolveVia($registry, $episode->source, $episode->content->source_key ?? '', (string) $episode->source_ref);
+
+            // A manually FORCED backup (admin "บังคับอัพเดทลิ้งค์") wins over the primary — try it first,
+            // even when the primary still resolves. Otherwise primary first, backup only as a fallback
+            // for a dead link (the netwix:find-backups bot's behaviour). Either way we still try the
+            // other source if the preferred one is momentarily down, so a title is never bricked.
+            $s = ($episode->backup_forced && $hasBackup) ? $backup() : $primary();
+            if ($s === null) {
+                $s = ($episode->backup_forced && $hasBackup) ? $primary() : ($hasBackup ? $backup() : null);
             }
 
             return $s ? ['kind' => $s->kind, 'url' => $s->url, 'referer' => $s->referer] : null;
@@ -293,9 +299,13 @@ class StreamController extends Controller
         if (str_starts_with($uri, 'http://') || str_starts_with($uri, 'https://')) {
             return $uri;
         }
+        $p = parse_url($base);
+        // Protocol-relative "//host/path" (e.g. 9.9nung/fembed segments on //vh006.xyz) → inherit scheme.
+        // Must be checked before the single-"/" case, which "//" also matches.
+        if (str_starts_with($uri, '//')) {
+            return ($p['scheme'] ?? 'https').':'.$uri;
+        }
         if (str_starts_with($uri, '/')) {
-            $p = parse_url($base);
-
             return ($p['scheme'] ?? 'https').'://'.($p['host'] ?? '').$uri;
         }
 

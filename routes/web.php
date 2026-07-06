@@ -218,6 +218,13 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('backups', [Admin\BackupController::class, 'index'])->name('backups.index');
     Route::post('backups/toggle', [Admin\BackupController::class, 'toggle'])->name('backups.toggle');
 
+    // "บังคับอัพเดทลิ้งค์หนัง" — search a title in our catalogue, pick one pool site, force its link on.
+    Route::get('force-link', [Admin\ForceLinkController::class, 'index'])->name('force-link.index');
+    Route::get('force-link/titles', [Admin\ForceLinkController::class, 'searchTitles'])->name('force-link.titles');
+    Route::get('force-link/site', [Admin\ForceLinkController::class, 'searchSite'])->name('force-link.site');
+    Route::post('force-link/apply', [Admin\ForceLinkController::class, 'apply'])->name('force-link.apply');
+    Route::post('force-link/clear', [Admin\ForceLinkController::class, 'clear'])->name('force-link.clear');
+
     Route::get('import', [Admin\ImportController::class, 'index'])->name('import.index');
     Route::post('import/sync', [Admin\ImportController::class, 'sync'])->name('import.sync');
     Route::post('import/auto-toggle', [Admin\ImportController::class, 'autoToggle'])->name('import.auto-toggle');
