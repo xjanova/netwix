@@ -43,10 +43,19 @@ class NaayNungSource implements BackupPoolSource, MediaSource, ProvidesSynopsis
     /** 9.9nung genre slug marking 18+ erotic content → imported as adult + VIP-premium. */
     private const ADULT_GENRE = 'erotic';
 
-    /** Genre archives scraped to build the catalogue (content genres — every title carries ≥1). */
+    /**
+     * Genre archives scraped to build the catalogue. Content genres first (they set the mapped NetWix
+     * genre name for a title seen there first), then the country/region archives — many titles are
+     * tagged ONLY by origin (Thai + inter are the biggest slices), so content genres alone miss them.
+     * The adult genre is LAST so its extra.adult flag wins on a title also listed under a normal genre.
+     */
     private const SCRAPE_GENRES = [
         'action', 'adventure', 'comedy', 'crime', 'drama', 'family', 'fantasy', 'history',
-        'horror', 'music', 'mystery', 'romance', 'sci-fi', 'thriller', 'war', 'biography', self::ADULT_GENRE,
+        'horror', 'music', 'mystery', 'romance', 'sci-fi', 'thriller', 'war', 'biography',
+        'animation', 'documentary', 'short', 'sport',
+        'thailand', 'inter', 'china', 'south-korea', 'japan', 'hong-kong', 'india',
+        'uk', 'united-kingdom', 'united-states', 'france', 'germany', 'spain', 'canada', 'australia',
+        self::ADULT_GENRE,
     ];
 
     /** 9.9nung genre slug → NetWix genre name (same target genres the Halim sources use). */
