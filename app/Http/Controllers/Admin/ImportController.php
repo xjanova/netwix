@@ -112,17 +112,52 @@ class ImportController extends Controller
             'max_pages' => ['nullable', 'integer', 'between:1,100'],
         ]);
         abort_unless($this->registry->has($data['source']), 404);
+        $source = $data['source'];
 
-        @set_time_limit(0);
+        // SINGLE-FLIGHT: only one sync per source may run at a time. A full catalogue sync can outrun
+        // Cloudflare's ~100s proxy timeout → the browser sees a failed request and (per the retry rule)
+        // fires another — while the first is STILL running server-side (set_time_limit был 0). That
+        // stacked into 5+ concurrent 30-minute scrapes hammering the source (incident 2026-07-06; no
+        // duplicate rows thanks to the (source,source_key) unique index, but crippling load + likely why
+        // the source throttled us). The lock makes a concurrent/retried sync return "busy" instantly
+        // instead of starting a second run. 30-min TTL auto-frees it if the worker is hard-killed.
+        $lock = Cache::lock('import:sync:'.$source, 1800);
+        if (! $lock->get()) {
+            $msg = 'กำลังซิงค์แหล่งนี้อยู่แล้ว กรุณารอให้รอบปัจจุบันเสร็จก่อน (ระบบกันการซิงค์ซ้อน)';
+            if ($request->expectsJson()) {
+                // 409 = non-retriable on the client → nxPostRetry stops instead of stacking more runs.
+                return response()->json(['ok' => false, 'retriable' => false, 'busy' => true, 'error' => $msg], 409);
+            }
+
+            return back()->withErrors(['sync' => $msg]);
+        }
+
+        // Bounded (not 0): if the browser has already given up (CF 524) we don't want this orphaned
+        // worker scraping for 30 min — cap it. sync() persists per page, so a capped run keeps its
+        // progress and a later run continues via upsert.
+        @set_time_limit(300);
         @ini_set('memory_limit', '512M');
 
-        $before = SourceTitle::where('source', $data['source'])->count();
         try {
-            $count = $this->importer->sync($data['source'], $data['max_pages'] ?? 30);
+            $before = SourceTitle::where('source', $source)->count();
+            $count = $this->importer->sync($source, $data['max_pages'] ?? 30);
+            $new = max(0, SourceTitle::where('source', $source)->count() - $before);
+
+            $msg = "ซิงค์แคตตาล็อกจาก {$this->registry->get($source)->displayName()} แล้ว ({$count} เรื่อง"
+                .($new > 0 ? " · ใหม่ {$new} เรื่อง" : ' · ไม่มีเรื่องใหม่').')';
+
+            if ($request->expectsJson()) {
+                return response()->json(['ok' => true, 'count' => $count, 'new' => $new, 'message' => $msg]);
+            }
+
+            return redirect()
+                ->route('admin.import.index', ['source' => $source])
+                ->with('status', $msg);
         } catch (ConnectionException $e) {
             // A dropped connection to the source is transient — signal it as retriable (HTTP 503) so the
             // admin UI re-runs the sync automatically (owner rule: retry, don't stop). sync() upserts
-            // per page, so a re-run resumes without duplicating anything.
+            // per page, so a re-run resumes without duplicating anything. The lock is released first (in
+            // finally), so the retry re-acquires cleanly.
             if ($request->expectsJson()) {
                 return response()->json(['ok' => false, 'retriable' => true, 'error' => 'เชื่อมต่อแหล่งต้นทางไม่ได้ชั่วคราว'], 503);
             }
@@ -134,19 +169,9 @@ class ImportController extends Controller
             }
 
             return back()->withErrors(['sync' => 'ซิงค์ไม่สำเร็จ: '.$e->getMessage()]);
+        } finally {
+            $lock->release();
         }
-        $new = max(0, SourceTitle::where('source', $data['source'])->count() - $before);
-
-        $msg = "ซิงค์แคตตาล็อกจาก {$this->registry->get($data['source'])->displayName()} แล้ว ({$count} เรื่อง"
-            .($new > 0 ? " · ใหม่ {$new} เรื่อง" : ' · ไม่มีเรื่องใหม่').')';
-
-        if ($request->expectsJson()) {
-            return response()->json(['ok' => true, 'count' => $count, 'new' => $new, 'message' => $msg]);
-        }
-
-        return redirect()
-            ->route('admin.import.index', ['source' => $data['source']])
-            ->with('status', $msg);
     }
 
     /**
