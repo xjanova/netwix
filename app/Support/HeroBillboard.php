@@ -106,7 +106,7 @@ class HeroBillboard
             // an unset source (the default) means whole-site random, which is what the owner wants.
             $src = (string) Setting::get('home_hero_source', '');
             if ($src === 'trending') {
-                return $base()->rankedByEngagement()->take(self::POOL)->get();
+                return $base()->trending()->take(self::POOL)->get();
             }
             if (str_starts_with($src, 'genre:')) {
                 $gid = (int) substr($src, 6);

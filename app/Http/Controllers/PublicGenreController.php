@@ -24,8 +24,8 @@ class PublicGenreController extends Controller
             ->whereHas('genres', fn ($g) => $g->where('genres.id', $genre->id))
             ->with('genres');
 
-        // Top hits banner (real engagement ranking).
-        $top = $inGenre()->rankedByEngagement()->take(3)->get();
+        // Top hits banner — hottest by view count (มาแรง).
+        $top = $inGenre()->trending()->take(3)->get();
 
         $q = $inGenre();
         if ($sort === 'views') {

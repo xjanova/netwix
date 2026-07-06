@@ -8,16 +8,19 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Personalised catalogue feed. Learns each profile's favourite genres from what
- * they watch / like / save, then serves those genres MORE often while still
- * mixing in the rest for discovery. Positions are a stable per-session shuffle
- * (seeded) so infinite-scroll pages never repeat or gap, and coverage spreads
- * evenly across the (large) catalogue.
+ * Personalised "แนะนำสำหรับคุณ" feed. Recommendations lean on two signals (owner: หนังแนะนำดูจาก
+ * ดาวคะแนน กับนิสัยการดูของคนคนนั้น): (1) the profile's VIEWING HABITS — its favourite genres learnt
+ * from what it watches / likes / saves — and (2) the title's STAR RATING (higher-rated float up).
+ * A seeded id-spread still mixes in the rest for discovery, and keeps infinite-scroll pages stable
+ * (no repeats/gaps) with even coverage across the (large) catalogue.
  */
 class Recommender
 {
-    /** How strongly a preferred-genre title is boosted vs the random spread (0-1000 scale). */
+    /** How strongly a preferred-genre (viewing-habit) title is boosted vs the random spread. */
     private const PREF_BOOST = 400;
+
+    /** How much a title's star rating (0-10) lifts it in the feed — × this per rating point. */
+    private const RATING_WEIGHT = 120;
 
     /** Odd LCG-style multiplier → good id spread; the seed shifts the whole sequence. */
     private const SPREAD_MULT = 1103515245;
@@ -59,10 +62,12 @@ class Recommender
         $seed = abs($seed) % 1000000;
         $mult = self::SPREAD_MULT;
         $boostScale = self::PREF_BOOST;
+        $ratingWeight = self::RATING_WEIGHT;
 
+        // Rank = viewing-habit boost + star rating + a seeded discovery spread.
         return Content::published()
             ->when($genreId, fn ($q) => $q->whereHas('genres', fn ($g) => $g->where('genres.id', $genreId)))
             ->with(['genres', 'previewEpisode'])
-            ->orderByRaw("($boost * $boostScale + ((contents.id * $mult + $seed) % 1000)) desc");
+            ->orderByRaw("($boost * $boostScale + COALESCE(contents.rating, 0) * $ratingWeight + ((contents.id * $mult + $seed) % 1000)) desc");
     }
 }

@@ -24,7 +24,7 @@ class HomeController extends Controller
         // adult (18+/20+) AND suspended titles off the landing — the Top 10 now links straight to the
         // public title pages, so every linked title must be a live, crawlable, non-adult one.
         $trending = Content::publicListing()
-            ->rankedByEngagement()
+            ->trending()
             ->with('genres')
             ->take(10)
             ->get();

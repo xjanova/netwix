@@ -40,7 +40,7 @@ class BrowseController extends Controller
             'title' => 'มาแรงตอนนี้',
             'en' => 'Trending Now',
             'ranked' => true,
-            'items' => Content::published()->rankedByEngagement()->with(['genres', 'previewEpisode'])->take(10)->get(),
+            'items' => Content::published()->trending()->with(['genres', 'previewEpisode'])->take(10)->get(),
         ];
 
         // My list
@@ -97,7 +97,7 @@ class BrowseController extends Controller
         }
         $rows[] = [
             'title' => 'อนิเมะมาแรง', 'en' => 'Trending Anime', 'ranked' => true,
-            'items' => Content::published()->where($isAnime)->rankedByEngagement()
+            'items' => Content::published()->where($isAnime)->trending()
                 ->with(['genres', 'previewEpisode'])->take(10)->get(),
         ];
 
@@ -307,7 +307,7 @@ class BrowseController extends Controller
             ->with(['genres', 'previewEpisode']);
 
         // Top 3 (ranking banner) + continue-watching within this genre.
-        $top = $inGenre()->rankedByEngagement()->take(3)->get();
+        $top = $inGenre()->trending()->take(3)->get();
         $continue = $inGenre()
             ->whereIn('id', $profile->watchProgress()->whereBetween('percent', [1, 94])
                 ->orderByDesc('last_watched_at')->pluck('content_id'))
@@ -358,7 +358,7 @@ class BrowseController extends Controller
         }
 
         // Trending strip first (curated top-N, not lazy).
-        $trending = Content::published()->type('vertical')->rankedByEngagement()
+        $trending = Content::published()->type('vertical')->trending()
             ->with(['genres', 'previewEpisode'])->withCount('episodes')->take(14)->get();
         if ($trending->isNotEmpty()) {
             $rows[] = ['title' => 'แนวตั้งมาแรง', 'en' => 'Trending Shorts', 'genre' => null, 'items' => $trending];

@@ -123,15 +123,13 @@ class Content extends Model
     }
 
     /**
-     * Rank by an engagement score so comments / ratings / likes actually move the
-     * charts, not just raw view count. Weights: views + likes×10 + comments×5 +
-     * avgStars×20.
+     * "มาแรง" ranking — hottest by raw VIEW COUNT first (owner: หนังมาแรงดูจากยอดวิวเป็นหลัก).
+     * Rating then id only break ties, so a brand-new 0-view title still orders by its star rating
+     * rather than insertion order. (Was an engagement composite; views now lead outright.)
      */
-    public function scopeRankedByEngagement(Builder $q): Builder
+    public function scopeTrending(Builder $q): Builder
     {
-        return $q->withCount(['likedBy', 'comments'])
-            ->withAvg('ratings', 'stars')
-            ->orderByRaw('(views + liked_by_count * 10 + comments_count * 5 + COALESCE(ratings_avg_stars, 0) * 20) desc');
+        return $q->orderByDesc('views')->orderByDesc('rating')->orderByDesc('id');
     }
 
     // ---- Accessors -----------------------------------------------------

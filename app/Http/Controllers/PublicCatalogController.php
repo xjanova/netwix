@@ -48,7 +48,7 @@ class PublicCatalogController extends Controller
         $sort = (string) $request->query('sort', 'random');
         $dir = $request->query('dir') === 'asc' ? 'asc' : 'desc';
 
-        $top = $this->base($key)->rankedByEngagement()->take(6)->get();
+        $top = $this->base($key)->trending()->take(6)->get();
 
         $q = $this->base($key);
         if ($sort === 'views') {
