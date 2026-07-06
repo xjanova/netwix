@@ -17,19 +17,32 @@
 <div class="mt-8 border-t border-white/10 pt-6">
     {{-- rating + share --}}
     <div class="flex flex-wrap items-center justify-between gap-4">
-        <div x-data="{ my: {{ $myRating }}, avg: {{ $ratingAvg }}, count: {{ $ratingCount }}, hover: 0, busy: false,
-                async rate(n) { if (this.busy) return; this.busy = true;
-                    try { const d = await nxPost('{{ route('content.rate', $content) }}', { stars: n });
-                        this.my = d.my_rating; this.avg = d.avg; this.count = d.count; } catch (e) {} finally { this.busy = false; } } }">
-            <div class="flex items-center gap-1">
-                <template x-for="n in 5" :key="n">
-                    <button type="button" @click="rate(n)" @mouseenter="hover = n" @mouseleave="hover = 0"
-                            class="text-2xl leading-none transition" :class="(hover || my) >= n ? 'text-gold' : 'text-cream/25'">★</button>
-                </template>
-                <span class="ml-2 text-sm text-cream/70"><span x-text="avg || '-'"></span> <span class="text-cream/45">(<span x-text="count"></span>)</span></span>
+        @auth
+            <div x-data="{ my: {{ $myRating }}, avg: {{ $ratingAvg }}, count: {{ $ratingCount }}, hover: 0, busy: false,
+                    async rate(n) { if (this.busy) return; this.busy = true;
+                        try { const d = await nxPost('{{ route('content.rate', $content) }}', { stars: n });
+                            this.my = d.my_rating; this.avg = d.avg; this.count = d.count; } catch (e) {} finally { this.busy = false; } } }">
+                <div class="flex items-center gap-1">
+                    <template x-for="n in 5" :key="n">
+                        <button type="button" @click="rate(n)" @mouseenter="hover = n" @mouseleave="hover = 0"
+                                class="text-2xl leading-none transition" :class="(hover || my) >= n ? 'text-gold' : 'text-cream/25'">★</button>
+                    </template>
+                    <span class="ml-2 text-sm text-cream/70"><span x-text="avg || '-'"></span> <span class="text-cream/45">(<span x-text="count"></span>)</span></span>
+                </div>
+                <p class="mt-1 text-[12px] text-brand-2" x-show="my > 0" x-cloak>ให้คะแนน <span x-text="my"></span> ดาว · แตะเพื่อแก้</p>
             </div>
-            <p class="mt-1 text-[12px] text-brand-2" x-show="my > 0" x-cloak>ให้คะแนน <span x-text="my"></span> ดาว · แตะเพื่อแก้</p>
-        </div>
+        @else
+            {{-- Guests see the score read-only; rating needs login. --}}
+            <div>
+                <div class="flex items-center gap-1">
+                    @for ($i = 1; $i <= 5; $i++)
+                        <span class="text-2xl leading-none {{ $i <= round($ratingAvg) ? 'text-gold' : 'text-cream/25' }}">★</span>
+                    @endfor
+                    <span class="ml-2 text-sm text-cream/70">{{ $ratingAvg ?: '-' }} <span class="text-cream/45">({{ $ratingCount }})</span></span>
+                </div>
+                <a href="{{ route('login') }}" class="mt-1 inline-block text-[12px] text-brand-2 hover:underline">เข้าสู่ระบบเพื่อให้คะแนน</a>
+            </div>
+        @endauth
 
         <div class="flex items-center gap-2" x-data="{ copied: false }">
             <span class="text-[13px] text-cream/45">แชร์</span>
@@ -55,14 +68,20 @@
                 try { const d = await nxPost('{{ route('content.comment', $content) }}', { body: this.body, 'cf-turnstile-response': ts });
                     this.list.unshift(d.comment); this.count = d.count; this.body = ''; window.turnstile && window.turnstile.reset(); } catch (e) {} finally { this.busy = false; } } }">
         <h3 class="mb-3 text-base font-semibold">ความคิดเห็น <span class="text-cream/45">(<span x-text="count"></span>)</span></h3>
-        <form @submit.prevent="post()" class="mb-4">
-            <div class="flex gap-2">
-                <input x-model="body" maxlength="500" placeholder="ร่วมพูดคุยเกี่ยวกับเรื่องนี้…"
-                       class="flex-1 rounded-lg border border-white/10 bg-surface-2 px-3.5 py-2.5 text-sm outline-none focus:border-brand">
-                <button type="submit" :disabled="busy || !body.trim()" class="btn-brand px-5 text-sm disabled:opacity-40">ส่ง</button>
-            </div>
-            @include('partials.turnstile')
-        </form>
+        @auth
+            <form @submit.prevent="post()" class="mb-4">
+                <div class="flex gap-2">
+                    <input x-model="body" maxlength="500" placeholder="ร่วมพูดคุยเกี่ยวกับเรื่องนี้…"
+                           class="flex-1 rounded-lg border border-white/10 bg-surface-2 px-3.5 py-2.5 text-sm outline-none focus:border-brand">
+                    <button type="submit" :disabled="busy || !body.trim()" class="btn-brand px-5 text-sm disabled:opacity-40">ส่ง</button>
+                </div>
+                @include('partials.turnstile')
+            </form>
+        @else
+            <a href="{{ route('login') }}" class="mb-4 flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-surface-2 px-3.5 py-3 text-sm text-cream/70 transition hover:border-brand hover:text-cream">
+                เข้าสู่ระบบเพื่อร่วมแสดงความคิดเห็น
+            </a>
+        @endauth
         <div class="flex flex-col gap-3.5">
             <template x-for="(c, i) in list" :key="i">
                 <div class="flex gap-3">

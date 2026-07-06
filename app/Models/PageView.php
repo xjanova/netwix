@@ -12,7 +12,7 @@ class PageView extends Model
 {
     public const UPDATED_AT = null;
 
-    protected $fillable = ['path', 'is_member', 'created_at'];
+    protected $fillable = ['path', 'is_member', 'source', 'created_at'];
 
     protected $casts = [
         'is_member' => 'boolean',

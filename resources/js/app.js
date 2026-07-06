@@ -28,14 +28,43 @@ window.nxPost = async function (url, body = {}) {
  */
 window.nxRandomSeek = function (v) {
     if (!v) return;
+    // Admin can disable random start-time site-wide (Setting: preview_random_seek). When off, previews
+    // play from the top (and nxPreviewLoop wraps back to 0). Absent flag → on (default).
+    if (window.nxRandomSeekEnabled === false) { v._nxSeekTo = 0; return; }
     const seek = () => {
         const d = v.duration;
         if (isFinite(d) && d > 6) {
-            try { v.currentTime = d * (0.1 + Math.random() * 0.6); } catch (e) {}
+            v._nxSeekTo = d * (0.1 + Math.random() * 0.6);   // remembered as the loop-back point
+            try { v.currentTime = v._nxSeekTo; } catch (e) {}
         }
     };
     if (isFinite(v.duration) && v.duration > 1) seek();
     else v.addEventListener('loadedmetadata', seek, { once: true });
+};
+
+/**
+ * Make an HLS-backed preview LOOP. hls.js feeds a movie's full-length stream through MediaSource,
+ * where the <video loop> attribute never fires (nothing wraps back to the start, and the movie is
+ * hours long so a hover never reaches its end) — so a movie preview would just play forward and
+ * never loop like the short, natively-looping series clips do. This replays a short window from the
+ * (random) start point over and over, giving movies the same looping-teaser feel. No-op for
+ * progressive MP4 clips — those already loop via the native `loop` attribute.
+ */
+window.nxPreviewLoop = function (v, seconds = 18) {
+    if (!v || !v._nxHls) return;                        // MP4 clips already loop natively
+    if (v._nxLoopOff) v._nxLoopOff();                   // tear down any previous wiring, then re-arm
+    const wrap = () => {
+        const start = v._nxSeekTo || 0;
+        if (v.currentTime - start >= seconds) { try { v.currentTime = start; } catch (e) {} }
+    };
+    const restart = () => { try { v.currentTime = v._nxSeekTo || 0; v.play?.().catch(() => {}); } catch (e) {} };
+    v.addEventListener('timeupdate', wrap);             // seconds-long window → jump back to the start
+    v.addEventListener('ended', restart);              // short/VOD streams that do end → restart
+    v._nxLoopOff = () => {
+        v.removeEventListener('timeupdate', wrap);
+        v.removeEventListener('ended', restart);
+        v._nxLoopOff = null;
+    };
 };
 
 /**
@@ -126,6 +155,49 @@ window.nxAttachVideo = async function (video, src, reportUrl = null) {
     video.addEventListener('playing', () => nxReport(true), { once: true });
     video.addEventListener('error', onCoErr);
     video.src = src;
+};
+
+/**
+ * ON-DEMAND episode cover: grab the CURRENT frame of a playing episode and POST it as the cover
+ * (first-capture-wins server-side — see EpisodeSourceController::captureThumb). Light + gradual: no
+ * server ffmpeg, no download — it's a frame the viewer already has. Only works when the canvas isn't
+ * tainted (our same-origin HLS proxy + the CORS mp4 that nxAttachVideo opts into); a cross-origin
+ * source throws and we skip. Near-black frames are rejected so covers aren't black.
+ */
+window.nxCaptureThumb = function (video, postUrl) {
+    if (!video || !postUrl || !video.videoWidth || video.readyState < 2) return false;
+    try {
+        const w = 640;
+        const h = Math.round(w * video.videoHeight / video.videoWidth) || 360;
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(video, 0, 0, w, h);
+        const px = ctx.getImageData(0, 0, w, h).data;     // throws on a tainted canvas → caught below
+        let sum = 0, n = 0;
+        for (let i = 0; i < px.length; i += 4 * 97) {      // sparse luminance sample
+            sum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; n++;
+        }
+        if (n && sum / n < 24) return false;               // near-black → skip, try again a bit later
+        const data = c.toDataURL('image/jpeg', 0.72);      // also throws if tainted
+        if (!data || data.length < 1200) return false;
+        window.nxPost(postUrl, { image: data }).catch(() => {});
+        return true;
+    } catch (e) {
+        return false;                                      // tainted / unsupported → silently skip
+    }
+};
+
+/**
+ * Called on the player's periodic tick: once a viewer is past the intro of an UNcovered episode, try
+ * to capture its cover once. Short clips (verticals) capture earlier so a 1-min drama still gets one.
+ */
+window.nxMaybeThumb = function (video, ep) {
+    if (!ep || ep.has || !ep.post || ep._thumbDone || !video || video.paused || !video.videoWidth) return;
+    const d = video.duration || 0;
+    const thr = (d && d < 120) ? Math.max(8, d * 0.2) : 40;   // past the intro, not too late
+    if ((video.currentTime || 0) < thr) return;
+    if (window.nxCaptureThumb(video, ep.post)) { ep._thumbDone = true; ep.has = true; }
 };
 
 /**

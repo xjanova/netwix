@@ -14,6 +14,7 @@
         ['route' => 'admin.import.index', 'label' => 'นำเข้าหนัง'],
         ['route' => 'admin.storage.index', 'label' => 'จัดเก็บสื่อ'],
         ['route' => 'admin.thumbs.index', 'label' => 'สร้างปกตอน'],
+        ['route' => 'admin.clips.index', 'label' => 'ตัดคลิป → เฟซบุ๊ก'],
         ['route' => 'admin.genres.index', 'label' => 'หมวดหมู่'],
         ['route' => 'admin.announcements.index', 'label' => 'ข่าวสารหน้าแรก'],
         ['route' => 'admin.comments.index', 'label' => 'ความคิดเห็น'],

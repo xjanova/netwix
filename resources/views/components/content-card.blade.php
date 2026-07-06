@@ -40,10 +40,13 @@
                     try {
                         const d = await fetch(v.dataset.resolve, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json());
                         if (! this.playing || ! d || ! d.ready || ! d.url) return;
-                        window.nxAttachVideo(v, d.url);            // handles HLS via hls.js
+                        await window.nxAttachVideo(v, d.url);      // handles HLS via hls.js
+                        // Left the card while hls.js was loading → don't leave a stream buffering unwatched.
+                        if (! this.playing) { if (v._nxHls) { try { v._nxHls.destroy(); } catch (e) {} v._nxHls = null; } return; }
                     } catch (e) { return; }
                 }
                 window.nxRandomSeek(v);                              // start from a random point, not the top
+                window.nxPreviewLoop(v);                             // movies (HLS) loop a short window, like the series clips
                 v.play().then(() => { if (this.playing) this.hv = true; })  // crossfade once a frame paints
                         .catch(() => {});
             }, 180);
@@ -54,6 +57,7 @@
             this.hv = false;
             const v = this.$refs.clip;
             if (v) {
+                if (v._nxLoopOff) v._nxLoopOff();          // stop the loop watcher
                 if (v._nxHls) { try { v._nxHls.destroy(); } catch (e) {} v._nxHls = null; }
                 v.pause(); v.removeAttribute('src'); v.load(); v._nxResolved = false; // free + allow re-resolve
             }

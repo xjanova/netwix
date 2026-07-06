@@ -64,9 +64,32 @@ return [
         'email' => env('SUPPORT_EMAIL', 'support@netwix.online'),
     ],
 
-    // ffmpeg (static build on the box) — grabs a frame as the episode cover.
+    // ffmpeg (static build on the box) — grabs a frame as the episode cover AND cuts
+    // marketing clips (App\Support\ClipMaker).
+    //   font     — absolute path to a .ttf that supports Thai (e.g. a Noto/Sarabun file
+    //              uploaded to the box). Only when set + present does ClipMaker burn the
+    //              CTA onto the clip; otherwise it degrades to no overlay (never breaks).
+    //   clip_cta — the burned-in call-to-action text on each clip.
     'ffmpeg' => [
         'bin' => env('FFMPEG_BIN', '/home/admin/bin/ffmpeg'),
+        'font' => env('FFMPEG_FONT', ''),
+        'clip_cta' => env('FFMPEG_CLIP_CTA', 'ดูเต็มเรื่องฟรี · แอป NetWix'),
+    ],
+
+    // AI caption writer for marketing clips (App\Support\CaptionWriter). The LLM only
+    // writes the creative hook; the CTA line, app link and hashtags are always appended
+    // deterministically by code so they can never be wrong or missing.
+    //   driver   — 'groq' | 'openai' (any OpenAI-compatible chat API) | 'template' (no key,
+    //              a solid rotating template — the graceful default so Phase 2 works today).
+    //   app_url  — the "download the app" link put in every caption; falls back to /download.
+    'caption' => [
+        'driver' => env('CAPTION_DRIVER', 'template'),
+        'api_key' => env('CAPTION_API_KEY', ''),
+        'model' => env('CAPTION_MODEL', 'llama-3.3-70b-versatile'),
+        'base_url' => env('CAPTION_BASE_URL', 'https://api.groq.com/openai/v1'),
+        'app_url' => env('CAPTION_APP_URL', ''),
+        'hashtags' => env('CAPTION_HASHTAGS', '#หนังฟรี #ดูหนังออนไลน์ #NetWix #ซีรีส์ #หนังใหม่'),
+        'lucky_line' => env('CAPTION_LUCKY_LINE', 'โหลดแอปเลย ดูฟรียาวๆ + ลุ้นรับโชคทุกสัปดาห์ 🎁'),
     ],
 
 ];

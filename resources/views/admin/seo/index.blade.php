@@ -54,7 +54,12 @@
             <div class="rounded-lg bg-white/[0.03] p-3.5">
                 <div class="text-[12px] text-cream/50">หน้าที่ Google เก็บได้</div>
                 <div class="mt-1 text-2xl font-bold">{{ number_format($health['indexable']) }}</div>
-                <div class="text-[11px] text-cream/40">{{ number_format($health['titles']) }} เรื่อง · {{ $health['genres'] }} หมวด</div>
+                <div class="text-[11px] text-cream/40">{{ number_format($health['publicTitles']) }} เรื่อง · {{ $health['genresPublic'] }} หมวด</div>
+            </div>
+            <div class="rounded-lg bg-white/[0.03] p-3.5">
+                <div class="text-[12px] text-cream/50">พร้อม Rich Result</div>
+                <div class="mt-1 text-2xl font-bold text-success">{{ number_format($health['richReady']) }}</div>
+                <div class="text-[11px] text-cream/40">มีครบทั้งเรื่องย่อ+โปสเตอร์+แนว</div>
             </div>
             <div class="rounded-lg bg-white/[0.03] p-3.5">
                 <div class="text-[12px] text-cream/50">ขาดเรื่องย่อ (description อ่อน)</div>
@@ -67,12 +72,109 @@
                 <div class="text-[11px] text-cream/40">ภาพตอนแชร์ลิงก์</div>
             </div>
             <div class="rounded-lg bg-white/[0.03] p-3.5">
+                <div class="text-[12px] text-cream/50">ขาดแนว (genre)</div>
+                <div class="mt-1 text-2xl font-bold {{ $health['missingGenre'] ? 'text-[#ffb457]' : 'text-success' }}">{{ number_format($health['missingGenre']) }}</div>
+                <div class="text-[11px] text-cream/40">แนวช่วยจัดหมวด + JSON-LD</div>
+            </div>
+            <div class="rounded-lg bg-white/[0.03] p-3.5">
                 <div class="text-[12px] text-cream/50">ไฟล์มาตรฐาน</div>
                 <div class="mt-2 flex flex-col gap-1 text-[13px]">
                     <a href="{{ url('/sitemap.xml') }}" target="_blank" class="text-[#b026ff] hover:underline">sitemap.xml ↗</a>
                     <a href="{{ url('/robots.txt') }}" target="_blank" class="text-[#b026ff] hover:underline">robots.txt ↗</a>
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+{{-- Crawler activity: is Google / Bing / AI actually finding the pages? --}}
+<div class="nx-card mt-6 p-5">
+    <h3 class="text-base font-semibold">บอตค้นหาเก็บหน้า (30 วัน) <span class="text-[13px] font-normal text-cream/40">Google · Bing · GPTBot · Perplexity มาเก็บหน้าไหนบ้าง</span></h3>
+
+    <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        @foreach ($crawlerKpis as $k)
+            <div class="rounded-lg bg-white/[0.03] p-3.5">
+                <div class="text-[12px] text-cream/55">{{ $k['label'] }}</div>
+                <div class="mt-1 text-xl font-extrabold">{{ $k['value'] }}</div>
+            </div>
+        @endforeach
+    </div>
+
+    <div class="mt-5 grid gap-6 lg:grid-cols-2">
+        <div>
+            <h4 class="mb-3 text-sm font-semibold text-cream/70">แยกตามบอต</h4>
+            <div class="flex flex-col gap-3">
+                @forelse ($crawlerBots as $b)
+                    <div>
+                        <div class="mb-1.5 flex justify-between gap-3 text-[13px]">
+                            <span class="truncate">{{ $b['label'] }} <span class="text-cream/40">· ล่าสุด {{ $b['ago'] }}</span></span>
+                            <span class="shrink-0 text-cream/50">{{ number_format($b['value']) }}</span>
+                        </div>
+                        <div class="h-2.5 overflow-hidden rounded-full bg-white/[0.07]"><div class="h-full rounded-full nx-gradient" style="width:{{ $b['pct'] }}"></div></div>
+                    </div>
+                @empty
+                    <div class="rounded-lg bg-white/[0.02] py-8 text-center text-sm text-cream/45">ยังไม่มีบอตเข้ามาเก็บหน้า — ส่ง sitemap ใน Google Search Console แล้วรอ 1–3 วัน</div>
+                @endforelse
+            </div>
+        </div>
+        <div>
+            <h4 class="mb-3 text-sm font-semibold text-cream/70">หน้าที่บอตเก็บบ่อยสุด</h4>
+            <div class="flex flex-col gap-3">
+                @forelse ($topCrawled as $p)
+                    <div>
+                        <div class="mb-1.5 flex justify-between gap-3 text-[13px]"><span class="truncate">{{ $p['label'] }}</span><span class="shrink-0 text-cream/50">{{ number_format($p['value']) }}</span></div>
+                        <div class="h-2.5 overflow-hidden rounded-full bg-white/[0.07]"><div class="h-full rounded-full nx-gradient" style="width:{{ $p['pct'] }}"></div></div>
+                    </div>
+                @empty
+                    <div class="rounded-lg bg-white/[0.02] py-8 text-center text-sm text-cream/45">—</div>
+                @endforelse
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="mt-6 grid gap-4 lg:grid-cols-2">
+    {{-- Traffic sources --}}
+    <div class="nx-card p-5">
+        <h3 class="mb-4 text-base font-semibold">ที่มาของผู้เข้าชม (30 วัน) <span class="text-[13px] font-normal text-cream/40">มาจากช่องทางไหน</span></h3>
+        <div class="flex flex-col gap-3">
+            @forelse ($sources as $s)
+                <div>
+                    <div class="mb-1.5 flex justify-between gap-3 text-[13px]"><span class="truncate">{{ $s['label'] }}</span><span class="shrink-0 text-cream/50">{{ number_format($s['value']) }}</span></div>
+                    <div class="h-2.5 overflow-hidden rounded-full bg-white/[0.07]"><div class="h-full rounded-full nx-gradient" style="width:{{ $s['pct'] }}"></div></div>
+                </div>
+            @empty
+                <div class="py-6 text-center text-sm text-cream/45">ยังไม่มีข้อมูลที่มา — จะเริ่มเก็บเมื่อมีคนเข้าจากลิงก์ภายนอก</div>
+            @endforelse
+        </div>
+    </div>
+
+    {{-- On-site search: content gap --}}
+    <div class="nx-card p-5">
+        <h3 class="mb-1 text-base font-semibold">คนค้นหาอะไร (30 วัน)</h3>
+        <p class="mb-4 text-[12px] text-cream/45">คำที่ค้นแล้ว <b class="text-[#ffb457]">ไม่เจอผล</b> = ควรหามาลงเพิ่ม (ช่องว่างคอนเทนต์)</p>
+
+        @if ($gapSearches->isNotEmpty())
+            <div class="mb-4">
+                <div class="mb-2 text-[12px] font-semibold text-[#ffb457]">ค้นแล้วไม่เจอ (0 ผล)</div>
+                <div class="flex flex-wrap gap-2">
+                    @foreach ($gapSearches as $g)
+                        <span class="rounded-full border border-[#ffb457]/30 bg-[#ffb457]/10 px-3 py-1 text-[12px]">{{ $g->term }} <span class="text-cream/45">×{{ $g->hits }}</span></span>
+                    @endforeach
+                </div>
+            </div>
+        @endif
+
+        <div class="text-[12px] font-semibold text-cream/60">ค้นบ่อยสุด</div>
+        <div class="mt-2 flex flex-col gap-1.5">
+            @forelse ($topSearches as $t)
+                <div class="flex items-center justify-between gap-3 text-[13px]">
+                    <span class="truncate">{{ $t->term }}</span>
+                    <span class="shrink-0 text-cream/45">{{ $t->hits }} ครั้ง · {{ $t->results }} ผล</span>
+                </div>
+            @empty
+                <div class="py-6 text-center text-sm text-cream/45">ยังไม่มีการค้นหา</div>
+            @endforelse
         </div>
     </div>
 </div>

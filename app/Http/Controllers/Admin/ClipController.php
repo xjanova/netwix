@@ -1,0 +1,285 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Jobs\GenerateMarketingClip;
+use App\Models\Content;
+use App\Models\Episode;
+use App\Models\MarketingClip;
+use App\Support\CaptionWriter;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Illuminate\View\View;
+use Throwable;
+
+/**
+ * Marketing clip cutter. The admin picks a title/episode + a window (or asks for N
+ * auto-spaced clips); we create MarketingClip rows and enqueue GenerateMarketingClip
+ * jobs onto the `clips` queue (drained by the CLI workers — fpm can't spawn ffmpeg).
+ * The page then polls `list` (per-clip status + preview) and `progress` (live agents).
+ */
+class ClipController extends Controller
+{
+    private const TTL_HOURS = 12;
+
+    public function index(): View
+    {
+        $ready = MarketingClip::where('status', 'ready')->count();
+        $posted = MarketingClip::whereNotNull('posted_at')->count();
+
+        return view('admin.clips.index', compact('ready', 'posted'));
+    }
+
+    /** Title autocomplete (same shape as the cover generator). */
+    public function search(Request $request): JsonResponse
+    {
+        $term = trim((string) $request->query('q', ''));
+        if (mb_strlen($term) < 1) {
+            return response()->json(['items' => []]);
+        }
+        $items = Content::where('title', 'like', "%{$term}%")
+            ->withCount('episodes')->orderByDesc('episodes_count')->take(12)
+            ->get(['id', 'title'])
+            ->map(fn (Content $c) => ['id' => $c->id, 'title' => $c->title, 'episodes' => $c->episodes_count]);
+
+        return response()->json(['items' => $items]);
+    }
+
+    /** Episodes of a title, for the episode picker (shows length so a start makes sense). */
+    public function episodes(Content $content): JsonResponse
+    {
+        $items = $content->episodes()->orderBy('sort')
+            ->get(['id', 'number', 'title', 'duration_minutes'])
+            ->map(fn (Episode $e) => [
+                'id' => $e->id,
+                'number' => $e->number,
+                'title' => $e->title,
+                'minutes' => $e->duration_minutes,
+            ]);
+
+        return response()->json(['title' => $content->title, 'items' => $items]);
+    }
+
+    /**
+     * Create + enqueue one or more clips. Body:
+     *   content_id (req), episode_id (opt), duration, aspect, count (1-5), start (opt).
+     * With an explicit start → one clip there. Otherwise → `count` clips auto-spaced
+     * across the episode (skipping the intro/credits margins).
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'content_id' => ['required', 'integer', 'exists:contents,id'],
+            'episode_id' => ['nullable', 'integer', 'exists:episodes,id'],
+            'duration' => ['required', 'integer', 'min:5', 'max:180'],
+            'aspect' => ['required', 'in:9:16,1:1,16:9'],
+            'count' => ['nullable', 'integer', 'min:1', 'max:5'],
+            'start' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $episode = ! empty($data['episode_id'])
+            ? Episode::where('content_id', $data['content_id'])->find($data['episode_id'])
+            : Content::find($data['content_id'])?->episodes()->orderBy('sort')->first();
+
+        $starts = $this->pickStarts(
+            explicit: $request->filled('start') ? (int) $data['start'] : null,
+            count: (int) ($data['count'] ?? 1),
+            duration: (int) $data['duration'],
+            episodeMinutes: $episode?->duration_minutes,
+        );
+
+        $batch = 'c'.Str::random(9);
+        $this->openBatch($batch, count($starts));
+
+        foreach ($starts as $start) {
+            $clip = MarketingClip::create([
+                'content_id' => $data['content_id'],
+                'episode_id' => $episode?->id,
+                'start' => $start,
+                'duration' => $data['duration'],
+                'aspect' => $data['aspect'],
+                'status' => 'pending',
+                'batch_id' => $batch,
+            ]);
+            GenerateMarketingClip::dispatch($clip->id, $batch)->onQueue('clips');
+        }
+
+        return response()->json(['batch' => $batch, 'count' => count($starts)]);
+    }
+
+    /** Recent clips (newest first) for the gallery — polled while a batch runs. */
+    public function list(Request $request): JsonResponse
+    {
+        $clips = MarketingClip::with('content:id,title,slug', 'episode:id,number')
+            ->latest()->take(40)->get()
+            ->map(fn (MarketingClip $c) => [
+                'id' => $c->id,
+                'title' => $c->content?->title ?? '—',
+                'episode' => $c->episode?->number,
+                'start' => $c->start,
+                'duration' => $c->duration,
+                'aspect' => $c->aspect,
+                'status' => $c->status,
+                'error' => $c->error,
+                'file_url' => $c->file_url,
+                'poster_url' => $c->poster_url,
+                'caption' => $c->caption,
+                'scheduled_at' => $c->scheduled_at?->toDateTimeString(),
+                'posted_at' => $c->posted_at?->toDateTimeString(),
+            ]);
+
+        return response()->json(['clips' => $clips]);
+    }
+
+    /** Live batch progress + one entry per working agent. */
+    public function progress(Request $request): JsonResponse
+    {
+        $batch = (string) $request->query('batch', '');
+        $total = (int) Cache::get("clips:{$batch}:total", 0);
+        $proc = (int) Cache::get("clips:{$batch}:proc", 0);
+        $fail = (int) Cache::get("clips:{$batch}:fail", 0);
+
+        return response()->json([
+            'total' => $total,
+            'processed' => $proc,
+            'failed' => $fail,
+            'done' => $total > 0 && $proc >= $total,
+            'last' => Cache::get("clips:{$batch}:last"),
+            'agents' => $this->activeAgents(),
+        ]);
+    }
+
+    /** Edit the caption / schedule of a clip (used before posting). */
+    public function update(Request $request, MarketingClip $clip): JsonResponse
+    {
+        $data = $request->validate([
+            'caption' => ['nullable', 'string', 'max:5000'],
+            'scheduled_at' => ['nullable', 'date'],
+        ]);
+        $clip->update($data);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /** (Re)write the caption with the AI/template writer and save it. */
+    public function caption(MarketingClip $clip, CaptionWriter $writer): JsonResponse
+    {
+        $caption = $writer->for($clip);
+        $clip->update(['caption' => $caption]);
+
+        return response()->json(['caption' => $caption]);
+    }
+
+    /** Re-cut a failed/ready clip with its existing window. */
+    public function retry(MarketingClip $clip): JsonResponse
+    {
+        $batch = 'c'.Str::random(9);
+        $this->openBatch($batch, 1);
+        $clip->update(['status' => 'pending', 'error' => null, 'batch_id' => $batch]);
+        GenerateMarketingClip::dispatch($clip->id, $batch)->onQueue('clips');
+
+        return response()->json(['batch' => $batch]);
+    }
+
+    public function destroy(MarketingClip $clip): JsonResponse
+    {
+        foreach ([$clip->file_path, $clip->poster_path] as $path) {
+            if ($path) {
+                try {
+                    Storage::disk('public')->delete($path);
+                } catch (Throwable $e) {
+                    // best-effort file cleanup
+                }
+            }
+        }
+        $clip->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function stop(Request $request): JsonResponse
+    {
+        $batch = (string) $request->input('batch');
+        if ($batch !== '') {
+            Cache::put("clips:{$batch}:stop", true, now()->addHours(self::TTL_HOURS));
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    // ---- internals ---------------------------------------------------------
+
+    /**
+     * Decide the start timestamp(s). An explicit start wins (single clip). Otherwise
+     * spread `count` clips evenly across the watchable middle of the episode — skip the
+     * first/last ~8% so we don't clip the intro card or the end credits. Falls back to a
+     * safe fixed ladder when the episode length is unknown.
+     *
+     * @return array<int, int>  seconds
+     */
+    private function pickStarts(?int $explicit, int $count, int $duration, ?int $episodeMinutes): array
+    {
+        if ($explicit !== null) {
+            return [$explicit];
+        }
+        $count = max(1, min(5, $count));
+        $total = $episodeMinutes ? $episodeMinutes * 60 : 0;
+
+        if ($total < $duration + 60) {
+            // Unknown/short length → a conservative ladder from the 2-minute mark.
+            return array_map(fn ($i) => 120 + $i * ($duration + 90), range(0, $count - 1));
+        }
+
+        $margin = (int) round($total * 0.08);
+        $lo = $margin;
+        $hi = max($lo + $duration, $total - $margin - $duration);
+        if ($count === 1) {
+            return [(int) round(($lo + $hi) / 2)];   // one clip → the middle
+        }
+        $step = ($hi - $lo) / ($count - 1);
+
+        return array_map(fn ($i) => (int) round($lo + $i * $step), range(0, $count - 1));
+    }
+
+    private function openBatch(string $batch, int $total): void
+    {
+        $ttl = now()->addHours(self::TTL_HOURS);
+        Cache::put("clips:{$batch}:total", $total, $ttl);
+        Cache::put("clips:{$batch}:proc", 0, $ttl);
+        Cache::put("clips:{$batch}:fail", 0, $ttl);
+        Cache::forget("clips:{$batch}:stop");
+    }
+
+    /** Currently-working agents from the shared activity hash (drops stale PIDs). */
+    private function activeAgents(): array
+    {
+        $agents = [];
+        try {
+            $raw = Redis::hgetall('netwix:clips:agents') ?: [];
+            $now = time();
+            $stale = [];
+            foreach ($raw as $pid => $json) {
+                $a = json_decode((string) $json, true);
+                if (! is_array($a) || $now - (int) ($a['ts'] ?? 0) > 12) {
+                    $stale[] = $pid;
+
+                    continue;
+                }
+                $agents[] = ['label' => $a['label'] ?? '—', 'done' => (int) ($a['done'] ?? 0)];
+            }
+            if ($stale) {
+                Redis::hdel('netwix:clips:agents', ...$stale);
+            }
+            usort($agents, fn ($x, $y) => $y['done'] <=> $x['done']);
+        } catch (Throwable $e) {
+            // best-effort
+        }
+
+        return $agents;
+    }
+}

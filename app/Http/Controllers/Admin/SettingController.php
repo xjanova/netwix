@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Genre;
 use App\Models\Setting;
 use App\Services\AppRelease;
+use App\Support\HeroBillboard;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -32,8 +33,12 @@ class SettingController extends Controller
             'turnstile_site_key' => Setting::get('turnstile_site_key'),
             'hasTurnstileSecret' => filled(Setting::get('turnstile_secret')),
             // Home hero billboard: which titles rotate — 'featured' or 'genre:<id>'.
-            'home_hero_source' => Setting::get('home_hero_source', 'featured'),
+            'home_hero_source' => Setting::get('home_hero_source', ''),   // '' = whole site (owner default)
             'home_hero_seconds' => (int) Setting::get('home_hero_seconds', 8),
+            // Random start-time for hover/preview clips (poster cards + title-modal background + billboard).
+            'previewRandomSeek' => Setting::flag('preview_random_seek', true),
+            // Master kill-switch for the billboard VIDEO layer (off = static rotating backdrops only).
+            'previewBillboard' => Setting::flag('preview_billboard_enabled', true),
             'genres' => Genre::orderBy('sort')->get(['id', 'name']),
         ]);
     }
@@ -67,6 +72,15 @@ class SettingController extends Controller
 
         // Registration mode toggle (checkbox → keep email/password sign-up or go social-only).
         Setting::write('email_registration_enabled', $request->boolean('email_registration_enabled') ? '1' : '0');
+
+        // Random start-time for preview clips (unchecked → previews always start from the top).
+        Setting::write('preview_random_seek', $request->boolean('preview_random_seek') ? '1' : '0');
+
+        // Billboard video kill-switch (unchecked → rotating backdrops only, no stream resolved).
+        Setting::write('preview_billboard_enabled', $request->boolean('preview_billboard_enabled') ? '1' : '0');
+
+        // Hero pool/interval/kill-switch changed → drop the cached billboard payloads so it reflects now.
+        HeroBillboard::forget();
 
         // Secret fields are masked and never echoed, so the form ALWAYS submits them
         // empty. Laravel's ConvertEmptyStringsToNull turns that '' into null — so a

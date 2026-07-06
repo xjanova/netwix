@@ -99,19 +99,29 @@
             @endif
             <h2 class="mb-3 text-2xl font-extrabold drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)] sm:text-3xl">{{ $content->title }}</h2>
             <div class="flex flex-wrap items-center gap-2.5">
-                @if ($needsPro)
-                    <a href="{{ route('account') }}" class="flex items-center gap-2 rounded-md bg-gradient-to-r from-gold to-[#ffcf5a] px-5 py-2 font-bold text-black hover:brightness-95" title="เนื้อหาผู้ใหญ่ — เฉพาะสมาชิก Pro">
-                        👑 ปลดล็อกด้วย Pro
-                    </a>
+                @auth
+                    @if ($needsPro)
+                        <a href="{{ route('account') }}" class="flex items-center gap-2 rounded-md bg-gradient-to-r from-gold to-[#ffcf5a] px-5 py-2 font-bold text-black hover:brightness-95" title="เนื้อหาผู้ใหญ่ — เฉพาะสมาชิก Pro">
+                            👑 ปลดล็อกด้วย Pro
+                        </a>
+                    @else
+                        <a href="{{ route('watch', $content) }}" class="flex items-center gap-2 rounded-md bg-cream px-5 py-2 font-bold text-ink hover:brightness-90">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> เล่น
+                        </a>
+                    @endif
+                    <button type="button" @click="toggleList" class="flex h-10 w-10 items-center justify-center rounded-full border border-cream/50 bg-black/25 text-xl backdrop-blur hover:border-cream" title="รายการของฉัน">
+                        <span x-text="inList ? '✓' : '+'"></span>
+                    </button>
+                    <button type="button" @click="toggleLike" class="flex h-10 w-10 items-center justify-center rounded-full border border-cream/50 bg-black/25 text-lg backdrop-blur hover:border-cream" :style="liked ? 'color:#ff2d55' : ''" title="ถูกใจ">♥</button>
                 @else
-                    <a href="{{ route('watch', $content) }}" class="flex items-center gap-2 rounded-md bg-cream px-5 py-2 font-bold text-ink hover:brightness-90">
-                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> เล่น
+                    {{-- Guests can browse the detail page (SEO) but playback is login-gated. --}}
+                    <a href="{{ route('login') }}" class="flex items-center gap-2 rounded-md bg-cream px-5 py-2 font-bold text-ink hover:brightness-90">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> เข้าสู่ระบบเพื่อรับชม
                     </a>
-                @endif
-                <button type="button" @click="toggleList" class="flex h-10 w-10 items-center justify-center rounded-full border border-cream/50 bg-black/25 text-xl backdrop-blur hover:border-cream" title="รายการของฉัน">
-                    <span x-text="inList ? '✓' : '+'"></span>
-                </button>
-                <button type="button" @click="toggleLike" class="flex h-10 w-10 items-center justify-center rounded-full border border-cream/50 bg-black/25 text-lg backdrop-blur hover:border-cream" :style="liked ? 'color:#ff2d55' : ''" title="ถูกใจ">♥</button>
+                    <a href="{{ route('register') }}" class="flex items-center rounded-md border border-cream/50 bg-black/25 px-4 py-2 font-semibold text-cream backdrop-blur hover:border-cream">
+                        สมัครฟรี
+                    </a>
+                @endauth
             </div>
         </div>
     </div>

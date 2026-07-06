@@ -8,6 +8,7 @@
     $seoImage = trim($__env->yieldContent('meta_image')) ?: asset('assets/netwix-logo-full.png');
     $seoRobots = trim($__env->yieldContent('meta_robots')) ?: 'index,follow,max-image-preview:large,max-snippet:-1';
     $seoCanonical = trim($__env->yieldContent('meta_canonical')) ?: url()->current();
+    $ogType = trim($__env->yieldContent('og_type')) ?: 'website';
     $seoFullTitle = $seoTitle.' · NetWix';
     // Keyword set grounded in real Thai streaming search demand (both ซีรี่ย์/ซีรีส์ spellings
     // are searched heavily; include วาย, พากย์ไทย/ซับไทย, แนวตั้ง/โรงหยก, อนิเมะ). Google no longer
@@ -35,7 +36,7 @@
 <link rel="canonical" href="{{ $seoCanonical }}">
 
 {{-- Open Graph (Facebook, LINE, Messenger link previews) --}}
-<meta property="og:type" content="website">
+<meta property="og:type" content="{{ $ogType }}">
 <meta property="og:site_name" content="NetWix">
 <meta property="og:locale" content="th_TH">
 <meta property="og:title" content="{{ $seoFullTitle }}">
@@ -55,6 +56,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+{{-- Admin toggle for the random start-time of hover/preview clips (นับหนังตัวอย่างในแต่ละหมวด).
+     Off → every preview plays from the top; on/absent → random 10–70% seek (see nxRandomSeek). --}}
+<script>window.nxRandomSeekEnabled = @js(\App\Models\Setting::flag('preview_random_seek', true));</script>
 @vite(['resources/css/app.css', 'resources/js/app.js'])
 
 {{-- Structured data — gives Google + AI assistants (SGE, ChatGPT, etc.) a clean,
@@ -79,6 +83,15 @@
             'url' => url('/'),
             'inLanguage' => 'th-TH',
             'publisher' => ['@id' => url('/').'#organization'],
+            // Lets Google (and other engines) understand the site search entry point.
+            'potentialAction' => [
+                '@type' => 'SearchAction',
+                'target' => [
+                    '@type' => 'EntryPoint',
+                    'urlTemplate' => route('search').'?q={search_term_string}',
+                ],
+                'query-input' => 'required name=search_term_string',
+            ],
         ],
     ],
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) !!}

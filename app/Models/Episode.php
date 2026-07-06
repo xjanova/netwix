@@ -16,7 +16,7 @@ class Episode extends Model
         'backup_source', 'backup_key', 'backup_ref',
         'description', 'duration_minutes', 'video_url', 'thumbnail_path', 'sort',
         'mirrored_at', 'file_size', 'mirror_requested_at', 'mirror_requests', 'mirror_trigger',
-        'mirror_attempts', 'mirror_failed_at',
+        'mirror_attempts', 'mirror_failed_at', 'views',
     ];
 
     protected function casts(): array
@@ -25,6 +25,7 @@ class Episode extends Model
             'mirrored_at' => 'datetime',
             'mirror_requested_at' => 'datetime',
             'mirror_failed_at' => 'datetime',
+            'views' => 'integer',
         ];
     }
 

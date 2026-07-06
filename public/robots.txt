@@ -1,5 +1,7 @@
 User-agent: *
 Allow: /$
+Allow: /title
+Allow: /genre
 Allow: /download
 Allow: /help
 Allow: /privacy
@@ -11,11 +13,12 @@ Disallow: /api
 Disallow: /profiles
 Disallow: /browse
 Disallow: /watch
-Disallow: /title
-Disallow: /search
 Disallow: /stream
+Disallow: /account
+Disallow: /*?sort=
+Disallow: /*?page=
 
-# AI answer engines are welcome to read the public marketing pages.
+# AI answer engines are welcome to read the public catalog + marketing pages.
 User-agent: GPTBot
 Allow: /
 User-agent: OAI-SearchBot
@@ -23,6 +26,8 @@ Allow: /
 User-agent: PerplexityBot
 Allow: /
 User-agent: Google-Extended
+Allow: /
+User-agent: ClaudeBot
 Allow: /
 
 Sitemap: https://netwix.online/sitemap.xml

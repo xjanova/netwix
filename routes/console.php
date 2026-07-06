@@ -60,3 +60,14 @@ foreach ([110, 112, 114] as $maxTime) {
     Schedule::command("queue:work --queue=thumbs-now,thumbs --sleep=1 --max-time={$maxTime} --timeout=150 --memory=256 --tries=2")
         ->everyMinute()->withoutOverlapping(5)->runInBackground();
 }
+
+// Workers for the marketing clip cutter (GenerateMarketingClip). Same rule as the
+// cover workers: fpm can't spawn ffmpeg, so clips are cut here on the CLI. A clip is a
+// full re-encode (heavier + longer than a frame grab) and bursts of segment downloads
+// hit the source CDN, so a SMALLER pool of 2 agents is deliberate. Distinct --max-time
+// per agent = distinct command string = distinct withoutOverlapping mutex → both run in
+// parallel; --timeout=310 covers the job's 300s ceiling.
+foreach ([220, 224] as $maxTime) {
+    Schedule::command("queue:work --queue=clips --sleep=1 --max-time={$maxTime} --timeout=310 --memory=512 --tries=2")
+        ->everyMinute()->withoutOverlapping(5)->runInBackground();
+}

@@ -7,6 +7,7 @@ use App\Models\Genre;
 use App\Models\Profile;
 use App\Models\Setting;
 use App\Services\Recommender;
+use App\Support\HeroBillboard;
 use Illuminate\Support\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,12 +20,6 @@ class BrowseController extends Controller
         $profile = $this->profile($request);
         $animeIds = $this->animeGenreIds();
         $notAnime = fn ($q) => $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', $animeIds));
-
-        // Hero billboard — an admin-configurable pool (Setting home_hero_source = 'featured' or
-        // 'genre:<id>') that rotates on the client. Slide 0 is rendered server-side; the rest ride
-        // along as JSON for the rotator.
-        $heroPool = $this->heroPool($notAnime);
-        $hero = $heroPool->first();
 
         $rows = [];
 
@@ -71,10 +66,9 @@ class BrowseController extends Controller
         }
 
         return view('frontend.browse', [
-            'hero' => $hero,
-            'heroResolveUrl' => $this->heroResolveUrl($hero),
-            'heroSlides' => $this->heroSlides($heroPool),
-            'heroSeconds' => (int) Setting::get('home_hero_seconds', 8),
+            'heroSlides' => HeroBillboard::slides('all'),   // whole site (cached ~2 min, shared by all visitors)
+            'heroSeconds' => HeroBillboard::seconds(),
+            'heroVideo' => HeroBillboard::videoEnabled(),
             'rows' => $rows,
             'myListIds' => $this->myListIds($profile),
             'feedSeed' => random_int(1, 999999),
@@ -95,13 +89,6 @@ class BrowseController extends Controller
             ]);
         }
         $isAnime = fn ($q) => $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $animeIds));
-
-        $hero = Content::published()->where($isAnime)->where('is_featured', true)
-                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
-            ?? Content::published()->where($isAnime)
-                ->where(fn ($q) => $q->whereNotNull('trailer_youtube_id')->orWhereHas('previewEpisode'))
-                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
-            ?? Content::published()->where($isAnime)->with(['genres', 'previewEpisode'])->inRandomOrder()->first();
 
         $rows = [];
         // Continue watching first (anime only).
@@ -137,9 +124,9 @@ class BrowseController extends Controller
         }
 
         return view('frontend.browse', [
-            'hero' => $hero, 'heroResolveUrl' => $this->heroResolveUrl($hero),
-            'heroSlides' => $this->heroSlides($hero ? collect([$hero]) : collect()),
-            'heroSeconds' => 0,   // category pages show a single hero (autoplays ep1), no rotation
+            'heroSlides' => HeroBillboard::slides('anime'),   // rotates within อนิเมะ only
+            'heroSeconds' => HeroBillboard::seconds(),
+            'heroVideo' => HeroBillboard::videoEnabled(),
             'rows' => $rows, 'heading' => 'อนิเมะ / การ์ตูน',
             'myListIds' => $this->myListIds($profile),
         ]);
@@ -149,93 +136,6 @@ class BrowseController extends Controller
     private function animeGenreIds(): array
     {
         return Genre::whereIn('name', ['อนิเมะ', 'การ์ตูน'])->pluck('id')->all();
-    }
-
-    /**
-     * On-demand resolve URL for the hero's first episode, so the hero can stream a live preview
-     * (HLS anime108/wow-drama, or a signed rongyok mp4) muted in the background — no file stored.
-     * Null when the hero has a stored preview clip (used directly) or no playable episode.
-     */
-    private function heroResolveUrl(?Content $hero): ?string
-    {
-        if (! $hero || $hero->preview_url) {
-            return null;   // youtube/backdrop handled in the view; stored clip plays directly
-        }
-        $ep = $hero->episodes()->orderBy('season_id')->orderBy('sort')->orderBy('number')->first();
-
-        return ($ep && $ep->source) ? route('episode.source', $ep) : null;
-    }
-
-    /**
-     * The home hero pool. Admin picks the source via Setting `home_hero_source`:
-     *   'featured'   → titles ticked "แนะนำ" (is_featured)   [default]
-     *   'trending'   → top titles by engagement (มาแรงตอนนี้) — same ranking as the Trending row
-     *   'genre:<id>' → titles in that genre
-     * Up to 6 titles; falls back to anything showable so the hero is never blank.
-     */
-    private function heroPool(\Closure $notAnime): Collection
-    {
-        $source = (string) Setting::get('home_hero_source', 'featured');
-        $with = ['genres', 'previewEpisode', 'seasons'];
-        $base = fn () => Content::published()->where($notAnime)->with($with);
-
-        if ($source === 'trending') {
-            $pool = $base()->rankedByEngagement()->take(6)->get();
-        } elseif (str_starts_with($source, 'genre:')) {
-            $gid = (int) substr($source, 6);
-            $pool = $base()->whereHas('genres', fn ($g) => $g->where('genres.id', $gid))
-                ->inRandomOrder()->take(6)->get();
-        } else {
-            $pool = $base()->where('is_featured', true)->inRandomOrder()->take(6)->get();
-        }
-
-        if ($pool->isEmpty()) {
-            $pool = $base()
-                ->where(fn ($q) => $q->whereNotNull('backdrop_path')->orWhereNotNull('trailer_youtube_id')->orWhereHas('previewEpisode'))
-                ->inRandomOrder()->take(6)->get();
-        }
-
-        return $pool;
-    }
-
-    /** JSON slide data for the client-side hero rotator (everything the billboard needs per title). */
-    private function heroSlides(Collection $pool): array
-    {
-        return $pool->map(fn (Content $c) => [
-            'title' => $c->title,
-            'year' => $c->year,
-            'maturity' => $c->maturity,
-            'meta' => $c->type === 'movie' ? (($c->duration_minutes ?: 0).' นาที') : (($c->seasons->count() ?: 1).' ซีซั่น'),
-            'match' => $c->match_score,
-            'dub' => $c->dub_label,
-            'synopsis' => $c->synopsis,
-            'backdrop' => $c->backdrop_url,
-            'gradient' => $c->gradient,
-            'original' => (bool) $c->is_original,
-            'watch' => route('watch', $c),
-            'modal' => route('title.modal', $c),
-            'clip' => $c->preview_url,          // stored mp4 → cheap to loop over the backdrop; null otherwise
-            'resolve' => $this->slideResolveUrl($c),   // else stream ep1 live on demand (rongyok mp4 / HLS)
-        ])->values()->all();
-    }
-
-    /**
-     * On-demand resolve URL for a hero slide's episode 1, so a title WITHOUT a stored mp4 clip can
-     * still auto-play a live muted preview behind the billboard (anime108/wow-drama HLS or a signed
-     * rongyok mp4) — the same resolver the title pop-up uses. Uses the eager-loaded previewEpisode
-     * (no extra query). Null when a stored clip is used directly, or nothing's playable.
-     */
-    private function slideResolveUrl(Content $c): ?string
-    {
-        if ($c->preview_url) {
-            return null;   // stored clip plays directly — skip the resolve round-trip
-        }
-        $ep = $c->relationLoaded('previewEpisode') ? $c->getRelation('previewEpisode') : $c->previewEpisode;
-        if (! $ep) {
-            return null;
-        }
-
-        return ($ep->video_url || ($ep->source && $ep->source_ref)) ? route('episode.source', $ep) : null;
     }
 
     /** Personalised infinite-scroll feed page (JSON of rendered cards). */
@@ -365,11 +265,6 @@ class BrowseController extends Controller
         $animeIds = $this->animeGenreIds();
         $notAnime = fn ($q) => $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', $animeIds));
 
-        $hero = Content::published()->type($type)->where('is_featured', true)->where($notAnime)
-                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first()
-            ?? Content::published()->type($type)->where($notAnime)
-                ->with(['genres', 'previewEpisode'])->inRandomOrder()->first();
-
         $rows = [];
         $rowSeed = random_int(1, 999999);
 
@@ -391,10 +286,9 @@ class BrowseController extends Controller
         }
 
         return view('frontend.browse', [
-            'hero' => $hero,
-            'heroResolveUrl' => $this->heroResolveUrl($hero),
-            'heroSlides' => $this->heroSlides($hero ? collect([$hero]) : collect()),
-            'heroSeconds' => 0,   // category pages show a single hero (autoplays ep1), no rotation
+            'heroSlides' => HeroBillboard::slides($type),   // rotates within this type only
+            'heroSeconds' => HeroBillboard::seconds(),
+            'heroVideo' => HeroBillboard::videoEnabled(),
             'rows' => $rows,
             'heading' => $heading,
             'myListIds' => $this->myListIds($profile),

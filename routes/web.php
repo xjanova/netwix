@@ -11,8 +11,12 @@ use App\Http\Controllers\IngestController;
 use App\Http\Controllers\InteractionController;
 use App\Http\Controllers\PageController;
 use App\Http\Controllers\ProfileSelectionController;
+use App\Http\Controllers\PublicCatalogController;
+use App\Http\Controllers\PublicGenreController;
+use App\Http\Controllers\PublicTitleController;
 use App\Http\Controllers\Auth\SocialController;
 use App\Http\Controllers\SearchController;
+use App\Http\Controllers\SitemapController;
 use App\Http\Controllers\StreamController;
 use App\Http\Controllers\TitleController;
 use App\Http\Controllers\WatchController;
@@ -20,8 +24,31 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', [HomeController::class, 'index'])->name('home');
 
-// ---- SEO ---------------------------------------------------------------
-Route::get('/sitemap.xml', \App\Http\Controllers\SitemapController::class)->name('sitemap');
+// ---- SEO: sitemap index + typed children -------------------------------
+Route::get('/sitemap.xml', [SitemapController::class, 'index'])->name('sitemap');
+Route::get('/sitemap-pages.xml', [SitemapController::class, 'pages'])->name('sitemap.pages');
+Route::get('/sitemap-titles.xml', [SitemapController::class, 'titles'])->name('sitemap.titles');
+Route::get('/sitemap-genres.xml', [SitemapController::class, 'genres'])->name('sitemap.genres');
+
+// ---- Public catalog (crawlable; playback stays login-gated) ------------
+// The title + genre pages are the SEO surface: guests + Googlebot can read synopsis, poster, episode
+// list and rich JSON-LD, but pressing "เล่น" bounces to /login. Adult titles 404 here (see controllers).
+Route::middleware('throttle:120,1')->group(function () {
+    Route::get('/title/{content}', [PublicTitleController::class, 'show'])->name('title.show');
+    Route::get('/genre/{genre}', [PublicGenreController::class, 'show'])->name('browse.genre');
+
+    // Category hubs — populated & crawlable (rank the head terms "ดูหนัง/ซีรีส์/อนิเมะออนไลน์").
+    // NB: these list EVERY public title of the type (incl. anime-tagged), unlike the member type
+    // pages — an empty hub would be a thin page that hurts SEO. See PublicCatalogController.
+    Route::get('/movies', [PublicCatalogController::class, 'movies'])->name('browse.movies');
+    Route::get('/series', [PublicCatalogController::class, 'series'])->name('browse.series');
+    Route::get('/anime', [PublicCatalogController::class, 'anime'])->name('browse.anime');
+    Route::get('/vertical', [PublicCatalogController::class, 'vertical'])->name('browse.vertical');
+
+    // Public search — results page is noindex,follow; suggest feeds the nav type-ahead.
+    Route::get('/search', [SearchController::class, 'index'])->name('search');
+    Route::get('/api/search', [SearchController::class, 'suggest'])->name('search.suggest');
+});
 
 // ---- Public info pages (guests + members) ------------------------------
 Route::get('/download', [PageController::class, 'download'])->name('download');
@@ -84,17 +111,10 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::get('/browse', [BrowseController::class, 'home'])->name('browse');
     Route::get('/browse/feed', [BrowseController::class, 'feed'])->middleware('throttle:120,1')->name('browse.feed');
     Route::get('/browse/row', [BrowseController::class, 'row'])->middleware('throttle:180,1')->name('browse.row');
-    Route::get('/series', [BrowseController::class, 'series'])->name('browse.series');
-    Route::get('/movies', [BrowseController::class, 'movies'])->name('browse.movies');
-    Route::get('/anime', [BrowseController::class, 'anime'])->name('browse.anime');
-    Route::get('/vertical', [BrowseController::class, 'vertical'])->name('browse.vertical');
-    Route::get('/genre/{genre}', [BrowseController::class, 'genre'])->name('browse.genre');
+    // Category hubs (/series /movies /anime /vertical) + /search are now PUBLIC (see the public
+    // catalog group above). Members still get the personalised home at /browse and their my-list here.
     Route::get('/my-list', [BrowseController::class, 'myList'])->name('browse.mylist');
 
-    Route::get('/search', [SearchController::class, 'index'])->name('search');
-    Route::get('/api/search', [SearchController::class, 'suggest'])->name('search.suggest');
-
-    Route::get('/title/{content}', [TitleController::class, 'show'])->name('title.show');
     Route::get('/title/{content}/modal', [TitleController::class, 'modal'])->name('title.modal');
     Route::get('/watch/{content}/{episode?}', [WatchController::class, 'show'])->name('watch');
 
@@ -162,6 +182,21 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('thumbs/redo-failed', [Admin\ThumbController::class, 'redoFailed'])->name('thumbs.redo-failed');
     Route::get('thumbs/progress', [Admin\ThumbController::class, 'progress'])->name('thumbs.progress');
     Route::post('thumbs/stop', [Admin\ThumbController::class, 'stop'])->name('thumbs.stop');
+
+    // Marketing clip cutter (ffmpeg → FB-ready mp4), Facebook auto-post pipeline Phase 1.
+    // `store` enqueues GenerateMarketingClip jobs onto the `clips` queue (CLI workers);
+    // the page polls `list` (per-clip status/preview) + `progress` (live agents).
+    Route::get('clips', [Admin\ClipController::class, 'index'])->name('clips.index');
+    Route::get('clips/search', [Admin\ClipController::class, 'search'])->name('clips.search');
+    Route::get('clips/content/{content}/episodes', [Admin\ClipController::class, 'episodes'])->name('clips.episodes');
+    Route::get('clips/list', [Admin\ClipController::class, 'list'])->name('clips.list');
+    Route::get('clips/progress', [Admin\ClipController::class, 'progress'])->name('clips.progress');
+    Route::post('clips', [Admin\ClipController::class, 'store'])->name('clips.store');
+    Route::post('clips/stop', [Admin\ClipController::class, 'stop'])->name('clips.stop');
+    Route::put('clips/{clip}', [Admin\ClipController::class, 'update'])->name('clips.update');
+    Route::post('clips/{clip}/caption', [Admin\ClipController::class, 'caption'])->name('clips.caption');
+    Route::post('clips/{clip}/retry', [Admin\ClipController::class, 'retry'])->name('clips.retry');
+    Route::delete('clips/{clip}', [Admin\ClipController::class, 'destroy'])->name('clips.destroy');
 
     // Auto-suspended (un-playable) titles for review — re-publish or delete.
     Route::get('suspended', [Admin\SuspendedController::class, 'index'])->name('suspended.index');

@@ -16,10 +16,11 @@
     <div class="nx-card p-6">
         <div class="mb-4 flex items-center gap-2.5">
             <span class="text-xl">🎬</span>
-            <h3 class="text-base font-bold">หนังตัวอย่างหน้าแรก (แบนเนอร์ใหญ่)</h3>
+            <h3 class="text-base font-bold">หนังตัวอย่าง (แบนเนอร์ใหญ่ที่เล่นวนเอง)</h3>
         </div>
-        <label class="text-[13px] text-cream/60">เลือกว่าจะวนฉายเรื่องอะไรบนหน้าแรก
+        <label class="text-[13px] text-cream/60">หน้าแรกจะวนฉายเรื่องจากไหน <span class="text-cream/40">(หน้าหมวด เช่น ภาพยนตร์/ซีรีส์/อนิเมะ วนเฉพาะเรื่องในหมวดนั้นให้อัตโนมัติ)</span>
             <select name="home_hero_source" class="nx-input mt-1">
+                <option value="" @selected($home_hero_source === '' || $home_hero_source === null)>🌐 ทั้งเว็บ — สุ่มทุกเรื่อง (แนะนำ)</option>
                 <option value="featured" @selected($home_hero_source === 'featured')>เรื่องที่ติดธง “แนะนำ” (is_featured)</option>
                 <option value="trending" @selected($home_hero_source === 'trending')>🔥 มาแรงตอนนี้ (Trending Now)</option>
                 @foreach ($genres as $g)
@@ -27,13 +28,34 @@
                 @endforeach
             </select>
         </label>
-        <label class="mt-3 block text-[13px] text-cream/60">เปลี่ยนเรื่องทุกๆ กี่วินาที <span class="text-cream/40">(ใส่ 0 = ไม่วนเอง เปลี่ยนเฉพาะตอนเปิดหน้าใหม่)</span>
+        <label class="mt-3 block text-[13px] text-cream/60">เปลี่ยนเรื่องทุกๆ กี่วินาที <span class="text-cream/40">(ใช้กับแบนเนอร์ทุกหน้า · ใส่ 0 = ไม่วนเอง)</span>
             <input type="number" name="home_hero_seconds" min="0" max="60" value="{{ $home_hero_seconds }}" class="nx-input mt-1 w-32">
         </label>
         <p class="mt-2 text-[12.5px] leading-relaxed text-cream/50">
-            แบนเนอร์จะสุ่มหยิบสูงสุด 6 เรื่องจากที่เลือก แล้ววนฉายสลับทีละเรื่องตามเวลาที่ตั้ง ·
-            โหมด “แนะนำ” = ไปติ๊ก “แนะนำ” ให้เรื่องที่อยากโชว์ในหน้าแก้ไขเนื้อหา
+            สุ่มเรื่อง (สูงสุด 15) วนสลับทีละเรื่องตามเวลาที่ตั้ง · แต่ละเรื่องสุ่ม “ตอน” และสุ่ม “ฉาก” ทุกครั้งที่สลับ ·
+            เล่นบนหน้าแรก, หน้า Landing และหน้าหมวดใหญ่ (ภาพยนตร์/ซีรีส์/อนิเมะ/แนวตั้ง)
         </p>
+
+        <div class="mt-5 border-t border-white/10 pt-5">
+            <label class="flex cursor-pointer items-center gap-3">
+                <input type="checkbox" name="preview_billboard_enabled" value="1" @checked($previewBillboard) class="h-5 w-5 accent-brand">
+                <span class="text-sm font-semibold">เปิดวิดีโอตัวอย่างในแบนเนอร์</span>
+            </label>
+            <p class="mt-2 text-[12.5px] leading-relaxed text-cream/50">
+                ปิดช่องนี้ = แบนเนอร์ยังสลับภาพ + ข้อมูลตามปกติ แต่ “ไม่เล่นวิดีโอ” — ใช้ลดโหลดเซิร์ฟเวอร์เวลาคนเข้าพร้อมกันเยอะมากๆ
+            </p>
+        </div>
+
+        <div class="mt-5 border-t border-white/10 pt-5">
+            <label class="flex cursor-pointer items-center gap-3">
+                <input type="checkbox" name="preview_random_seek" value="1" @checked($previewRandomSeek) class="h-5 w-5 accent-brand">
+                <span class="text-sm font-semibold">สุ่มเวลาเล่นของหนังตัวอย่าง (สุ่มฉาก)</span>
+            </label>
+            <p class="mt-2 text-[12.5px] leading-relaxed text-cream/50">
+                เริ่มเล่นจากจุดสุ่ม (ช่วง 10–70% ของความยาว) แทนการเริ่มจากต้นทุกครั้ง — ใช้กับทั้งแบนเนอร์และการ์ดหนังที่ hover ·
+                ปิดช่องนี้ = เริ่มจากวินาทีแรกเสมอ
+            </p>
+        </div>
     </div>
 
     {{-- ============ GOOGLE ============ --}}

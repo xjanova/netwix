@@ -82,16 +82,16 @@ class StorageController extends Controller
         if ($bin === null) {
             return response()->json(['ok' => false, 'error' => 'invalid'], 422);
         }
-        $path = ImageStore::putWebp($bin, 'media/thumbs', (string) $episode->id, 720);
+        // Unique filename per save (see ImageStore::putCover) — a fresh PATH is the only reliable way
+        // to make Cloudflare/the browser show the new cover immediately; a same-name "?t=" overwrite
+        // kept serving the stale image. The old file is cleaned up.
+        $path = ImageStore::putCover($bin, 'media/thumbs', (string) $episode->id, $episode->thumbnail_path, 720);
         if ($path === null) {
             return response()->json(['ok' => false, 'error' => 'decode'], 422);
         }
-        // Store the full, cache-busted URL (same filename is reused, so ?t= forces Cloudflare/browser
-        // to fetch the new image). getThumbnailUrlAttribute passes http(s) URLs through as-is.
-        $url = Storage::disk('public')->url($path).'?t='.now()->timestamp;
-        $episode->update(['thumbnail_path' => $url]);
+        $episode->update(['thumbnail_path' => $path]);
 
-        return response()->json(['ok' => true, 'url' => $url]);
+        return response()->json(['ok' => true, 'url' => Storage::disk('public')->url($path)]);
     }
 
     /** Admin: set a title's poster (2:3) or backdrop (16:9) from a JPEG frame grabbed in the picker. */
@@ -107,14 +107,14 @@ class StorageController extends Controller
             return response()->json(['ok' => false, 'error' => 'invalid'], 422);
         }
         $max = $data['kind'] === 'poster' ? 1000 : 1600;
-        $path = ImageStore::putWebp($bin, 'media/posters', "{$content->id}-{$data['kind']}", $max);
+        $col = $data['kind'] === 'poster' ? 'poster_path' : 'backdrop_path';
+        $path = ImageStore::putCover($bin, 'media/posters', "{$content->id}-{$data['kind']}", $content->{$col}, $max);
         if ($path === null) {
             return response()->json(['ok' => false, 'error' => 'decode'], 422);
         }
-        $url = Storage::disk('public')->url($path).'?t='.now()->timestamp;
-        $content->update([($data['kind'] === 'poster' ? 'poster_path' : 'backdrop_path') => $url]);
+        $content->update([$col => $path]);
 
-        return response()->json(['ok' => true, 'url' => $url]);
+        return response()->json(['ok' => true, 'url' => Storage::disk('public')->url($path)]);
     }
 
     /** Admin: download every not-yet-stored episode of a title (progressive sources only). */

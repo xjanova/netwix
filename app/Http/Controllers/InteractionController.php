@@ -7,6 +7,8 @@ use App\Models\Episode;
 use App\Models\Profile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class InteractionController extends Controller
 {
@@ -39,6 +41,16 @@ class InteractionController extends Controller
         if (! empty($data['episode_id'])
             && ! Episode::where('id', $data['episode_id'])->where('content_id', $content->id)->exists()) {
             abort(422, 'ตอนไม่ตรงกับเรื่อง');
+        }
+
+        // Per-episode view: first real play of THIS episode per viewer (ip) + 6h — mirrors Content.views
+        // (WatchController). Only the real player posts progress, so previews can't inflate it. DB::table
+        // increment avoids bumping episodes.updated_at on every view.
+        if (! empty($data['episode_id'])) {
+            $vkey = 'view:ep:'.$data['episode_id'].':'.sha1((string) $request->ip());
+            if (Cache::add($vkey, 1, now()->addHours(6))) {
+                DB::table('episodes')->where('id', $data['episode_id'])->increment('views');
+            }
         }
 
         $this->profile($request)->watchProgress()->updateOrCreate(

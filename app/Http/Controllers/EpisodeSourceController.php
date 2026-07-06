@@ -129,7 +129,7 @@ class EpisodeSourceController extends Controller
         if ($bin === null) {
             return response()->json(['ok' => false, 'error' => 'invalid'], 422);
         }
-        $path = ImageStore::putWebp($bin, 'media/thumbs', (string) $episode->id, 640);
+        $path = ImageStore::putCover($bin, 'media/thumbs', (string) $episode->id, $episode->thumbnail_path, 640);
         if ($path === null) {
             return response()->json(['ok' => false, 'error' => 'decode'], 422);
         }

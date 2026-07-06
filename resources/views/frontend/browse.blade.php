@@ -2,137 +2,18 @@
 @section('title', $heading ?? 'หน้าแรก')
 
 @section('content')
-@if ($hero)
-    {{-- Other browse pages (anime / movies / series) render this same template with a single static
-         $hero and no pool — never let a missing $heroSlides 500 the page. --}}
-    @php $heroSlides ??= []; @endphp
-    {{-- Configurable rotating billboard: the pool + interval come from admin Settings (home_hero_source /
-         home_hero_seconds). Slide 0 is server-rendered (no flash / SEO); the rotator cross-fades the rest
-         and plays each slide's stored clip over its backdrop. seconds = 0 → no auto-rotate. --}}
-    <section class="relative h-[62vh] min-h-[440px] w-full overflow-hidden bg-black md:h-[82vh]"
-             x-data="heroRotator({ slides: @js($heroSlides), seconds: {{ (int) ($heroSeconds ?? 8) }} })" x-init="init()">
-        {{-- base gradient — never a black void before the backdrops paint --}}
-        <div class="absolute inset-0" style="background:{{ $hero->gradient }}"></div>
-
-        {{-- cross-fading backdrop layer per slide --}}
-        <template x-for="(s, i) in slides" :key="i">
-            <div class="absolute inset-0 transition-opacity duration-700 ease-out" :class="i === idx ? 'opacity-100' : 'opacity-0'">
-                <div class="absolute inset-0" :style="'background:' + s.gradient"></div>
-                <img :src="s.backdrop" x-show="s.backdrop" referrerpolicy="no-referrer" onerror="this.style.display='none'"
-                     class="absolute inset-0 h-full w-full object-cover object-top" alt="" aria-hidden="true">
-            </div>
-        </template>
-
-        {{-- current slide's stored clip plays over its backdrop (muted loop); backdrop shows when none --}}
-        <video x-ref="bg" muted loop playsinline preload="none" x-show="videoReady" x-cloak x-transition.opacity.duration.500ms
-               class="pointer-events-none absolute inset-0 h-full w-full object-cover object-top"></video>
-
-        <div class="absolute inset-0" style="background:linear-gradient(90deg, rgba(7,5,12,0.85) 0%, rgba(7,5,12,0.25) 45%, rgba(7,5,12,0.1) 65%, rgba(7,5,12,0.6) 100%)"></div>
-        <div class="absolute inset-0" style="background:linear-gradient(180deg, rgba(7,5,12,0.15) 0%, transparent 26%, transparent 55%, rgba(7,5,12,0.95) 96%, #07050c 100%)"></div>
-
-        <div class="absolute bottom-[11%] left-[4vw] right-[4vw] max-w-[640px]">
-            <div class="nx-gradient mb-4 inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[11.5px] font-bold tracking-widest" x-show="cur.original" x-cloak>NETWIX ORIGINAL</div>
-            <h1 class="mb-4 text-[clamp(30px,5.2vw,64px)] font-extrabold leading-[1.05] drop-shadow-lg" x-text="cur.title">{{ $hero->title }}</h1>
-            <div class="mb-4 flex flex-wrap items-center gap-3 text-[14.5px] text-cream/75">
-                <span class="font-bold text-success" x-text="cur.match + '% ตรงใจ'">{{ $hero->match_score }}% ตรงใจ</span>
-                <span x-text="cur.year">{{ $hero->year }}</span>
-                <span class="rounded border border-cream/40 px-1.5 py-px text-[12.5px]" x-text="cur.maturity">{{ $hero->maturity }}</span>
-                <span x-text="cur.meta">{{ $hero->type === 'movie' ? ($hero->duration_minutes.' นาที') : ($hero->seasons->count() ?: 1).' ซีซั่น' }}</span>
-                <template x-if="cur.dub"><span class="rounded px-1.5 py-px text-[12.5px] font-bold" :class="cur.dub === 'พากย์ไทย' ? 'bg-emerald-500/90 text-black' : 'bg-sky-500/90 text-black'" x-text="cur.dub"></span></template>
-            </div>
-            <p class="mb-6 max-w-xl text-[15.5px] leading-relaxed text-cream/85 drop-shadow line-clamp-3" x-text="cur.synopsis">{{ $hero->synopsis }}</p>
-            <div class="flex items-center gap-3.5">
-                <a :href="cur.watch" href="{{ route('watch', $hero) }}"
-                   class="flex items-center gap-2.5 rounded-md bg-cream px-7 py-3 text-base font-bold text-ink transition hover:brightness-90">
-                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> เล่น
-                </a>
-                <button type="button" @click="$dispatch('open-title', cur.modal)"
-                        class="flex items-center gap-2.5 rounded-md bg-[rgba(120,120,130,0.35)] px-6 py-3 text-base font-bold backdrop-blur transition hover:bg-[rgba(120,120,130,0.5)]">
-                    ⓘ ข้อมูลเพิ่มเติม
-                </button>
-            </div>
-        </div>
-
-        {{-- slide dots (only when the pool has more than one) --}}
-        <template x-if="slides.length > 1">
-            <div class="absolute bottom-5 right-[4vw] z-10 flex items-center gap-1.5">
-                <template x-for="(s, i) in slides" :key="i">
-                    <button type="button" @click="go(i)" :aria-label="'สไลด์ ' + (i + 1)"
-                            class="h-1.5 rounded-full transition-all duration-300" :class="i === idx ? 'w-6 bg-cream' : 'w-1.5 bg-cream/40 hover:bg-cream/70'"></button>
-                </template>
-            </div>
-        </template>
-    </section>
+{{-- Rotating "หนังตัวอย่าง" billboard — whole-site pool on the home, cached + shared across visitors.
+     See partials/hero-billboard.blade.php + App\Support\HeroBillboard. --}}
+@if (count($heroSlides ?? []))
+    @include('partials.hero-billboard', [
+        'heroSlides' => $heroSlides,
+        'heroSeconds' => $heroSeconds ?? 8,
+        'heroVideo' => $heroVideo ?? true,
+        'heroPublic' => false,
+    ])
 @else
     <div class="h-24"></div>
 @endif
-
-@push('scripts')
-<script>
-    function heroRotator(cfg) {
-        const slides = (cfg.slides && cfg.slides.length) ? cfg.slides : [];
-        return {
-            slides: slides,
-            seconds: cfg.seconds || 0,
-            idx: 0,
-            cur: slides[0] || {},   // plain reactive property (a getter isn't tracked by x-text)
-            videoReady: false,
-            _t: null,
-            _seq: 0,
-            init() {
-                if (!this.slides.length) return;
-                this.playClip();
-                this.arm();
-            },
-            arm() {
-                if (this._t) clearInterval(this._t);
-                // seconds = 0 → don't auto-rotate (the pool still gave a fresh random one this page load)
-                if (this.seconds > 0 && this.slides.length > 1) {
-                    this._t = setInterval(() => this.show((this.idx + 1) % this.slides.length), this.seconds * 1000);
-                }
-            },
-            go(i) { this.show(i); this.arm(); },   // a manual click restarts the countdown
-            show(i) {
-                if (i === this.idx || !this.slides[i]) return;
-                this.idx = i;
-                this.cur = this.slides[i];
-                this.playClip();
-            },
-            playClip() {
-                const v = this.$refs.bg;
-                if (!v) return;
-                const token = ++this._seq;         // any in-flight resolve for the old slide is now stale
-                this.videoReady = false;
-                try {
-                    v.pause();
-                    if (v._nxHls) { v._nxHls.destroy(); v._nxHls = null; }   // tear down a previous HLS loader
-                    v.removeAttribute('src');
-                    v.load();
-                } catch (e) {}
-                this.attach(this.cur, token);
-            },
-            async attach(slide, token) {
-                // A stored mp4 plays directly; otherwise resolve ep1 on demand (rongyok mp4 / anime108
-                // HLS) exactly like the title pop-up. The resolved url is memoised on the slide so the
-                // looping billboard never re-hits the resolver for a title it already prepared.
-                let url = slide.clip || slide._url;
-                if (!url && slide.resolve) {
-                    try {
-                        const r = await fetch(slide.resolve, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                        const d = await r.json();
-                        if (d && d.ready && d.url) url = slide._url = d.url;
-                    } catch (e) {}
-                }
-                const v = this.$refs.bg;
-                if (!v || !url || token !== this._seq) return;   // nothing to play, or the slide moved on
-                v.muted = true;
-                window.nxAttachVideo(v, url);      // handles HLS (lazy hls.js) + progressive mp4
-                v.play?.().then(() => { if (token === this._seq) this.videoReady = true; }).catch(() => {});
-            },
-        };
-    }
-</script>
-@endpush
 
 <div class="relative z-10 -mt-16 pb-10">
     @isset($heading)

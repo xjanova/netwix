@@ -36,6 +36,7 @@
                         <span class="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-cream/50" title="ยังไม่ได้ดาวน์โหลดมาเก็บ">○ ต้นทาง</span>
                     @endif
                     <span class="text-xs text-cream/45">{{ $ep->duration_label }}</span>
+                    <span class="text-xs text-cream/45" title="ยอดวิวตอนนี้ (นับจากคนที่กดดูจริง 1 ครั้ง/คน/6 ชม.)">👁 {{ number_format($ep->views ?? 0) }}</span>
                     @php
                         $thumbSrc = $ep->video_url
                             ?: ($ep->source

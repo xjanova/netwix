@@ -6,6 +6,14 @@
 {{-- no bg-ink here: <html> carries the base ink so the ambient #nx-dream fibers show through --}}
 <div class="text-cream">
 
+    {{-- ============ ROTATING BILLBOARD (whole-site หนังตัวอย่าง) ============ --}}
+    @include('partials.hero-billboard', [
+        'heroSlides' => $heroSlides ?? [],
+        'heroSeconds' => $heroSeconds ?? 8,
+        'heroVideo' => $heroVideo ?? true,
+        'heroPublic' => true,
+    ])
+
     {{-- ================= HERO ================= --}}
     <section class="relative overflow-hidden">
         {{-- base brand glow --}}

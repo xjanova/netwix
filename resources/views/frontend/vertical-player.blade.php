@@ -211,6 +211,10 @@
                     const v = this.$refs.video;
                     if (!v || v.readyState < 2) return;
                     try { ctx.drawImage(v, 0, 0, c.width, c.height); } catch (e) {}
+                    // ~every 2s: lazily grab an on-demand cover for an uncovered episode (light).
+                    if (((this._ambiN = (this._ambiN || 0) + 1) % 14) === 0) {
+                        window.nxMaybeThumb(v, this.episodes[this.index]);
+                    }
                 }, 140);
             },
 

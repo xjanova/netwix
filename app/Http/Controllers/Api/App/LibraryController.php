@@ -8,6 +8,8 @@ use App\Models\Content;
 use App\Models\Profile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Signed-in member library: my-list, likes, watch progress, and the per-title
@@ -71,6 +73,14 @@ class LibraryController extends Controller
 
         $dur = $data['duration_seconds'] ?? 0;
         $percent = $dur > 0 ? min(100, max(0, (int) round($data['position_seconds'] / $dur * 100))) : 0;
+
+        // Per-episode view (same key as web InteractionController → one dedup window across platforms).
+        if (! empty($data['episode_id'])) {
+            $vkey = 'view:ep:'.$data['episode_id'].':'.sha1((string) $request->ip());
+            if (Cache::add($vkey, 1, now()->addHours(6))) {
+                DB::table('episodes')->where('id', $data['episode_id'])->increment('views');
+            }
+        }
 
         $this->profile($request)->watchProgress()->updateOrCreate(
             ['content_id' => $data['content_id']],

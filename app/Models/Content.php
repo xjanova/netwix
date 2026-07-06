@@ -95,6 +95,19 @@ class Content extends Model
         return $q->where('is_published', true);
     }
 
+    /**
+     * Titles safe to expose on the PUBLIC (crawlable, guest-visible) surface: published, not
+     * auto-suspended, and never adult (18+/20+). Guests have no profile, so MaturityScope can't hide
+     * adult content for them — this scope is the hard gate that keeps adult titles off public pages,
+     * the sitemap and search-engine crawls. Use it for every guest-facing listing/query.
+     */
+    public function scopePublicListing(Builder $q): Builder
+    {
+        return $q->where('is_published', true)
+            ->whereNull('suspended_at')
+            ->where(fn ($w) => $w->whereNull('maturity')->orWhereNotIn('maturity', Maturity::ADULT));
+    }
+
     public function scopeType(Builder $q, string $type): Builder
     {
         return $q->where('type', $type);

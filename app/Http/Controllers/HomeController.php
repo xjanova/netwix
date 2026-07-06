@@ -6,6 +6,7 @@ use App\Models\Announcement;
 use App\Models\Content;
 use App\Models\Setting;
 use App\Services\AppRelease;
+use App\Support\HeroBillboard;
 use Illuminate\Support\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
@@ -19,12 +20,10 @@ class HomeController extends Controller
             return redirect()->route('profiles.index');
         }
 
-        // Real catalog data powers the logged-out landing (Netflix-style Top 10).
-        // Adult (18+/20+) titles are kept off the public landing — they're for signed-in adults only.
-        $notAdult = fn ($q) => $q->whereNotIn('maturity', \App\Support\Maturity::ADULT);
-
-        $trending = Content::published()
-            ->where($notAdult)
+        // Real catalog data powers the logged-out landing (Netflix-style Top 10). publicListing keeps
+        // adult (18+/20+) AND suspended titles off the landing — the Top 10 now links straight to the
+        // public title pages, so every linked title must be a live, crawlable, non-adult one.
+        $trending = Content::publicListing()
             ->rankedByEngagement()
             ->with('genres')
             ->take(10)
@@ -33,8 +32,7 @@ class HomeController extends Controller
         // A shuffled wall of covers for the auto-scrolling hero marquee.
         // Posters with real artwork come first; the rest fall back to the
         // deterministic gradient placeholder in the view.
-        $marquee = Content::published()
-            ->where($notAdult)
+        $marquee = Content::publicListing()
             ->orderByRaw('CASE WHEN poster_path IS NULL THEN 1 ELSE 0 END')
             ->inRandomOrder()
             ->take(24)
@@ -82,6 +80,10 @@ class HomeController extends Controller
             'emailReg' => Setting::flag('email_registration_enabled', true),
             'stats' => $stats,
             'app' => $app,
+            // Rotating whole-site billboard on top of the landing (cached ~2 min, shared by all guests).
+            'heroSlides' => HeroBillboard::slides('all'),
+            'heroSeconds' => HeroBillboard::seconds(),
+            'heroVideo' => HeroBillboard::videoEnabled(),
         ]);
     }
 }
