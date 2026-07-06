@@ -387,6 +387,9 @@ class BrowseController extends Controller
         }
 
         return view('frontend.vertical', [
+            'heroSlides' => HeroBillboard::slides('vertical'),   // rotates within แนวตั้ง only
+            'heroSeconds' => HeroBillboard::seconds(),
+            'heroVideo' => HeroBillboard::videoEnabled(),
             'rows' => $rows,
             'myListIds' => $this->myListIds($profile),
         ]);

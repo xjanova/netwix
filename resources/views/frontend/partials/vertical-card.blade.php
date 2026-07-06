@@ -42,6 +42,13 @@
         <div class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-2.5">
             <div class="truncate text-[13px] font-semibold">{{ $content->title }}</div>
             <div class="text-[11px] text-cream/60">{{ $content->episodes_count ?? $content->episodes->count() }} ตอน</div>
+            {{-- view count (👁) — "ยังไม่มีคนดู" when nobody has watched yet (matches content-card) --}}
+            <div class="mt-0.5 flex items-center gap-1 truncate text-[11px] {{ $content->views > 0 ? 'text-cream/60' : 'text-cream/40' }}">
+                <svg class="h-3 w-3 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+                <span class="truncate">{{ $content->views_label }}</span>
+            </div>
         </div>
     </div>
 </div>

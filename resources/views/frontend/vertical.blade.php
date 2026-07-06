@@ -2,7 +2,19 @@
 @section('title', 'ซีรีส์แนวตั้ง')
 
 @section('content')
-<div class="pt-24 pb-12">
+{{-- Rotating "หนังตัวอย่าง" billboard — scoped to แนวตั้ง (cached + shared). Falls back to a spacer that
+     clears the fixed nav when no vertical slides are configured. --}}
+@php $hasHero = count($heroSlides ?? []); @endphp
+@if ($hasHero)
+    @include('partials.hero-billboard', [
+        'heroSlides' => $heroSlides,
+        'heroSeconds' => $heroSeconds ?? 8,
+        'heroVideo' => $heroVideo ?? true,
+        'heroPublic' => false,
+    ])
+@endif
+
+<div class="relative z-10 pb-12 {{ $hasHero ? '-mt-16' : 'pt-24' }}">
     <div class="px-[4vw]">
         <h1 class="text-2xl font-bold sm:text-3xl">ซีรีส์แนวตั้ง</h1>
         <p class="mt-1 text-cream/50">ดูจบไวในไม่กี่นาที · ปัดขึ้น–ลงเพื่อดูตอนถัดไป</p>
