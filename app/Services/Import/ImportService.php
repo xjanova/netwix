@@ -4,6 +4,7 @@ namespace App\Services\Import;
 
 use App\Models\Content;
 use App\Models\Genre;
+use App\Models\Setting;
 use App\Models\SourceTitle;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesSynopsis;
@@ -73,6 +74,13 @@ class ImportService
         $title = $st->displayTitle();
         [$maturity, $isVip] = $this->resolveMaturity($st);
 
+        // Hidden sources (e.g. 9nung — its abyss/hydrax player is an anti-adblock ad-trap we can't play
+        // cleanly): still importable for catalogue completeness, but NEVER shown to users. Forced
+        // unpublished regardless of the publish option — even on re-import — so they stay hidden.
+        // Reversible: clear the source from the `hidden_sources` setting to let it publish again.
+        $hidden = array_filter(array_map('trim', explode(',', (string) Setting::get('hidden_sources', ''))));
+        $publish = ! in_array($st->source, $hidden, true) && (bool) ($opts['publish'] ?? true);
+
         $content = Content::updateOrCreate(
             ['source' => $st->source, 'source_key' => $st->source_key],
             [
@@ -87,7 +95,7 @@ class ImportService
                 'match_score' => random_int(90, 99),
                 'rating' => round(random_int(78, 96) / 10, 1),
                 'is_original' => (bool) ($opts['is_original'] ?? false),
-                'is_published' => (bool) ($opts['publish'] ?? true),
+                'is_published' => $publish,
                 'poster_path' => $st->poster_url,
                 'backdrop_path' => $st->poster_url,
                 'views' => $st->view_count ?? 0,
