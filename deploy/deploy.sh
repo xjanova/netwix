@@ -42,7 +42,10 @@ echo "▶ Composer (production)…"
 composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
 
 echo "▶ Front-end build…"
-npm ci
+# `npm ci` is strict — it aborts if package-lock.json has drifted from package.json (e.g. a dep was
+# added to package.json but the lock wasn't regenerated). Fall back to `npm install` so a lock drift
+# never blocks a deploy (it also refreshes the lock). Keep the lock committed to stay on the fast path.
+npm ci || npm install --no-audit --no-fund
 npm run build
 
 echo "▶ Database migrate…"
