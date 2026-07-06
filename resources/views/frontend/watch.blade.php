@@ -69,7 +69,15 @@
                @ended="onEnded()"
                @waiting="stall()" @stalled="stall()"
                @playing="resume(); maybeCapture()" @canplay="resume()" @loadeddata="resume()" x-on:error="resume()"
+               @volumechange="if (! $refs.video.muted) forcedMute = false"
                class="h-full w-full bg-black object-contain"></video>
+
+        {{-- iPad forces muted autoplay → one-tap unmute so a silent start isn't a mystery --}}
+        <button x-show="forcedMute" x-cloak @click.stop="unmute()"
+                class="absolute right-4 top-4 z-40 flex items-center gap-2 rounded-full bg-black/60 px-3.5 py-2 text-sm font-semibold backdrop-blur hover:bg-black/80">
+            <span class="text-base">🔇</span> แตะเพื่อเปิดเสียง
+        </button>
+
         <div x-show="err" x-cloak class="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-cream/70">
             <span x-text="err"></span>
         </div>
@@ -123,6 +131,7 @@
             epMenu: false,
             err: '',
             fs: false,
+            forcedMute: false,   // true only when iPad refused sound-autoplay and we fell back to muted
             loading: cfg.hasMedia,
             ui: true,
             _uiT: null,
@@ -147,8 +156,12 @@
                 this.poke();
                 if (cfg.youtube || !this.$refs.video) return;
                 if (this.episodes.length) this.load();
-                // watch for a mid-episode freeze that never recovers on its own (see watchdog())
-                this._watch = setInterval(() => this.watchdog(), 6000);
+                // watch for a mid-episode freeze that never recovers on its own (see watchdog()); the
+                // same tick lazily grabs an on-demand cover for an episode that has none yet.
+                this._watch = setInterval(() => {
+                    this.watchdog();
+                    window.nxMaybeThumb(this.$refs.video, this.episodes[this.index]);
+                }, 6000);
             },
 
             stopPoll() { if (this._poll) { clearInterval(this._poll); this._poll = null; } },
@@ -178,10 +191,10 @@
                 const seekBack = () => {
                     v.removeEventListener('loadedmetadata', seekBack);
                     try { if (t > 1 && isFinite(v.duration)) v.currentTime = Math.max(0, t - 1); } catch (e) {}
-                    v.play?.().catch(() => {});
+                    this.tryPlay(v);
                 };
                 v.addEventListener('loadedmetadata', seekBack);
-                v.play?.().catch(() => {});
+                this.tryPlay(v);
             },
 
             async load() {
@@ -216,7 +229,32 @@
                 this.stall();
                 const v = this.$refs.video;
                 window.nxAttachVideo(v, url, this.reportUrl);
+                this.tryPlay(v);
+            },
+
+            // iPad/iPadOS blocks autoplay-WITH-SOUND that isn't triggered by a user tap — and landing on
+            // the watch page is not a tap. Without this, play() rejects, we swallow it, and the <video>
+            // sits black ("player พยายามเล่นแต่ไม่มีภาพ"). So: if the sound autoplay is refused, retry
+            // MUTED (always allowed) so the picture actually appears; the native controls let the user
+            // unmute. Mirrors the vertical player, which already does this and thus plays fine on iPad.
+            tryPlay(v) {
+                const p = v.play?.();
+                if (p && p.catch) p.catch(() => {
+                    // Sound-autoplay refused → play muted so a picture appears, and raise the pill so the
+                    // silent start isn't a mystery. If even muted play is refused we leave the pill off.
+                    v.muted = true;
+                    v.play?.().then(() => { this.forcedMute = true; }).catch(() => {});
+                });
+            },
+
+            // User taps "แตะเพื่อเปิดเสียง" — a real gesture, so restoring sound is allowed on iPad.
+            unmute() {
+                const v = this.$refs.video;
+                if (!v) return;
+                v.muted = false;
+                this.forcedMute = false;
                 v.play?.().catch(() => {});
+                this.poke();
             },
 
             go(i) { this.epMenu = false; if (i !== this.index) { this.index = i; this.load(); } },
