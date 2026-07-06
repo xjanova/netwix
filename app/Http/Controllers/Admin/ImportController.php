@@ -225,6 +225,7 @@ class ImportController extends Controller
             'publish' => ['sometimes', 'boolean'],
             'auto_type' => ['sometimes', 'boolean'],
             'auto_genres' => ['sometimes', 'boolean'],
+            'maturity' => ['nullable', 'in:'.implode(',', \App\Support\Maturity::ADULT)],
         ]);
         abort_unless($this->registry->has($data['source']), 404);
 
@@ -237,6 +238,7 @@ class ImportController extends Controller
             'publish' => $request->boolean('publish'),
             'auto_type' => $request->boolean('auto_type'),
             'auto_genres' => $request->boolean('auto_genres'),
+            'maturity' => $data['maturity'] ?? null,
         ];
 
         $titles = SourceTitle::where('source', $data['source'])->whereIn('id', $data['ids'])->get()->keyBy('id');
@@ -284,6 +286,7 @@ class ImportController extends Controller
             'publish' => ['sometimes', 'boolean'],
             'auto_type' => ['sometimes', 'boolean'],
             'auto_genres' => ['sometimes', 'boolean'],
+            'maturity' => ['nullable', 'in:'.implode(',', \App\Support\Maturity::ADULT)],
             'chunk' => ['nullable', 'integer', 'between:1,8'],
             'exclude' => ['array'],
             'exclude.*' => ['integer'],
@@ -299,6 +302,7 @@ class ImportController extends Controller
             'publish' => $request->boolean('publish'),
             'auto_type' => $request->boolean('auto_type'),
             'auto_genres' => $request->boolean('auto_genres'),
+            'maturity' => $data['maturity'] ?? null,
         ];
         $exclude = $data['exclude'] ?? [];
 
@@ -346,6 +350,7 @@ class ImportController extends Controller
             'genres.*' => ['integer', 'exists:genres,id'],
             'primary_genre' => ['nullable', 'integer'],
             'publish' => ['sometimes', 'boolean'],
+            'maturity' => ['nullable', 'in:'.implode(',', \App\Support\Maturity::ADULT)],
         ]);
         abort_unless($this->registry->has($data['source']), 404);
 
@@ -359,6 +364,7 @@ class ImportController extends Controller
             'genres' => $data['genres'] ?? [],
             'primary_genre' => $data['primary_genre'] ?? null,
             'publish' => $request->boolean('publish'),
+            'maturity' => $data['maturity'] ?? null,
         ];
 
         $titles = SourceTitle::where('source', $data['source'])->whereIn('id', $data['ids'])->get();

@@ -158,6 +158,7 @@ window.importer = () => ({
         if (fd.get('publish')) body.set('publish', '1');
         if (fd.get('auto_type')) body.set('auto_type', '1');
         if (fd.get('auto_genres')) body.set('auto_genres', '1');
+        if (fd.get('maturity')) body.set('maturity', fd.get('maturity'));
         if (fd.get('primary_genre')) body.set('primary_genre', fd.get('primary_genre'));
         [...form.querySelectorAll('input[name="genres[]"]:checked')].forEach(c => body.append('genres[]', c.value));
         return body;
@@ -453,6 +454,20 @@ window.syncer = () => ({
                 @empty
                     <a href="{{ route('admin.genres.index') }}" class="text-sm text-brand">+ เพิ่มหมวดก่อน</a>
                 @endforelse
+            </div>
+
+            {{-- Adult rating: tick 18+/20+ to force that rating (+ VIP, owner rule 2026-07-06) on every
+                 title in this import run. Mutually exclusive; untick both = automatic (source flag / keep existing). --}}
+            <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
+                <span class="text-sm text-cream/60"
+                      title="ติ๊กเพื่อตั้งเรทผู้ใหญ่ให้ทุกเรื่องที่นำเข้ารอบนี้ — ซ่อนจากโปรไฟล์เด็ก และต้องเป็นสมาชิก Pro/VIP ถึงดูได้ · ไม่ติ๊ก = ตั้งเรทอัตโนมัติ">เรทผู้ใหญ่:</span>
+                @foreach (\App\Support\Maturity::ADULT as $m)
+                    <label class="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10">
+                        <input type="checkbox" name="maturity" value="{{ $m }}" class="mat-cb accent-brand"
+                               onchange="if(this.checked)document.querySelectorAll('.mat-cb').forEach(c=>{if(c!==this)c.checked=false})">
+                        🔞 {{ $m }} <span class="text-cream/40">{{ $m === '18+' ? 'เซ็นเซอร์' : 'ไม่เซ็นเซอร์' }}</span>
+                    </label>
+                @endforeach
             </div>
         </div>
 

@@ -8,6 +8,7 @@ use App\Models\Setting;
 use App\Models\SourceTitle;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesSynopsis;
+use App\Support\Maturity;
 use App\Support\VerticalGenre;
 use Illuminate\Support\Str;
 
@@ -61,7 +62,7 @@ class ImportService
      * Import one synced title into `contents` (+ episodes + genres). Idempotent — re-importing
      * updates the existing content and its episodes.
      *
-     * @param  array{type?:string,genres?:int[],primary_genre?:int|null,publish?:bool,is_original?:bool,auto_type?:bool,auto_genres?:bool}  $opts
+     * @param  array{type?:string,genres?:int[],primary_genre?:int|null,publish?:bool,is_original?:bool,auto_type?:bool,auto_genres?:bool,maturity?:string|null}  $opts
      */
     public function import(SourceTitle $st, array $opts = []): Content
     {
@@ -72,7 +73,7 @@ class ImportService
 
         $type = $this->resolveType($source, $st, $opts);
         $title = $st->displayTitle();
-        [$maturity, $isVip] = $this->resolveMaturity($st);
+        [$maturity, $isVip] = $this->resolveMaturity($st, $opts);
 
         // Hidden sources (e.g. 9nung — its abyss/hydrax player is an anti-adblock ad-trap we can't play
         // cleanly): still importable for catalogue completeness, but NEVER shown to users. Forced
@@ -179,16 +180,22 @@ class ImportService
     }
 
     /**
-     * Maturity + VIP for an imported title. A source can flag a title adult via `extra.adult` (9.9nung's
-     * "erotic" R18+ genre — see [App\Services\Import\Sources\NaayNungSource]); such titles import as
-     * 18+ (kids-hidden + Pro-gated) AND is_vip (VIP-premium zone) — owner rule 2026-07-06. Non-adult
+     * Maturity + VIP for an imported title. The admin can tick 18+/20+ on the import form
+     * ($opts['maturity']) — that forces the rating on the whole batch and wins over the source flag.
+     * Otherwise a source can flag a title adult via `extra.adult` (9.9nung's "erotic" R18+ genre —
+     * see [App\Services\Import\Sources\NaayNungSource]). Either way an adult title imports as
+     * kids-hidden + Pro-gated AND is_vip (VIP-premium zone) — owner rule 2026-07-06. Non-adult
      * titles keep their existing rating/VIP on re-import (don't clobber an admin's manual bump), else
      * default 15+.
      *
      * @return array{0:string,1:bool}  [maturity, is_vip]
      */
-    private function resolveMaturity(SourceTitle $st): array
+    private function resolveMaturity(SourceTitle $st, array $opts = []): array
     {
+        if (in_array($opts['maturity'] ?? null, Maturity::ADULT, true)) {
+            return [$opts['maturity'], true];
+        }
+
         if (is_array($st->extra) && ! empty($st->extra['adult'])) {
             return ['18+', true];
         }
