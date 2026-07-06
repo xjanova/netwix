@@ -372,16 +372,27 @@
             // Covers are generated in the admin panel now (Admin → สร้างปกตอน) —
             // no more on-watch capture.
             maybeCapture() {},
+            // A tap/scroll that lands on a control (mute, play, seek, volume, nav ↑↓, ✕, ตอน menu) must
+            // NEVER be read as a swipe-to-change-episode. @click.stop on those buttons only stops the
+            // 'click' event — touchstart/touchend/wheel still bubble to this root — so without this guard
+            // tapping 🔊 on mobile registers as a swipe and jumps episodes (owner: กดลำโพงแต่เปลี่ยนวีดีโอ).
+            _onControl(e) { return !!(e.target && e.target.closest && e.target.closest('button, a, input, label, [role="button"]')); },
             onWheel(e) {
-                if (this.lock) return;
+                if (this.lock || this.epMenu || this._onControl(e)) return;
                 if (e.deltaY > 25) this.next();
                 else if (e.deltaY < -25) this.prev();
                 else return;
                 this.lock = true;
                 setTimeout(() => (this.lock = false), 550);
             },
-            onTouchStart(e) { this.touchY = e.touches[0].clientY; },
+            onTouchStart(e) {
+                this.touchY = e.touches[0].clientY;
+                this._touchCtl = this._onControl(e);   // remember if the gesture began on a control
+            },
             onTouchEnd(e) {
+                // Skip when the gesture began on a control, or while the episode grid is open (its own
+                // scroll must not change the underlying episode).
+                if (this._touchCtl || this.epMenu) { this._touchCtl = false; return; }
                 const dy = this.touchY - e.changedTouches[0].clientY;
                 if (dy > 50) this.next();
                 else if (dy < -50) this.prev();
