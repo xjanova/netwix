@@ -80,6 +80,12 @@
                 <span class="inline-flex items-center gap-0.5 rounded-full bg-gold/90 px-2.5 py-1 text-xs font-bold text-black">👑 PRO</span>
             @endif
             <span class="rounded-full bg-black/45 px-2.5 py-1 text-xs text-cream/90 backdrop-blur">{{ $content->year }}</span>
+            {{-- view count (👁) — "ยังไม่มีคนดู" when nobody has watched yet --}}
+            <span class="inline-flex items-center gap-1 rounded-full bg-black/45 px-2.5 py-1 text-xs text-cream/90 backdrop-blur">
+                <svg class="h-3.5 w-3.5 opacity-80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>
+                </svg>{{ $content->views_label }}
+            </span>
             @if ($content->dub_label)
                 <span class="rounded-full px-2.5 py-1 text-xs font-bold backdrop-blur {{ $content->dub_type === 'thai_dub' ? 'bg-emerald-500/90 text-black' : 'bg-sky-500/90 text-black' }}">{{ $content->dub_label }}</span>
             @endif

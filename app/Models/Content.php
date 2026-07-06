@@ -199,6 +199,26 @@ class Content extends Model
         return $this->match_score.'% ตรงใจ';
     }
 
+    /**
+     * Human-readable TITLE view count for the card + detail. Compact above 1K (1.2K / 3.4M) so it fits
+     * the poster footer; "ยังไม่มีคนดู" when nobody has watched yet. `views` increments on every watch
+     * (WatchController / Api\App\CatalogController), so 0 genuinely means un-watched.
+     */
+    public function getViewsLabelAttribute(): string
+    {
+        $v = (int) $this->views;
+        if ($v <= 0) {
+            return 'ยังไม่มีคนดู';
+        }
+        if ($v < 1000) {
+            return number_format($v).' ครั้ง';
+        }
+        [$n, $unit] = $v >= 1_000_000 ? [$v / 1_000_000, 'M'] : [$v / 1000, 'K'];
+        $s = $n >= 100 ? (string) round($n) : rtrim(rtrim(number_format($n, 1, '.', ''), '0'), '.');
+
+        return $s.$unit.' ครั้ง';
+    }
+
     /** Adult rating (18+/20+): adults-only + Pro-gated. */
     public function getIsAdultAttribute(): bool
     {
