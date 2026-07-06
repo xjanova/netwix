@@ -35,6 +35,8 @@ class HalimSiteConfig
      * @param  bool  $yearFromTitleParen  read the film year from "(YYYY)" in the title (else only post date)
      * @param  string  $episodeMode  one of the EP_* constants
      * @param  bool  $backupPool  eligible to serve as a backup stream for another site's suspended title
+     * @param  ?string  $adultCatSlug  category slug that marks a title 18+ (e.g. 24-hdx "18") → imported
+     *                                  as 18+ AND is_vip (see [App\Services\Import\ImportService::resolveMaturity])
      */
     public function __construct(
         public string $id,
@@ -54,5 +56,6 @@ class HalimSiteConfig
         public bool $yearFromTitleParen = false,
         public string $episodeMode = self::EP_OPTION_NUM,
         public bool $backupPool = false,
+        public ?string $adultCatSlug = null,
     ) {}
 }

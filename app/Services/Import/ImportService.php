@@ -96,9 +96,9 @@ class ImportService
 
         $this->syncGenres($content, $this->resolveGenreOpts($st, $opts));
         $this->ensureUmbrella($content, $source);
-        $this->ensureVerticalGenre($content, $title);
         $count = $this->importEpisodes($source, $st, $content, $type);
         $this->fillSynopsis($source, $st, $content);
+        $this->ensureGuessedGenre($content);   // after fillSynopsis so the guess can use the synopsis
 
         $st->update(['content_id' => $content->id, 'episodes_count' => $count]);
 
@@ -153,16 +153,19 @@ class ImportService
     }
 
     /**
-     * Vertical short-dramas (rongyok) carry no genre metadata from the source, so if nothing else
-     * assigned one, guess it from the Thai title (keyword match) — otherwise the whole vertical
-     * catalogue lands genre-less. Never overrides a manual/umbrella genre.
+     * Last-resort genre for a title that STILL has none after source metadata + umbrella. Several
+     * sources expose no usable content genre: rongyok (none anywhere), wowdrama (WP categories are only
+     * country — จีน/เกาหลี/ไทย/ญี่ปุ่น), 9nung (mostly country-classified). Rather than leave them
+     * genre-less, guess a genre from the Thai title + synopsis by keyword ([App\Support\VerticalGenre],
+     * the same guesser verticals use). Best-effort, never overrides a real/umbrella genre, and cheap —
+     * no network, just text we already have. Runs after fillSynopsis so the synopsis informs the guess.
      */
-    private function ensureVerticalGenre(Content $content, string $title): void
+    private function ensureGuessedGenre(Content $content): void
     {
-        if ($content->type !== 'vertical' || $content->genres()->exists()) {
+        if ($content->genres()->exists()) {
             return;
         }
-        if ($gid = VerticalGenre::guessId($title)) {
+        if ($gid = VerticalGenre::guessId(trim($content->title.' '.(string) $content->synopsis))) {
             $content->genres()->syncWithoutDetaching([$gid => ['is_primary' => true]]);
         }
     }

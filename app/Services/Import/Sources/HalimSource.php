@@ -195,6 +195,17 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesSynopsis
         }
         $genreNames = array_values(array_unique($genreNames));
 
+        $extra = [
+            'slug' => $slug,
+            'media_id' => (int) ($el['featured_media'] ?? 0),
+            'is_movie' => $this->isMovie($catSlugs),
+            'genre_names' => $genreNames,
+        ];
+        // Adult category (e.g. 24-hdx "18") → flag it so ImportService imports the title as 18+/VIP.
+        if ($this->config->adultCatSlug !== null && in_array($this->config->adultCatSlug, $catSlugs, true)) {
+            $extra['adult'] = true;
+        }
+
         return new RemoteSeries(
             source: $this->config->id,
             sourceKey: (string) $id,   // WP post id — resolves the stream via {apiUrl}
@@ -203,12 +214,7 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesSynopsis
             posterUrl: null,
             year: $this->parseYear($rawTitle, (string) ($el['date'] ?? '')),
             dubType: $this->detectDub($rawTitle.' '.implode(' ', $catNames)),
-            extra: [
-                'slug' => $slug,
-                'media_id' => (int) ($el['featured_media'] ?? 0),
-                'is_movie' => $this->isMovie($catSlugs),
-                'genre_names' => $genreNames,
-            ],
+            extra: $extra,
         );
     }
 

@@ -56,6 +56,7 @@ class HalimSites
             yearFromTitleParen: true,
             episodeMode: HalimSiteConfig::EP_OPTION_NUM,
             backupPool: true,
+            adultCatSlug: '18',                  // 24-hdx "18" category (~168 titles) → import as 18+/VIP
         );
     }
 
