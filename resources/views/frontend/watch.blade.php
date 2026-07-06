@@ -73,7 +73,12 @@
                 @load="loading = false"
                 class="h-full w-full border-0" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>
     @elseif ($eps->isNotEmpty())
-        <video x-ref="video" controls autoplay playsinline
+        {{-- controlsList=nofullscreen drops the NATIVE fullscreen button (Chromium/Android) so there's
+             only ONE fullscreen control — the custom top-bar one (nxToggleFullscreen), which keeps our
+             overlay UI + locks landscape. The native one fullscreens the bare <video>, dropping that UI,
+             and on this full-viewport player looked like it "did nothing". (iOS ignores controlsList but
+             its native video fullscreen works, and our button falls back to it there.) --}}
+        <video x-ref="video" controls controlsList="nofullscreen" autoplay playsinline
                @timeupdate.throttle.10000ms="saveProgress()"
                @timeupdate="resume()"
                @ended="onEnded()"
