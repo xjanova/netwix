@@ -37,14 +37,11 @@
                     @endif
                     <span class="text-xs text-cream/45">{{ $ep->duration_label }}</span>
                     <span class="text-xs text-cream/45" title="ยอดวิวตอนนี้ (นับจากคนที่กดดูจริง 1 ครั้ง/คน/6 ชม.)">👁 {{ number_format($ep->views ?? 0) }}</span>
-                    @php
-                        $thumbSrc = $ep->video_url
-                            ?: ($ep->source
-                                ? (in_array($ep->source, ['wowdrama', 'anime108'], true) ? route('stream.manifest', $ep) : route('stream.mp4', $ep))
-                                : null);
-                    @endphp
-                    <button type="button"
-                            @click="open({ num: {{ $ep->number }}, src: @js($thumbSrc), hls: @js($thumbSrc && (str_ends_with($thumbSrc, '.m3u8') || str_contains($thumbSrc, '/index.m3u8'))), post: @js(route('admin.storage.set-thumb', $ep)) })"
+                    @php $epView = ['num' => $ep->number, 'resolve' => route('admin.preview.episode', $ep), 'post' => route('admin.storage.set-thumb', $ep)]; @endphp
+                    <button type="button" @click="open(@js($epView))"
+                            class="rounded-md bg-brand/15 px-2.5 py-1 text-xs text-brand hover:bg-brand/25"
+                            title="ดูตอนนี้จากหลังบ้านเพื่อตรวจสอบ — เล่นได้ทุกแหล่ง แม้ยังไม่เผยแพร่ / 18+ / VIP">▶ ดู</button>
+                    <button type="button" @click="open(@js($epView))"
                             class="rounded-md bg-white/5 px-2.5 py-1 text-xs hover:bg-white/10" title="เลือกปกจากเฟรมในวิดีโอ หรืออัปโหลดรูปเอง">🖼 ปก</button>
                     @if ($ep->is_mirrored)
                         <form method="POST" action="{{ route('admin.storage.unmirror', $ep) }}" onsubmit="return confirm('ลบไฟล์ตอนนี้ออกจากเซิร์ฟเวอร์? (กลับไปสตรีมสด)')">
@@ -85,13 +82,14 @@
          class="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
         <div class="nx-card w-full max-w-2xl p-5" @click.stop>
             <div class="mb-3 flex items-center justify-between">
-                <h3 class="text-base font-semibold">เลือกปกจากวิดีโอ · ตอนที่ <span x-text="ep?.num"></span></h3>
+                <h3 class="text-base font-semibold">ดู / เลือกปก · ตอนที่ <span x-text="ep?.num"></span></h3>
                 <button type="button" @click="close()" class="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 hover:bg-white/20">✕</button>
             </div>
-            <video x-ref="vid" x-show="ep?.src" controls playsinline class="mb-3 max-h-[58vh] w-full rounded-lg bg-black"></video>
-            <div x-show="!ep?.src" class="mb-3 rounded-lg border border-dashed border-white/10 bg-white/[0.02] py-10 text-center text-sm text-cream/40">ตอนนี้ยังไม่มีวิดีโอ — อัปโหลดรูปปกเองได้เลย</div>
+            <video x-ref="vid" x-show="ep && !loading && !playError" controls playsinline class="mb-3 max-h-[58vh] w-full rounded-lg bg-black"></video>
+            <div x-show="loading" x-cloak class="mb-3 rounded-lg border border-dashed border-white/10 bg-white/[0.02] py-10 text-center text-sm text-cream/50">⏳ กำลังเตรียมวิดีโอจากแหล่ง…</div>
+            <div x-show="playError" x-cloak class="mb-3 rounded-lg border border-dashed border-[#ff6b81]/20 bg-[#ff6b81]/[0.05] py-10 text-center text-sm text-[#ff6b81]">เล่นไม่ได้ — แหล่งอาจไม่ตอบสนอง หรือลิงก์หมดอายุ (ยังอัปโหลดรูปปกเองได้)</div>
             <div class="flex flex-wrap items-center gap-3">
-                <button type="button" x-show="ep?.src" @click="capture()" x-bind:disabled="saving"
+                <button type="button" x-show="ep && !loading && !playError" @click="capture()" x-bind:disabled="saving"
                         class="btn-brand px-5 py-2.5 text-sm disabled:opacity-50" x-text="saving ? 'กำลังบันทึก…' : '📸 ใช้เฟรมนี้เป็นปก'"></button>
                 <button type="button" @click="$refs.file.click()" x-bind:disabled="saving"
                         class="rounded-lg bg-white/10 px-4 py-2.5 text-sm hover:bg-white/15 disabled:opacity-50" title="อัปโหลดรูปปกจากเครื่อง (jpg/png/webp/gif…) ระบบจะแปลงเป็น WebP ให้">⬆ อัปโหลดรูป</button>
@@ -106,20 +104,31 @@
     <script>
         function thumbPicker() {
             return {
-                ep: null, saving: false, ok: false, msg: '',
+                ep: null, loading: false, playError: false, saving: false, ok: false, msg: '',
+                // Resolve the episode through the admin QA endpoint (gate-free, every source) then play.
                 open(ep) {
-                    this.ep = ep; this.msg = ''; this.ok = false;
-                    if (!ep.src) return;
-                    this.$nextTick(() => {
+                    this.ep = ep; this.msg = ''; this.ok = false; this.playError = false; this.loading = true;
+                    this.$nextTick(async () => {
                         const v = this.$refs.vid;
-                        window.nxAttachVideo ? window.nxAttachVideo(v, ep.src) : (v.src = ep.src);
-                        v.play?.().catch(() => {});
+                        try {
+                            const r = await fetch(ep.resolve, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+                            const d = r.ok ? await r.json() : null;
+                            this.loading = false;
+                            if (d && d.ready && d.url) {
+                                window.nxAttachVideo ? window.nxAttachVideo(v, d.url) : (v.src = d.url);
+                                v.play?.().catch(() => {});
+                            } else {
+                                this.playError = true;
+                            }
+                        } catch (e) {
+                            this.loading = false; this.playError = true;
+                        }
                     });
                 },
                 close() {
                     const v = this.$refs.vid;
                     if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
-                    this.ep = null;
+                    this.ep = null; this.loading = false; this.playError = false;
                 },
                 async capture() {
                     const v = this.$refs.vid;

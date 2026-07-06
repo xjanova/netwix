@@ -122,6 +122,27 @@ window.importer = () => ({
     retrying: false, retryAttempt: 0,
     total: 0, processed: 0, ok: 0, failed: 0, log: [],
     chunkSize: 4,
+    // Pre-import preview: watch a source title's ep-1 before deciding to import it.
+    pv: null, pvLoading: false, pvError: false,
+    pvBase: '{{ url('admin/preview/source') }}',
+    async preview(id, title) {
+        this.pv = { id, title }; this.pvLoading = true; this.pvError = false;
+        this.$nextTick(async () => {
+            const v = this.$refs.pvVid;
+            try {
+                const r = await fetch(this.pvBase + '/' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+                const d = r.ok ? await r.json() : null;
+                this.pvLoading = false;
+                if (d && d.ready && d.url) { window.nxAttachVideo(v, d.url); v.play?.().catch(() => {}); }
+                else { this.pvError = true; }
+            } catch (e) { this.pvLoading = false; this.pvError = true; }
+        });
+    },
+    pvClose() {
+        const v = this.$refs.pvVid;
+        if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
+        this.pv = null; this.pvLoading = false; this.pvError = false;
+    },
     get pct() { return this.total ? Math.round(this.processed / this.total * 100) : 0; },
     titleFor(id) {
         const el = document.querySelector('.imp-cb[value="' + id + '"]');
@@ -448,6 +469,10 @@ window.syncer = () => ({
                                  class="absolute inset-0 h-full w-full object-cover"
                                  onerror="this.style.display='none'">
                         @endif
+                        {{-- Watch ep-1 from the source BEFORE importing (@click.stop.prevent so it doesn't toggle the checkbox). --}}
+                        <button type="button" @click.stop.prevent="preview({{ $t->id }}, @js($t->displayTitle()))"
+                                class="absolute inset-0 z-20 m-auto flex h-12 w-12 items-center justify-center rounded-full bg-black/55 text-lg text-white opacity-60 transition hover:bg-brand group-hover:opacity-100"
+                                title="ดูก่อนนำเข้า (ตัวอย่างตอนที่ 1 จากแหล่งต้นทาง)">▶</button>
                         @if ($t->content_id)
                             <span class="absolute right-2 top-2 rounded bg-success/90 px-1.5 py-0.5 text-[9px] font-bold text-black">นำเข้าแล้ว</span>
                         @endif
@@ -505,6 +530,20 @@ window.syncer = () => ({
                     <button type="button" x-show="done" @click="window.location.reload()"
                             class="btn-brand px-5 py-2 text-sm">รีเฟรชรายการ</button>
                 </div>
+            </div>
+        </div>
+
+        {{-- Pre-import preview: watch a source title's ep-1 before importing it. --}}
+        <div x-show="pv" x-cloak class="fixed inset-0 z-[65] flex items-center justify-center bg-black/80 p-4" @click.self="pvClose()" @keydown.escape.window="pvClose()">
+            <div class="nx-card w-full max-w-2xl p-5">
+                <div class="mb-3 flex items-center justify-between gap-3">
+                    <h3 class="truncate text-base font-semibold">ดูก่อนนำเข้า · <span x-text="pv?.title"></span></h3>
+                    <button type="button" @click="pvClose()" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20">✕</button>
+                </div>
+                <video x-ref="pvVid" x-show="pv && !pvLoading && !pvError" controls playsinline class="mb-2 max-h-[60vh] w-full rounded-lg bg-black"></video>
+                <div x-show="pvLoading" x-cloak class="mb-2 rounded-lg border border-dashed border-white/10 bg-white/[0.02] py-12 text-center text-sm text-cream/50">⏳ กำลังขอวิดีโอจากแหล่งต้นทาง…</div>
+                <div x-show="pvError" x-cloak class="mb-2 rounded-lg border border-dashed border-[#ff6b81]/20 bg-[#ff6b81]/[0.05] py-12 text-center text-sm text-[#ff6b81]">เล่นไม่ได้ — แหล่งอาจไม่ตอบสนอง หรือเรื่องนี้ยังไม่มีลิงก์ (ตอนที่ 1)</div>
+                <p class="text-xs text-cream/40">ตัวอย่างตอนที่ 1 จากแหล่งต้นทาง — ยังไม่ได้นำเข้าเข้าคลัง</p>
             </div>
         </div>
     </form>

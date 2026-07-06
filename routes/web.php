@@ -236,6 +236,14 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('import/auto', [Admin\ImportController::class, 'auto'])->name('import.auto');
     Route::post('import', [Admin\ImportController::class, 'import'])->name('import.store');
 
+    // Admin QA playback — watch anything for verification, bypassing public gates (unpublished/18+/VIP).
+    // episode = imported episode (content management); source = not-yet-imported title (import preview).
+    Route::get('preview/episode/{episode}', [Admin\AdminPreviewController::class, 'episode'])->name('preview.episode');
+    Route::get('preview/source/{sourceTitle}', [Admin\AdminPreviewController::class, 'source'])->name('preview.source');
+    Route::get('preview/manifest', [Admin\AdminPreviewController::class, 'manifest'])->name('preview.manifest');
+    Route::get('preview/segment', [Admin\AdminPreviewController::class, 'segment'])->name('preview.segment');
+    Route::get('preview/mp4', [Admin\AdminPreviewController::class, 'mp4'])->name('preview.mp4');
+
     Route::get('storage', [Admin\StorageController::class, 'index'])->name('storage.index');
     Route::post('episodes/{episode}/mirror', [Admin\StorageController::class, 'mirror'])->name('storage.mirror');
     Route::post('episodes/{episode}/thumb', [Admin\StorageController::class, 'setThumb'])->name('storage.set-thumb');
