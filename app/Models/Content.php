@@ -213,7 +213,8 @@ class Content extends Model
         if ($v < 1000) {
             return number_format($v).' ครั้ง';
         }
-        [$n, $unit] = $v >= 1_000_000 ? [$v / 1_000_000, 'M'] : [$v / 1000, 'K'];
+        // ≥ 999,500 rounds to 1.0M, so promote to the M unit (avoids an ugly "1000K").
+        [$n, $unit] = $v >= 999_500 ? [$v / 1_000_000, 'M'] : [$v / 1000, 'K'];
         $s = $n >= 100 ? (string) round($n) : rtrim(rtrim(number_format($n, 1, '.', ''), '0'), '.');
 
         return $s.$unit.' ครั้ง';
