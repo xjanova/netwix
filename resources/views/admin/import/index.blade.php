@@ -14,25 +14,116 @@
                 นำเข้าอัตโนมัติทุกวัน · {{ $autoImport ? 'เปิด' : 'ปิด' }}
             </button>
         </form>
-        <form method="POST" action="{{ route('admin.import.sync') }}"
-              onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='กำลังซิงค์…'">
+        <form method="POST" action="{{ route('admin.import.sync') }}" x-data="syncer()" @submit.prevent="run($el)">
             @csrf
             <input type="hidden" name="source" value="{{ $sourceId }}">
             {{-- 100 pages × 100 = up to 10k titles. sync() persists per page, so even if a big
                  catalogue (e.g. 24-hdx ~6.5k) outruns the request timeout, every fetched page is kept. --}}
             <input type="hidden" name="max_pages" value="100">
-            <button class="nx-gradient flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold" style="box-shadow:0 8px 22px rgba(176,38,255,0.32)">
-                ⟳ ซิงค์แคตตาล็อก
+            <button type="submit" x-bind:disabled="running"
+                    class="nx-gradient flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-40" style="box-shadow:0 8px 22px rgba(176,38,255,0.32)">
+                <span x-show="!running">⟳ ซิงค์แคตตาล็อก</span>
+                <span x-show="running" x-cloak>⟳ กำลังซิงค์…</span>
             </button>
+
+            {{-- Sync progress overlay — teleported to <body> because the header's backdrop-blur creates a
+                 containing block that would clip a position:fixed child. --}}
+            <template x-teleport="body">
+                <div x-show="running || done" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4">
+                    <div class="nx-card w-full max-w-lg p-6">
+                        <h3 class="mb-4 text-lg font-bold" x-text="title"></h3>
+
+                        <div x-show="!done" class="mb-3 h-2.5 overflow-hidden rounded-full bg-white/10">
+                            <div class="h-full rounded-full nx-gradient" style="width:34%;animation:nxIndet 1.15s ease-in-out infinite"></div>
+                        </div>
+
+                        <div x-show="retrying" x-cloak class="mb-3 rounded-lg px-3 py-2 text-xs font-semibold" style="background:rgba(245,197,66,.14);color:#f5c542">
+                            ⟳ เชื่อมต่อแหล่งต้นทางไม่ได้ชั่วคราว — กำลังลองใหม่อัตโนมัติ (ครั้งที่ <span x-text="retryAttempt"></span>)…
+                        </div>
+
+                        <p class="text-sm text-cream/70"
+                           x-text="done ? '' : (retrying ? 'ระบบจะลองเชื่อมต่อใหม่เองจนกว่าจะสำเร็จ' : 'กำลังดึงรายการจากแหล่งต้นทาง โปรดรอสักครู่…')"></p>
+                        <p x-show="done && message" x-cloak class="text-sm text-success" x-text="message"></p>
+                        <p x-show="done && error" x-cloak class="text-sm" style="color:#ff6b81" x-text="error"></p>
+
+                        <div class="mt-5 flex justify-end gap-2">
+                            <button type="button" x-show="!done" @click="cancelled = true"
+                                    class="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15">หยุดกลางคัน</button>
+                            <button type="button" x-show="done && ok" @click="window.location.reload()"
+                                    class="btn-brand px-5 py-2 text-sm">รีเฟรชรายการ</button>
+                            <button type="button" x-show="done && !ok" @click="done = false; running = false"
+                                    class="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15">ปิด</button>
+                        </div>
+                    </div>
+                </div>
+            </template>
         </form>
     </div>
 @endsection
 
 @section('content')
 <script>
+// User-stop signal — thrown by nxPostRetry when the admin presses "หยุดกลางคัน" so callers can tell
+// a deliberate cancel apart from a real error and exit quietly.
+class NxCancelled extends Error { constructor() { super('cancelled'); this.name = 'NxCancelled'; } }
+window.NxCancelled = NxCancelled;
+
+// Only a *connection-level* failure is worth auto-retrying: network dropped (fetch throws), a timeout,
+// or the server temporarily unavailable (5xx / 408 / 429). A real rejection (validation / auth, other
+// 4xx) must NOT loop forever — it's surfaced immediately as fatal.
+window.nxRetriable = (s) => s === 0 || s === 408 || s === 425 || s === 429 || s >= 500;
+
+/**
+ * POST that auto-retries a dropped connection instead of giving up (owner rule: "ถ้าเชื่อมต่อไม่ได้ …
+ * ทำใหม่ซ้ำอัตโนมัติไม่ใช่หยุดไปเลย"). Retries FOREVER with capped exponential backoff (1→30s) until it
+ * succeeds or the admin cancels — isCancelled() is polled between attempts, during the backoff wait,
+ * AND mid-flight (the in-flight fetch is aborted) so "หยุดกลางคัน" is instant. A non-retriable 4xx is
+ * thrown as { fatal:true } so it never loops. onRetry(attempt, err) drives the "กำลังลองใหม่" banner.
+ */
+window.nxPostRetry = async function (url, body, { isCancelled, onRetry } = {}) {
+    const cancelled = () => (isCancelled ? isCancelled() : false);
+    for (let attempt = 1; ; attempt++) {
+        if (cancelled()) throw new NxCancelled();
+        try {
+            const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            const poll = ctrl ? setInterval(() => { if (cancelled()) ctrl.abort(); }, 200) : null;
+            let r;
+            try {
+                r = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                    body,
+                    signal: ctrl ? ctrl.signal : undefined,
+                });
+            } finally { if (poll) clearInterval(poll); }
+
+            if (!r.ok) {
+                if (window.nxRetriable(r.status)) throw new Error('HTTP ' + r.status);
+                let data = null; try { data = await r.json(); } catch (e) {}
+                const err = new Error((data && (data.error || data.message)) || ('HTTP ' + r.status));
+                err.fatal = true; err.status = r.status; err.data = data;
+                throw err;
+            }
+            return await r.json();
+        } catch (e) {
+            if (e instanceof NxCancelled) throw e;
+            if (cancelled()) throw new NxCancelled();   // stop pressed (incl. an aborted in-flight fetch)
+            if (e.fatal) throw e;                        // genuine rejection — surface it, don't loop
+            if (onRetry) onRetry(attempt, e);
+            // 1,2,4,8,16 → capped 30s (+jitter). Broken into 250ms slices so a cancel escapes fast.
+            const wait = Math.min(30000, 1000 * Math.pow(2, Math.min(attempt - 1, 5))) + Math.floor(Math.random() * 500);
+            for (let waited = 0; waited < wait; waited += 250) {
+                if (cancelled()) throw new NxCancelled();
+                await new Promise((res) => setTimeout(res, 250));
+            }
+        }
+    }
+};
+
 window.importer = () => ({
     sel: [],
     running: false, done: false, cancelled: false, autoMode: false,
+    retrying: false, retryAttempt: 0,
     total: 0, processed: 0, ok: 0, failed: 0, log: [],
     chunkSize: 4,
     get pct() { return this.total ? Math.round(this.processed / this.total * 100) : 0; },
@@ -64,64 +155,114 @@ window.importer = () => ({
         });
         this.log = this.log.slice(0, 60);
     },
-    // Auto-import: keep pulling the next un-imported chunk from the server until none remain.
+    // Auto-import: keep pulling the next un-imported chunk from the server until none remain. A dropped
+    // connection retries automatically (nxPostRetry) instead of aborting — the loop only ends on
+    // success-exhausted, the admin's "หยุดกลางคัน", or a genuine (non-connection) error.
     async runAuto(form) {
         if (this.running) return;
         this.running = true; this.done = false; this.cancelled = false; this.autoMode = true;
+        this.retrying = false; this.retryAttempt = 0;
         this.total = 0; this.processed = 0; this.ok = 0; this.failed = 0; this.log = [];
         const exclude = [];
-        while (!this.cancelled) {
-            const body = this.baseBody(form);
-            body.set('chunk', '5');
-            exclude.forEach(id => body.append('exclude[]', id));
-            let j;
-            try {
-                const r = await fetch('{{ route('admin.import.auto') }}', {
-                    method: 'POST',
-                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
-                    body,
+        try {
+            while (!this.cancelled) {
+                const body = this.baseBody(form);
+                body.set('chunk', '5');
+                exclude.forEach(id => body.append('exclude[]', id));
+                const j = await window.nxPostRetry('{{ route('admin.import.auto') }}', body, {
+                    isCancelled: () => this.cancelled,
+                    onRetry: (n) => { this.retrying = true; this.retryAttempt = n; },
                 });
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                j = await r.json();
-            } catch (e) {
-                this.log.unshift({ title: 'เชื่อมต่อผิดพลาด — หยุดการนำเข้าอัตโนมัติ', ok: false, detail: '' });
-                break;
+                this.retrying = false;
+                this.pushResults(j.results, res => exclude.push(res.id));
+                this.total = this.processed + (j.remaining || 0);
+                if (!(j.results || []).length || j.remaining === 0) break;
             }
-            this.pushResults(j.results, res => exclude.push(res.id));
-            this.total = this.processed + (j.remaining || 0);
-            if (!(j.results || []).length || j.remaining === 0) break;
+        } catch (e) {
+            this.retrying = false;
+            if (!(e instanceof window.NxCancelled)) {
+                this.log.unshift({ title: 'หยุดการนำเข้า — ' + (e.message || 'เกิดข้อผิดพลาด'), ok: false, detail: '' });
+            }
         }
         this.done = true;
     },
-    // Import just the checked titles.
+    // Import just the checked titles. A dropped connection retries the same chunk automatically; only a
+    // real per-chunk error records those titles as failed and moves on. "หยุดกลางคัน" breaks out.
     async run(form) {
         if (this.running || this.sel.length === 0) return;
         this.running = true; this.done = false; this.cancelled = false; this.autoMode = false;
+        this.retrying = false; this.retryAttempt = 0;
         this.total = this.sel.length; this.processed = 0; this.ok = 0; this.failed = 0; this.log = [];
         const ids = [...this.sel];
-        for (let i = 0; i < ids.length && !this.cancelled; i += this.chunkSize) {
-            const batch = ids.slice(i, i + this.chunkSize);
-            const body = this.baseBody(form);
-            batch.forEach(id => body.append('ids[]', id));
-            try {
-                const r = await fetch('{{ route('admin.import.batch') }}', {
-                    method: 'POST',
-                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
-                    body,
-                });
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                this.pushResults((await r.json()).results);
-            } catch (e) {
-                batch.forEach(id => {
-                    this.processed++; this.failed++;
-                    this.log.unshift({ title: this.titleFor(id), ok: false, detail: 'เชื่อมต่อผิดพลาด' });
-                });
+        try {
+            for (let i = 0; i < ids.length && !this.cancelled; i += this.chunkSize) {
+                const batch = ids.slice(i, i + this.chunkSize);
+                const body = this.baseBody(form);
+                batch.forEach(id => body.append('ids[]', id));
+                let j;
+                try {
+                    j = await window.nxPostRetry('{{ route('admin.import.batch') }}', body, {
+                        isCancelled: () => this.cancelled,
+                        onRetry: (n) => { this.retrying = true; this.retryAttempt = n; },
+                    });
+                    this.retrying = false;
+                } catch (e) {
+                    this.retrying = false;
+                    if (e instanceof window.NxCancelled) break;
+                    batch.forEach(id => {
+                        this.processed++; this.failed++;
+                        this.log.unshift({ title: this.titleFor(id), ok: false, detail: e.message || 'ผิดพลาด' });
+                    });
+                    continue;
+                }
+                this.pushResults(j.results);
             }
+        } finally {
+            this.done = true;
+        }
+    },
+});
+
+// Sync the source catalogue over AJAX so it gets the same treatment as import: a live overlay, a
+// "หยุดกลางคัน" button, and auto-retry on a dropped connection. sync() is idempotent (per-page upsert),
+// so a retry safely resumes. Its own Alpine component because the button lives in the header, apart
+// from the import form.
+window.syncer = () => ({
+    running: false, done: false, cancelled: false, stopped: false, ok: false,
+    retrying: false, retryAttempt: 0, message: '', error: '',
+    get title() {
+        if (!this.done) return 'กำลังซิงค์แคตตาล็อก…';
+        if (this.stopped) return 'หยุดการซิงค์แล้ว';
+        return this.ok ? 'ซิงค์เสร็จสิ้น ✓' : 'ซิงค์ไม่สำเร็จ';
+    },
+    async run(form) {
+        if (this.running) return;
+        this.running = true; this.done = false; this.cancelled = false; this.stopped = false;
+        this.ok = false; this.retrying = false; this.retryAttempt = 0; this.message = ''; this.error = '';
+        const fd = new FormData(form);
+        const body = new URLSearchParams();
+        body.set('_token', fd.get('_token'));
+        body.set('source', fd.get('source'));
+        body.set('max_pages', fd.get('max_pages') || '100');
+        try {
+            const j = await window.nxPostRetry(form.action, body, {
+                isCancelled: () => this.cancelled,
+                onRetry: (n) => { this.retrying = true; this.retryAttempt = n; },
+            });
+            this.retrying = false;
+            this.ok = !!j.ok;
+            this.message = j.message || (j.ok ? 'ซิงค์เสร็จสิ้น' : '');
+            if (!j.ok) this.error = j.error || 'ซิงค์ไม่สำเร็จ';
+        } catch (e) {
+            this.retrying = false;
+            if (e instanceof window.NxCancelled) { this.stopped = true; }
+            else { this.error = (e.data && (e.data.error || e.data.message)) || e.message || 'ซิงค์ไม่สำเร็จ'; }
         }
         this.done = true;
     },
 });
 </script>
+<style>@keyframes nxIndet{0%{transform:translateX(-120%)}100%{transform:translateX(220%)}}</style>
 {{-- Source tabs --}}
 <div class="mb-5 flex flex-wrap gap-2">
     @foreach ($sources as $s)
@@ -271,6 +412,10 @@ window.importer = () => ({
                     <span style="color:#ff6b81" x-show="failed > 0">✗ ล้มเหลว <span x-text="failed"></span></span>
                     <span class="ml-auto font-semibold text-cream/70" x-text="pct + '%'"></span>
                 </div>
+                {{-- Auto-retry banner: a dropped connection keeps retrying instead of stopping the import. --}}
+                <div x-show="retrying" x-cloak class="mb-3 rounded-lg px-3 py-2 text-xs font-semibold" style="background:rgba(245,197,66,.14);color:#f5c542">
+                    ⟳ เชื่อมต่อไม่ได้ชั่วคราว — กำลังลองเชื่อมต่อใหม่อัตโนมัติ (ครั้งที่ <span x-text="retryAttempt"></span>)… กด “หยุดกลางคัน” เพื่อยกเลิก
+                </div>
                 <div class="max-h-56 overflow-y-auto rounded-lg bg-black/25 p-2 text-xs">
                     <template x-for="(row, i) in log" :key="i">
                         <div class="flex items-center gap-2 border-b border-white/5 py-1">
@@ -283,7 +428,7 @@ window.importer = () => ({
                 </div>
                 <div class="mt-4 flex justify-end gap-2">
                     <button type="button" x-show="running && !done" @click="cancelled = true"
-                            class="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15">หยุด</button>
+                            class="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15">หยุดกลางคัน</button>
                     <button type="button" x-show="done" @click="window.location.reload()"
                             class="btn-brand px-5 py-2 text-sm">รีเฟรชรายการ</button>
                 </div>

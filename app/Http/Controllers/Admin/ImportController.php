@@ -9,6 +9,7 @@ use App\Models\Setting;
 use App\Models\SourceTitle;
 use App\Services\Import\ImportService;
 use App\Services\Import\SourceRegistry;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -104,7 +105,7 @@ class ImportController extends Controller
         return $hints;
     }
 
-    public function sync(Request $request): RedirectResponse
+    public function sync(Request $request): RedirectResponse|JsonResponse
     {
         $data = $request->validate([
             'source' => ['required', 'string'],
@@ -118,13 +119,30 @@ class ImportController extends Controller
         $before = SourceTitle::where('source', $data['source'])->count();
         try {
             $count = $this->importer->sync($data['source'], $data['max_pages'] ?? 30);
+        } catch (ConnectionException $e) {
+            // A dropped connection to the source is transient — signal it as retriable (HTTP 503) so the
+            // admin UI re-runs the sync automatically (owner rule: retry, don't stop). sync() upserts
+            // per page, so a re-run resumes without duplicating anything.
+            if ($request->expectsJson()) {
+                return response()->json(['ok' => false, 'retriable' => true, 'error' => 'เชื่อมต่อแหล่งต้นทางไม่ได้ชั่วคราว'], 503);
+            }
+
+            return back()->withErrors(['sync' => 'เชื่อมต่อแหล่งต้นทางไม่ได้ชั่วคราว กรุณาลองใหม่อีกครั้ง']);
         } catch (\Throwable $e) {
+            if ($request->expectsJson()) {
+                return response()->json(['ok' => false, 'retriable' => false, 'error' => 'ซิงค์ไม่สำเร็จ: '.$e->getMessage()], 422);
+            }
+
             return back()->withErrors(['sync' => 'ซิงค์ไม่สำเร็จ: '.$e->getMessage()]);
         }
         $new = max(0, SourceTitle::where('source', $data['source'])->count() - $before);
 
         $msg = "ซิงค์แคตตาล็อกจาก {$this->registry->get($data['source'])->displayName()} แล้ว ({$count} เรื่อง"
             .($new > 0 ? " · ใหม่ {$new} เรื่อง" : ' · ไม่มีเรื่องใหม่').')';
+
+        if ($request->expectsJson()) {
+            return response()->json(['ok' => true, 'count' => $count, 'new' => $new, 'message' => $msg]);
+        }
 
         return redirect()
             ->route('admin.import.index', ['source' => $data['source']])
