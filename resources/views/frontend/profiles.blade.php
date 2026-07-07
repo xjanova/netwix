@@ -5,9 +5,9 @@
 <div x-data="{ manage: false, add: false, color: '#8b2ff0',
         palette: ['#ff2d55','#b026ff','#8b2ff0','#00b8d4','#46d369','#f5c518','#ff8a3d','#e5484d'] }"
      class="relative flex min-h-screen flex-col items-center justify-center overflow-hidden p-10"
-     style="background:radial-gradient(circle at 20% 20%, rgba(139,47,240,0.16), transparent 45%), #07050c;">
+     style="background:radial-gradient(circle at 12% 18%, rgba(255,45,85,0.22), transparent 42%), radial-gradient(circle at 88% 82%, rgba(139,47,240,0.24), transparent 46%);">
 
-    @include('partials.logo-bg', ['video' => 'logomedia2.mp4'])
+    @include('partials.logo-bg', ['video' => 'logomedia1.mp4'])
 
     <img src="{{ asset('assets/netwix-wordmark.png') }}" alt="NetWix" class="relative z-10 mb-14 h-12 w-auto">
     <h1 class="relative z-10 mb-11 text-center text-3xl font-semibold sm:text-4xl md:text-5xl">ใครกำลังดูอยู่?</h1>
