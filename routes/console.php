@@ -61,6 +61,13 @@ if ($aiDayList) {
 Schedule::command('netwix:refresh-episodes --airing-only --limit=200 --sleep=250')
     ->dailyAt('03:20')->withoutOverlapping()->runInBackground();
 
+// Nightly: re-check 9nung playability so a re-imported/updated title auto-publishes when it carries a
+// clean fembed→vdohls stream (and hides one that flipped to abyss). 9nung is a MIXED source (~24%
+// playable fembed, the rest abyss ad-traps); `hidden_sources=9nung` keeps imports hidden by default and
+// this promotes exactly the playable ones. Gentle + bounded so it never hammers the source.
+Schedule::command('netwix:recheck-playable 9nung --limit=3000 --sleep=250')
+    ->dailyAt('04:40')->withoutOverlapping()->runInBackground();
+
 // Daily backup-link finder: re-source auto-suspended (un-playable) titles from another Halim pool
 // site and auto-republish. Self-gates on the admin toggle `backup_finder_enabled` (set on
 // /admin/backups). Runs after auto-import so any newly-imported titles are considered too.

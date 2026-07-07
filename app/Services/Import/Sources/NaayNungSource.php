@@ -165,6 +165,36 @@ class NaayNungSource implements BackupPoolSource, EmbedPlayback, MediaSource, Pr
             }
         }
 
+        // Series (tvshows) — a separate Dooplay archive (/tvshows/), NOT covered by the genre pages
+        // (those list movies). 9nung series use the CLEAN fembed player, so they're well worth pulling.
+        // parseArchive already handles the tvshows cards (is_movie=false).
+        for ($page = 1; $page <= $maxPages; $page++) {
+            $url = self::BASE.'/tvshows/'.($page > 1 ? "page/{$page}/" : '');
+            try {
+                $resp = $this->http()->withHeaders(['Referer' => self::BASE.'/'])->get($url);
+            } catch (\Throwable) {
+                break;
+            }
+            if (! $resp->ok()) {
+                break;
+            }
+            $items = $this->parseArchive($resp->body());
+            if ($items === []) {
+                break;
+            }
+            $batch = [];
+            foreach ($items as $it) {
+                if (isset($seen[$it['sourceKey']])) {
+                    continue;
+                }
+                $seen[$it['sourceKey']] = true;
+                $batch[] = $this->toRemoteSeries($it, null, false);
+            }
+            if ($batch !== []) {
+                $onBatch($batch);
+            }
+        }
+
         return count($seen);
     }
 
@@ -251,10 +281,32 @@ class NaayNungSource implements BackupPoolSource, EmbedPlayback, MediaSource, Pr
         return null;
     }
 
-    /** Movies are single-video; series (tvshows) expose one playable source for now. */
+    /**
+     * Movies = one playable source (ref = the movie detail path). Series (tvshows) = parse the detail
+     * page's Dooplay episode list into /episodes/{slug}-{season}x{ep}/ paths, each its own player page.
+     */
     public function fetchEpisodes(RemoteSeries $series): array
     {
-        return [['number' => 1, 'ref' => $series->sourceKey]];
+        if ($series->extra['is_movie'] ?? true) {
+            return [['number' => 1, 'ref' => $series->sourceKey]];
+        }
+
+        $html = $this->detailHtml($series->sourceKey);
+        if ($html === null) {
+            return [['number' => 1, 'ref' => $series->sourceKey]];
+        }
+
+        // <a href="…/episodes/{slug}-1x{N}/">Episode N</a> — the episode slug carries the "…-{s}x{e}"
+        // suffix; take the LAST number as the episode number. Dedup + sort so a title lists 1,2,3,….
+        $eps = [];
+        if (preg_match_all('~/episodes/([^"\'?#]+?-\d+x(\d+))/~i', $html, $mm, PREG_SET_ORDER)) {
+            foreach ($mm as $m) {
+                $eps[(int) $m[2]] = ['number' => (int) $m[2], 'ref' => 'episodes/'.$m[1]];
+            }
+        }
+        ksort($eps);
+
+        return $eps !== [] ? array_values($eps) : [['number' => 1, 'ref' => $series->sourceKey]];
     }
 
     public function fetchSynopsis(RemoteSeries $series): ?string
@@ -271,10 +323,12 @@ class NaayNungSource implements BackupPoolSource, EmbedPlayback, MediaSource, Pr
      */
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream
     {
-        // The detail-page path lives in sourceKey ("movies/{slug}"). A force-applied backup passes
-        // ref="1" (the Halim movie convention) which we ignore here; only fall back to sourceRef if it
-        // is itself a path (a future per-episode key).
-        $key = str_contains(trim($sourceKey, '/'), '/') ? $sourceKey : $sourceRef;
+        // A SERIES episode's player lives on its own /episodes/{slug}-SxE/ page (carried in sourceRef),
+        // NOT the tvshows detail page — fetch that. A movie's player is on its movies/{slug} page
+        // (sourceKey). A force-applied backup passes ref="1" (Halim convention) → ignore, use sourceKey.
+        $key = str_starts_with(ltrim($sourceRef, '/'), 'episodes/')
+            ? $sourceRef
+            : (str_contains(trim($sourceKey, '/'), '/') ? $sourceKey : $sourceRef);
         $html = $this->detailHtml($key);
         if ($html === null) {
             return null;
