@@ -39,7 +39,7 @@
             <span class="rounded border border-white/15 px-1.5 py-0.5 text-[11px] font-semibold tracking-widest text-cream/40">ADMIN</span>
         </div>
 
-        <nav class="mt-8 flex flex-col gap-1">
+        <nav class="mt-8 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1" style="scrollbar-gutter:stable">
             @foreach ($nav as $item)
                 @php $active = request()->routeIs($item['route']) || request()->routeIs(str_replace('.index', '.*', $item['route'])); @endphp
                 <a href="{{ route($item['route']) }}"
