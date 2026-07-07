@@ -34,62 +34,69 @@ class SeoController extends Controller
         ];
 
         // ---- Human traffic (last 30 days) ----
-        $rows = PageView::where('created_at', '>=', $since)->get(['path', 'is_member', 'source', 'created_at']);
+        // Everything below aggregates in SQL. Never ->get() these tables: crawler_hits alone
+        // passed 115k rows in 30 days, and hydrating them blew the 128M PHP limit (page died
+        // with a fatal that never reached laravel.log).
+        $pv = PageView::where('created_at', '>=', $since);
 
-        $byDay = $rows->groupBy(fn ($r) => optional($r->created_at)->format('Y-m-d'));
+        $byDay = (clone $pv)->selectRaw('DATE(created_at) as d, COUNT(*) as c')->groupBy('d')->pluck('c', 'd');
         $daily = collect(range(29, 0))->map(function ($n) use ($byDay) {
             $d = Carbon::today()->subDays($n);
 
-            return ['label' => $d->format('j/n'), 'value' => $byDay->get($d->format('Y-m-d'), collect())->count()];
+            return ['label' => $d->format('j/n'), 'value' => (int) $byDay->get($d->format('Y-m-d'), 0)];
         });
         $dayMax = max(1, $daily->max('value'));
         $daily = $daily->map(fn ($d) => $d + ['height' => round($d['value'] / $dayMax * 100).'%']);
 
-        $topPages = $rows->groupBy('path')->map->count()->sortDesc()->take(15)
-            ->map(fn ($count, $path) => ['label' => $this->label((string) $path), 'value' => $count])->values();
+        $topPages = (clone $pv)->selectRaw('path, COUNT(*) as c')->groupBy('path')->orderByDesc('c')->limit(15)->get()
+            ->map(fn ($r) => ['label' => $this->label((string) $r->path), 'value' => (int) $r->c])->values();
         $topMax = max(1, $topPages->max('value') ?: 1);
         $topPages = $topPages->map(fn ($p) => $p + ['pct' => round($p['value'] / $topMax * 100).'%']);
 
-        $total = $rows->count();
-        $members = $rows->where('is_member', true)->count();
+        $total = (clone $pv)->count();
+        $members = (clone $pv)->where('is_member', true)->count();
         $kpis = [
-            ['label' => 'เข้าชมวันนี้', 'value' => number_format($rows->where('created_at', '>=', Carbon::today())->count())],
-            ['label' => 'เข้าชม 7 วัน', 'value' => number_format($rows->where('created_at', '>=', Carbon::today()->subDays(6))->count())],
+            ['label' => 'เข้าชมวันนี้', 'value' => number_format((clone $pv)->where('created_at', '>=', Carbon::today())->count())],
+            ['label' => 'เข้าชม 7 วัน', 'value' => number_format((clone $pv)->where('created_at', '>=', Carbon::today()->subDays(6))->count())],
             ['label' => 'เข้าชม 30 วัน', 'value' => number_format($total)],
             ['label' => 'สัดส่วนสมาชิก', 'value' => ($total ? round($members / $total * 100) : 0).'%'],
         ];
 
         // ---- Traffic sources (where visitors came FROM) ----
-        $bySource = $rows->whereNotNull('source')->groupBy('source')->map->count()->sortDesc();
+        $bySource = (clone $pv)->whereNotNull('source')
+            ->selectRaw('source, COUNT(*) as c')->groupBy('source')->orderByDesc('c')->pluck('c', 'source');
         $srcMax = max(1, $bySource->max() ?: 1);
         $sources = $bySource->map(fn ($count, $s) => [
             'label' => $this->sourceLabel((string) $s),
-            'value' => $count,
+            'value' => (int) $count,
             'pct' => round($count / $srcMax * 100).'%',
         ])->values();
 
         // ---- Crawler activity (is Google/Bing/AI finding the pages?) ----
-        $crawler = CrawlerHit::where('created_at', '>=', $since)->get(['bot', 'path', 'created_at']);
-        $byBot = $crawler->groupBy('bot');
-        $botMax = max(1, $byBot->map->count()->max() ?: 1);
-        $crawlerBots = $byBot->map(fn ($g, $bot) => [
-            'label' => $bot,
-            'value' => $g->count(),
-            'pct' => round($g->count() / $botMax * 100).'%',
-            'ago' => optional($g->max('created_at'))->diffForHumans() ?? '-',
-        ])->sortByDesc('value')->values();
+        $ch = CrawlerHit::where('created_at', '>=', $since);
 
-        $topCrawled = $crawler->groupBy('path')->map->count()->sortDesc()->take(12)
-            ->map(fn ($count, $path) => ['label' => $this->label((string) $path), 'value' => $count])->values();
+        $byBot = (clone $ch)->selectRaw('bot, COUNT(*) as c, MAX(created_at) as last_at')
+            ->groupBy('bot')->orderByDesc('c')->get();
+        $botMax = max(1, (int) ($byBot->max('c') ?: 1));
+        $crawlerBots = $byBot->map(fn ($r) => [
+            'label' => $r->bot,
+            'value' => (int) $r->c,
+            'pct' => round($r->c / $botMax * 100).'%',
+            'ago' => $r->last_at ? Carbon::parse($r->last_at)->diffForHumans() : '-',
+        ])->values();
+
+        $topCrawled = (clone $ch)->selectRaw('path, COUNT(*) as c')->groupBy('path')->orderByDesc('c')->limit(12)->get()
+            ->map(fn ($r) => ['label' => $this->label((string) $r->path), 'value' => (int) $r->c])->values();
         $crawledMax = max(1, $topCrawled->max('value') ?: 1);
         $topCrawled = $topCrawled->map(fn ($p) => $p + ['pct' => round($p['value'] / $crawledMax * 100).'%']);
 
-        $googleHits = $crawler->filter(fn ($h) => str_contains((string) $h->bot, 'Google'))->count();
+        $googleHits = (clone $ch)->where('bot', 'like', '%Google%')->count();
+        $googleLast = (clone $ch)->where('bot', 'like', '%Google%')->max('created_at');
         $crawlerKpis = [
-            ['label' => 'บอตเก็บหน้า (30 วัน)', 'value' => number_format($crawler->count())],
+            ['label' => 'บอตเก็บหน้า (30 วัน)', 'value' => number_format((clone $ch)->count())],
             ['label' => 'Googlebot เก็บ (30 วัน)', 'value' => number_format($googleHits)],
             ['label' => 'ชนิดบอตที่เจอ', 'value' => number_format($byBot->count())],
-            ['label' => 'Googlebot ล่าสุด', 'value' => optional($crawler->filter(fn ($h) => str_contains((string) $h->bot, 'Google'))->max('created_at'))->diffForHumans() ?? 'ยังไม่พบ'],
+            ['label' => 'Googlebot ล่าสุด', 'value' => $googleLast ? Carbon::parse($googleLast)->diffForHumans() : 'ยังไม่พบ'],
         ];
 
         // ---- On-site search: content gap ----
