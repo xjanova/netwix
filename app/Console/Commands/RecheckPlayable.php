@@ -51,8 +51,12 @@ class RecheckPlayable extends Command
             }
             $done++;
 
+            // Resolve the way playback actually does — via the first episode's ref. For a series that
+            // ref is the /episodes/{slug}-SxE/ page (the tvshows detail page carries no player); for a
+            // movie it's the movie path (== source_key). Falls back to source_key when there's no episode.
+            $ref = (string) ($ct->episodes()->orderBy('sort')->orderBy('number')->value('source_ref') ?: $ct->source_key);
             try {
-                $stream = $source->resolveByRef((string) $ct->source_key, (string) $ct->source_key);
+                $stream = $source->resolveByRef((string) $ct->source_key, $ref);
             } catch (Throwable $e) {
                 $stream = null;
             }

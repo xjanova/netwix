@@ -125,6 +125,37 @@ class NaayNungSource implements BackupPoolSource, EmbedPlayback, MediaSource, Pr
     {
         $seen = [];   // sourceKey → true
 
+        // Series (tvshows) FIRST — a separate Dooplay archive (/tvshows/) the genre pages don't list.
+        // 9nung series all use the CLEAN fembed player, so they're the most valuable pull; doing them up
+        // front means a sync that's later cut short (timeout) still got the series. parseArchive already
+        // handles the tvshows cards (is_movie=false).
+        for ($page = 1; $page <= $maxPages; $page++) {
+            $url = self::BASE.'/tvshows/'.($page > 1 ? "page/{$page}/" : '');
+            try {
+                $resp = $this->http()->withHeaders(['Referer' => self::BASE.'/'])->get($url);
+            } catch (\Throwable) {
+                break;
+            }
+            if (! $resp->ok()) {
+                break;
+            }
+            $items = $this->parseArchive($resp->body());
+            if ($items === []) {
+                break;
+            }
+            $batch = [];
+            foreach ($items as $it) {
+                if (isset($seen[$it['sourceKey']])) {
+                    continue;
+                }
+                $seen[$it['sourceKey']] = true;
+                $batch[] = $this->toRemoteSeries($it, null, false);
+            }
+            if ($batch !== []) {
+                $onBatch($batch);
+            }
+        }
+
         foreach (self::SCRAPE_GENRES as $genre) {
             $isAdult = $genre === self::ADULT_GENRE;
             $mapped = self::GENRE_MAP[$genre] ?? null;
@@ -160,36 +191,6 @@ class NaayNungSource implements BackupPoolSource, EmbedPlayback, MediaSource, Pr
                 }
             }
 
-            if ($batch !== []) {
-                $onBatch($batch);
-            }
-        }
-
-        // Series (tvshows) — a separate Dooplay archive (/tvshows/), NOT covered by the genre pages
-        // (those list movies). 9nung series use the CLEAN fembed player, so they're well worth pulling.
-        // parseArchive already handles the tvshows cards (is_movie=false).
-        for ($page = 1; $page <= $maxPages; $page++) {
-            $url = self::BASE.'/tvshows/'.($page > 1 ? "page/{$page}/" : '');
-            try {
-                $resp = $this->http()->withHeaders(['Referer' => self::BASE.'/'])->get($url);
-            } catch (\Throwable) {
-                break;
-            }
-            if (! $resp->ok()) {
-                break;
-            }
-            $items = $this->parseArchive($resp->body());
-            if ($items === []) {
-                break;
-            }
-            $batch = [];
-            foreach ($items as $it) {
-                if (isset($seen[$it['sourceKey']])) {
-                    continue;
-                }
-                $seen[$it['sourceKey']] = true;
-                $batch[] = $this->toRemoteSeries($it, null, false);
-            }
             if ($batch !== []) {
                 $onBatch($batch);
             }
