@@ -350,6 +350,8 @@ class ImportController extends Controller
             'genres.*' => ['integer', 'exists:genres,id'],
             'primary_genre' => ['nullable', 'integer'],
             'publish' => ['sometimes', 'boolean'],
+            'auto_type' => ['sometimes', 'boolean'],
+            'auto_genres' => ['sometimes', 'boolean'],
             'maturity' => ['nullable', 'in:'.implode(',', \App\Support\Maturity::ADULT)],
         ]);
         abort_unless($this->registry->has($data['source']), 404);
@@ -363,6 +365,8 @@ class ImportController extends Controller
             'type' => $data['type'] ?? $this->registry->get($data['source'])->defaultContentType(),
             'genres' => $data['genres'] ?? [],
             'primary_genre' => $data['primary_genre'] ?? null,
+            'auto_type' => $request->boolean('auto_type'),
+            'auto_genres' => $request->boolean('auto_genres'),
             'publish' => $request->boolean('publish'),
             'maturity' => $data['maturity'] ?? null,
         ];

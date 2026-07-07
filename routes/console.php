@@ -52,6 +52,15 @@ if ($aiDayList) {
     $autoImport->days($aiDayList);   // restrict to chosen weekdays; empty = every day
 }
 
+// Nightly episode refresh: re-scrape the episode list of recently-imported, still-airing series so a
+// title that gained new episodes at the source (dramas/anime air weekly) doesn't stay frozen at its
+// first-import count — and any series we first stored as a 1-episode "movie" gets re-typed. Bounded
+// (--limit) + --airing-only so it never re-scrapes the whole ~4k-series catalogue in one night; the
+// least-recently-touched are picked first so the pool rotates. Full sweeps run on demand via the
+// command (no --airing-only). See [[NetWix — airing series stuck at old episode count]].
+Schedule::command('netwix:refresh-episodes --airing-only --limit=200 --sleep=250')
+    ->dailyAt('03:20')->withoutOverlapping()->runInBackground();
+
 // Daily backup-link finder: re-source auto-suspended (un-playable) titles from another Halim pool
 // site and auto-republish. Self-gates on the admin toggle `backup_finder_enabled` (set on
 // /admin/backups). Runs after auto-import so any newly-imported titles are considered too.

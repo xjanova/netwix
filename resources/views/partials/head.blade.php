@@ -4,7 +4,7 @@
     // @section('meta_robots', 'noindex,nofollow') / @section('meta_canonical', '…').
     $seoTitle = trim($__env->yieldContent('title')) ?: 'สตรีมมิ่งไม่มีสะดุด';
     $seoDesc = trim($__env->yieldContent('meta_description'))
-        ?: 'NetWix — ดูหนัง ซีรีส์ และซีรีส์แนวตั้งออนไลน์ สตรีมไม่จำกัด ดูได้ทุกอุปกรณ์ ทั้งมือถือ แท็บเล็ต และทีวี';
+        ?: 'NetWix — ดูหนัง ซีรีส์ และซีรีส์แนวตั้งออนไลน์ สตรีมไม่จำกัด ดูได้ทุกอุปกรณ์ ทั้งมือถือ แท็บเล็ต และทีวี ปลอดโฆษณาเว็บพนัน ไม่มีป๊อปอัปกวนใจ ไม่ใช่เว็บพนัน';
     $seoImage = trim($__env->yieldContent('meta_image')) ?: asset('assets/netwix-logo-full.png');
     $seoRobots = trim($__env->yieldContent('meta_robots')) ?: 'index,follow,max-image-preview:large,max-snippet:-1';
     $seoCanonical = trim($__env->yieldContent('meta_canonical')) ?: url()->current();
@@ -22,6 +22,7 @@
         'ซีรี่ย์ไทย', 'ซีรี่ย์ฝรั่ง', 'ซีรี่ย์วาย', 'ซีรีส์แนวตั้ง', 'หนังสั้นจีน', 'ละครสั้น', 'โรงหยก',
         'มินิซีรีส์จีน', 'อนิเมะซับไทย', 'ดูอนิเมะ', 'ดูหนังฟรี', 'ดูซีรี่ย์ 2026', 'พากย์ไทย HD',
         'สตรีมมิ่ง', 'ดูหนังทุกอุปกรณ์', 'NetWix', 'เน็ตวิกซ์',
+        'ดูหนังไม่มีโฆษณา', 'ดูหนังปลอดโฆษณาพนัน', 'ไม่ใช่เว็บพนัน',
     ]));
 @endphp
 <meta charset="utf-8">
@@ -73,7 +74,7 @@
             'name' => 'NetWix',
             'url' => url('/'),
             'logo' => asset('assets/netwix-logo-full.png'),
-            'description' => 'บริการสตรีมมิ่งภาพยนตร์ ซีรีส์ และซีรีส์แนวตั้งของไทย',
+            'description' => 'บริการสตรีมมิ่งภาพยนตร์ ซีรีส์ และซีรีส์แนวตั้งของไทย ปลอดโฆษณาเว็บพนัน ไม่ใช่เว็บพนัน',
         ],
         [
             '@type' => 'WebSite',

@@ -423,8 +423,8 @@ window.syncer = () => ({
             </div>
 
             <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="publish" value="1" checked class="accent-brand"> เผยแพร่ทันที</label>
-            <label class="flex items-center gap-2 text-sm" title="แยกหนัง/ซีรีส์ให้อัตโนมัติตามข้อมูลต้นทาง (Anime108)">
-                <input type="checkbox" name="auto_type" value="1" class="accent-brand"> แยกหนัง/ซีรีส์อัตโนมัติ</label>
+            <label class="flex items-center gap-2 text-sm" title="แยกหนัง/ซีรีส์ให้อัตโนมัติตามข้อมูลต้นทาง — เปิดไว้กันซีรีส์ถูกนำเข้าเป็นหนังตอนเดียว">
+                <input type="checkbox" name="auto_type" value="1" checked class="accent-brand"> แยกหนัง/ซีรีส์อัตโนมัติ</label>
             <label class="flex items-center gap-2 text-sm" title="ใส่หมวดหมู่ให้อัตโนมัติจากต้นทาง (Anime108) — ถ้าไม่ติ๊กจะใช้หมวดที่เลือกด้านล่าง">
                 <input type="checkbox" name="auto_genres" value="1" class="accent-brand"> หมวดอัตโนมัติจากต้นทาง</label>
 

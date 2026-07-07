@@ -1,6 +1,6 @@
 @extends('layouts.guest')
 @section('title', 'ดูหนัง ซีรีส์ และซีรีส์แนวตั้งไม่จำกัด')
-@section('meta_description', 'ดูหนัง ซีรีส์ และซีรีส์แนวตั้งออนไลน์ที่ NetWix สตรีมไม่จำกัด ดูฟรี ชวนเพื่อนรับสิทธิ์ Pro และของรางวัลมากมาย รับชมได้ทั้งมือถือ แท็บเล็ต และทีวี')
+@section('meta_description', 'ดูหนัง ซีรีส์ และซีรีส์แนวตั้งออนไลน์ที่ NetWix สตรีมไม่จำกัด ดูฟรี ชวนเพื่อนรับสิทธิ์ Pro และของรางวัลมากมาย รับชมได้ทั้งมือถือ แท็บเล็ต และทีวี ปลอดโฆษณาเว็บพนัน ไม่มีป๊อปอัปกวนใจ ไม่ใช่เว็บพนัน')
 
 @section('content')
 {{-- no bg-ink here: <html> carries the base ink so the ambient #nx-dream fibers show through --}}
