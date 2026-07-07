@@ -13,11 +13,12 @@ use Illuminate\Database\Eloquent\Builder;
  * ([App\Jobs\RefreshEpisodesJob]) — so their selection rules can never drift apart.
  *
  * Which titles are refreshable:
- *   - wowdrama         → all (long-form CN/KR/JP series)
- *   - 24hdx / anime108 → only where the source flags is_movie=false (also catches the 1-episode
- *                        "movie" that is really a series, e.g. The Evil Lawyer)
- *   - rongyok          → opt-in only (short verticals arrive complete; low value)
- *   - 9nung / movies   → never (single videos can't gain episodes)
+ *   - wowdrama                 → all (long-form CN/KR/JP series)
+ *   - 24hdx / anime108 / 9nung → only where the source flags is_movie=false (also catches the
+ *                                1-episode "movie" that is really a series, e.g. The Evil Lawyer;
+ *                                9nung series = the clean-fembed /tvshows/ subset)
+ *   - rongyok                  → opt-in only (short verticals arrive complete; low value)
+ *   - movies                   → never (single videos can't gain episodes)
  *
  * See [[NetWix — airing series stuck at old episode count (auto-import never re-imports)]].
  */
@@ -36,8 +37,9 @@ class EpisodeRefresher
             ->where(function ($w) use ($includeRongyok) {
                 // wowdrama: every title is a long-form series.
                 $w->where('source', 'wowdrama')
-                    // Halim sources: only titles the source itself flags as a series.
-                    ->orWhere(fn ($x) => $x->whereIn('source', ['24hdx', 'anime108'])
+                    // Halim + 9nung: only titles the source itself flags as a series (9nung's
+                    // abyss movies are excluded here by is_movie=true / missing key).
+                    ->orWhere(fn ($x) => $x->whereIn('source', ['24hdx', 'anime108', '9nung'])
                         ->whereRaw("JSON_EXTRACT(extra, '$.is_movie') = false"));
                 if ($includeRongyok) {
                     $w->orWhere('source', 'rongyok');
@@ -87,6 +89,14 @@ class EpisodeRefresher
         // existing content untouched (the playability recheck will hide it); just report a no-op.
         if ($fresh === null) {
             return ['title' => $st->displayTitle(), 'before' => $before, 'after' => $before, 'type' => $typeBefore, 'retyped' => false, 'skipped' => true];
+        }
+
+        // HARD publish-state guarantee: import() force-unpublishes hidden_sources titles (e.g. 9nung)
+        // regardless of opts — but for a REFRESH the publish state is owned elsewhere (the admin's
+        // choice / netwix:recheck-playable's per-title playability verdict), so restore whatever it
+        // was before. Refresh must only ever touch episodes/typing, never visibility.
+        if ($content && (bool) $fresh->is_published !== (bool) $content->is_published) {
+            $fresh->forceFill(['is_published' => (bool) $content->is_published])->save();
         }
 
         return [
