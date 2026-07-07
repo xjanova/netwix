@@ -34,7 +34,11 @@ class SourceTitle extends Model
 
     public function scopeNotImported(Builder $q): Builder
     {
-        return $q->whereNull('content_id');
+        // Not yet imported AND not already probed as un-playable (a 3rd-party embed we can't proxy —
+        // ImportService flags these `extra.unplayable` and skips them). Keeps the auto-import loop + the
+        // "pending" count from forever re-attempting titles that will only ever be skipped.
+        return $q->whereNull('content_id')
+            ->where(fn ($w) => $w->whereNull('extra->unplayable')->orWhere('extra->unplayable', false));
     }
 
     public function displayTitle(): string

@@ -6,6 +6,7 @@ use App\Models\Content;
 use App\Models\Genre;
 use App\Models\Setting;
 use App\Models\SourceTitle;
+use App\Services\Import\Contracts\EmbedPlayback;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Support\Maturity;
@@ -60,15 +61,27 @@ class ImportService
 
     /**
      * Import one synced title into `contents` (+ episodes + genres). Idempotent — re-importing
-     * updates the existing content and its episodes.
+     * updates the existing content and its episodes. Returns NULL when the title is skipped as
+     * un-playable (its player is a 3rd-party embed we can't proxy — see probeUnplayable()).
      *
      * @param  array{type?:string,genres?:int[],primary_genre?:int|null,publish?:bool,is_original?:bool,auto_type?:bool,auto_genres?:bool,maturity?:string|null}  $opts
      */
-    public function import(SourceTitle $st, array $opts = []): Content
+    public function import(SourceTitle $st, array $opts = []): ?Content
     {
         $source = $this->registry->get($st->source);
         if (! $source) {
             throw new \RuntimeException("ไม่รู้จักแหล่งที่มา: {$st->source}");
+        }
+
+        // SKIP un-playable EMBED titles up front (owner rule 2026-07-07: "if the player is abyss, skip it
+        // automatically — don't waste time"). Generic + future-proof: ONLY sources flagged EmbedPlayback
+        // (which MIGHT serve a 3rd-party iframe we can't clean-play) pay the one-request probe; HLS-only
+        // sources (Halim, wow-drama) skip it entirely, so zero overhead for them. A skip costs 1 request
+        // and saves scraping the title's episodes + synopsis, and keeps the catalogue clean.
+        if ($source instanceof EmbedPlayback && $this->probeUnplayable($source, $st)) {
+            $st->forceFill(['extra' => array_merge((array) ($st->extra ?? []), ['unplayable' => true])])->save();
+
+            return null;
         }
 
         $type = $this->resolveType($source, $st, $opts);
@@ -112,6 +125,24 @@ class ImportService
         $st->update(['content_id' => $content->id, 'episodes_count' => $count]);
 
         return $content;
+    }
+
+    /**
+     * One-request check: does this title ONLY play via a 3rd-party embed we can't proxy (e.g.
+     * 9nung/abyss anti-adblock)? True only for a CONFIRMED RemoteStream::KIND_EMBED. A null resolve
+     * (dead / decoy / a flaky page / a series whose player is per-episode, not on its detail page) is
+     * NOT treated as unplayable — it may be transient or import-worthy — so those still import and are
+     * sorted out later by netwix:recheck-playable. Cheap: resolves the primary key only, no episode walk.
+     */
+    private function probeUnplayable(MediaSource $source, SourceTitle $st): bool
+    {
+        try {
+            $stream = $source->resolveByRef((string) $st->source_key, (string) $st->source_key);
+        } catch (\Throwable $e) {
+            return false;
+        }
+
+        return $stream !== null && $stream->kind === RemoteStream::KIND_EMBED;
     }
 
     /**

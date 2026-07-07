@@ -278,10 +278,9 @@ class ImportController extends Controller
             }
             try {
                 $content = $this->importer->import($st, $opts);
-                $results[] = [
-                    'id' => $id, 'ok' => true, 'title' => $st->displayTitle(),
-                    'type' => $content->type, 'episodes' => $content->episodes()->count(),
-                ];
+                $results[] = $content === null
+                    ? ['id' => $id, 'ok' => true, 'title' => $st->displayTitle(), 'type' => 'ข้าม—เล่นไม่ได้', 'episodes' => 0]
+                    : ['id' => $id, 'ok' => true, 'title' => $st->displayTitle(), 'type' => $content->type, 'episodes' => $content->episodes()->count()];
             } catch (\Throwable $e) {
                 $results[] = ['id' => $id, 'ok' => false, 'title' => $st->displayTitle(), 'error' => mb_substr($e->getMessage(), 0, 120)];
             }
@@ -341,10 +340,9 @@ class ImportController extends Controller
         foreach ($titles as $st) {
             try {
                 $content = $this->importer->import($st, $opts);
-                $results[] = [
-                    'id' => $st->id, 'ok' => true, 'title' => $st->displayTitle(),
-                    'type' => $content->type, 'episodes' => $content->episodes()->count(),
-                ];
+                $results[] = $content === null
+                    ? ['id' => $st->id, 'ok' => true, 'title' => $st->displayTitle(), 'type' => 'ข้าม—เล่นไม่ได้', 'episodes' => 0]
+                    : ['id' => $st->id, 'ok' => true, 'title' => $st->displayTitle(), 'type' => $content->type, 'episodes' => $content->episodes()->count()];
             } catch (\Throwable $e) {
                 $failedNow[] = $st->id;
                 $results[] = ['id' => $st->id, 'ok' => false, 'title' => $st->displayTitle(), 'error' => mb_substr($e->getMessage(), 0, 120)];
@@ -399,17 +397,20 @@ class ImportController extends Controller
         $titles = SourceTitle::where('source', $data['source'])->whereIn('id', $data['ids'])->get();
 
         $ok = 0;
+        $skipped = 0;
         $failed = [];
         foreach ($titles as $st) {
             try {
-                $this->importer->import($st, $opts);
-                $ok++;
+                $this->importer->import($st, $opts) === null ? $skipped++ : $ok++;
             } catch (\Throwable $e) {
                 $failed[] = $st->displayTitle();
             }
         }
 
         $msg = "นำเข้าสำเร็จ {$ok} เรื่อง";
+        if ($skipped) {
+            $msg .= " · ข้าม {$skipped} เรื่อง (ตัวเล่นเล่นไม่ได้)";
+        }
         if ($failed) {
             $msg .= ' · ไม่สำเร็จ '.count($failed).' เรื่อง ('.implode(', ', array_slice($failed, 0, 3)).')';
         }

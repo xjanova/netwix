@@ -83,6 +83,12 @@ class EpisodeRefresher
         // forever and starve the rest of the pool.
         $st->touch();
 
+        // import() returned null → the title's player is now an un-playable embed (abyss). Leave the
+        // existing content untouched (the playability recheck will hide it); just report a no-op.
+        if ($fresh === null) {
+            return ['title' => $st->displayTitle(), 'before' => $before, 'after' => $before, 'type' => $typeBefore, 'retyped' => false, 'skipped' => true];
+        }
+
         return [
             'title' => $st->displayTitle(),
             'before' => $before,

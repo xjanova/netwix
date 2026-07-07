@@ -50,6 +50,7 @@ class AutoImportCommand extends Command
                 ->orderByDesc('view_count')->orderByDesc('id')->limit($perSource)->pluck('id');
 
             $ok = 0;
+            $skip = 0;
             $fail = 0;
             foreach ($ids as $id) {
                 $st = SourceTitle::find($id);
@@ -57,18 +58,18 @@ class AutoImportCommand extends Command
                     continue;
                 }
                 try {
-                    $importer->import($st, [
+                    $imported = $importer->import($st, [
                         'type' => $source->defaultContentType(),
                         'auto_type' => true,
                         'auto_genres' => true,
                         'publish' => true,
                     ]);
-                    $ok++;
+                    $imported === null ? $skip++ : $ok++;
                 } catch (Throwable $e) {
                     $fail++;
                 }
             }
-            $this->info("{$sid}: synced {$synced}, imported {$ok}".($fail ? " ({$fail} failed)" : '').'.');
+            $this->info("{$sid}: synced {$synced}, imported {$ok}".($skip ? " ({$skip} skipped)" : '').($fail ? " ({$fail} failed)" : '').'.');
         }
 
         return self::SUCCESS;

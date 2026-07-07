@@ -58,17 +58,18 @@ class ImportContentCommand extends Command
 
         $bar = $this->output->createProgressBar($titles->count());
         $ok = 0;
+        $skip = 0;
         $fail = 0;
         foreach ($titles->values() as $i => $st) {
             $genre = $fixedGenre ?: $genres[$i % $genres->count()]; // spread across genres so rows fill
             try {
-                $importer->import($st, [
+                $imported = $importer->import($st, [
                     'type' => $type,
                     'genres' => [$genre->id],
                     'primary_genre' => $genre->id,
                     'publish' => ! $this->option('draft'),
                 ]);
-                $ok++;
+                $imported === null ? $skip++ : $ok++;
             } catch (\Throwable $e) {
                 $fail++;
             }
@@ -76,7 +77,7 @@ class ImportContentCommand extends Command
         }
         $bar->finish();
         $this->newLine(2);
-        $this->info("Imported {$ok} titles".($fail ? " ({$fail} failed)" : '').'.');
+        $this->info("Imported {$ok} titles".($skip ? " ({$skip} skipped—unplayable)" : '').($fail ? " ({$fail} failed)" : '').'.');
 
         return self::SUCCESS;
     }
