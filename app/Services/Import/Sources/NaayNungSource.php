@@ -280,21 +280,23 @@ class NaayNungSource implements BackupPoolSource, EmbedPlayback, MediaSource, Pr
             return null;
         }
 
-        // 2026-07: 9nung migrated its player fembed.co → abyss/hydrax. The detail page now embeds
-        // <iframe data-litespeed-src="/stream.php?v={ID}"> which frames abyssplayer.com/{ID}. Abyss
-        // decrypts the real URL client-side + is Cloudflare-gated → NOT server-resolvable, so hand back
-        // the abyss embed page for a sandboxed <iframe> (see [App\Services\Import\Contracts\EmbedPlayback]).
-        if (preg_match('~stream\.php\?v=([A-Za-z0-9_\-]+)~i', $html, $m)) {
-            return new RemoteStream(RemoteStream::KIND_EMBED, self::PLAYER_EMBED.'/'.$m[1]);
-        }
-
-        // Legacy fembed→vdohls path (older titles not yet migrated) — a proxyable HLS stream, preferred
-        // over an embed when still present.
-        if (preg_match('~fembed\.php\?v=embed/([A-Za-z0-9_\-]+)~i', $html, $m)) {
+        // 9nung is MIXED (2026-07): most titles' players carry a CLEAN, proxyable fembed→vdohls stream,
+        // some are abyss/hydrax (anti-adblock, unplayable). PREFER fembed when present. Two marker
+        // formats seen: `/fembed.php?v=embed/{id}` (movies) and `fembed.co/embed/{id}` (series/newer) —
+        // both resolve to media.vdohls.com/{id}/playlist.m3u8.
+        if (preg_match('~fembed\.php\?v=embed/([A-Za-z0-9_\-]+)~i', $html, $m)
+            || preg_match('~fembed\.(?:co|com)/embed/([A-Za-z0-9_\-]+)~i', $html, $m)) {
             $media = $this->resolveMediaPlaylist(self::MEDIA_HOST.'/'.$m[1].'/playlist.m3u8', self::EMBED_REFERER);
             if ($media !== null) {
                 return new RemoteStream(RemoteStream::KIND_HLS, $media, self::EMBED_REFERER);
             }
+        }
+
+        // abyss/hydrax fallback: real URL is decrypted client-side + Cloudflare-gated → NOT
+        // server-resolvable. Hand back the abyss embed page for a sandboxed <iframe> ([EmbedPlayback]);
+        // these get left unpublished by the playability recheck (netwix:recheck-playable).
+        if (preg_match('~stream\.php\?v=([A-Za-z0-9_\-]+)~i', $html, $m)) {
+            return new RemoteStream(RemoteStream::KIND_EMBED, self::PLAYER_EMBED.'/'.$m[1]);
         }
 
         return null;
