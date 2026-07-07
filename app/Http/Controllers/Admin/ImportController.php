@@ -8,6 +8,7 @@ use App\Models\Content;
 use App\Models\Genre;
 use App\Models\Setting;
 use App\Models\SourceTitle;
+use App\Services\Import\EpisodeRefresher;
 use App\Services\Import\ImportService;
 use App\Services\Import\SourceRegistry;
 use Illuminate\Http\JsonResponse;
@@ -205,6 +206,30 @@ class ImportController extends Controller
         Cache::put('sync:'.$source.':stop', true, now()->addHours(2));
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Per-title "รีเฟรชตอน" button: re-scrape one imported title's episode list from the source —
+     * new episodes of an airing series arrive immediately, and a series mis-typed as a 1-episode
+     * movie is corrected. Selection rules + the actual refresh live in [EpisodeRefresher].
+     */
+    public function refreshEpisodes(Request $request, EpisodeRefresher $refresher): JsonResponse
+    {
+        $data = $request->validate(['id' => ['required', 'integer']]);
+        $st = SourceTitle::imported()->findOrFail($data['id']);
+
+        @set_time_limit(120);
+
+        try {
+            $r = $refresher->refresh($st);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'รีเฟรชตอนไม่สำเร็จ: '.mb_substr($e->getMessage(), 0, 120),
+            ], 500);
+        }
+
+        return response()->json(['ok' => true] + $r);
     }
 
     /**

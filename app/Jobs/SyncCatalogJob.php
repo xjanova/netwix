@@ -72,6 +72,11 @@ class SyncCatalogJob implements ShouldQueue
             Cache::put("{$key}:message", "ซิงค์จาก {$name} แล้ว ({$count} เรื่อง"
                 .($added > 0 ? " · ใหม่ {$added} เรื่อง" : ' · ไม่มีเรื่องใหม่').')', $ttl);
             Cache::put("{$key}:status", 'done', $ttl);
+
+            // A synced catalogue also means airing series may have new episodes — refresh them in a
+            // follow-up job on this same queue (bounded; no-op for sources with nothing refreshable),
+            // so one "ซิงค์แคตตาล็อก" click brings in new titles AND new episodes.
+            RefreshEpisodesJob::dispatch($this->source)->onQueue('sync');
         } catch (SyncStopped $e) {
             $added = max(0, SourceTitle::where('source', $this->source)->count() - $before);
             Cache::put("{$key}:added", $added, $ttl);

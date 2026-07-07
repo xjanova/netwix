@@ -144,6 +144,31 @@ window.importer = () => ({
         if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
         this.pv = null; this.pvLoading = false; this.pvError = false; this.pvEmbed = null;
     },
+    // Per-title "รีเฟรชตอน": re-scrape the episode list from the source (see ImportController::refreshEpisodes).
+    epBusy: null,
+    async refreshEps(id, title) {
+        if (this.epBusy !== null) return;
+        this.epBusy = id;
+        try {
+            const body = new URLSearchParams();
+            body.set('_token', document.querySelector('meta[name="csrf-token"]').content);
+            body.set('id', id);
+            const r = await fetch('{{ route('admin.import.refresh') }}', {
+                method: 'POST', body,
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+            });
+            const d = await r.json().catch(() => null);
+            if (r.ok && d && d.ok) {
+                alert('"' + title + '"\nอัปเดตตอนแล้ว: ' + d.before + ' → ' + d.after + ' ตอน'
+                    + (d.retyped ? '\n(แก้ประเภทเป็น ' + (d.type === 'series' ? 'ซีรีส์' : d.type) + ')' : ''));
+            } else {
+                alert((d && d.message) || 'รีเฟรชตอนไม่สำเร็จ — ลองใหม่อีกครั้ง');
+            }
+        } catch (e) {
+            alert('รีเฟรชตอนไม่สำเร็จ — ' + (e.message || 'เชื่อมต่อไม่ได้'));
+        }
+        this.epBusy = null;
+    },
     get pct() { return this.total ? Math.round(this.processed / this.total * 100) : 0; },
     titleFor(id) {
         const el = document.querySelector('.imp-cb[value="' + id + '"]');
@@ -491,6 +516,13 @@ window.syncer = () => ({
                                 title="ดูก่อนนำเข้า (ตัวอย่างตอนที่ 1 จากแหล่งต้นทาง)">▶</button>
                         @if ($t->content_id)
                             <span class="absolute right-2 top-2 rounded bg-success/90 px-1.5 py-0.5 text-[9px] font-bold text-black">นำเข้าแล้ว</span>
+                            {{-- Re-scrape this title's episode list from the source: new eps of an airing
+                                 series arrive now, and a series stuck as a 1-episode movie gets re-typed. --}}
+                            <button type="button" @click.stop.prevent="refreshEps({{ $t->id }}, @js($t->displayTitle()))"
+                                    x-bind:disabled="epBusy !== null"
+                                    class="absolute right-2 top-8 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-[13px] text-white opacity-70 transition hover:bg-brand hover:opacity-100 disabled:opacity-40"
+                                    :class="epBusy === {{ $t->id }} ? 'animate-spin' : ''"
+                                    title="รีเฟรชตอน — ดึงรายชื่อตอนล่าสุดจากต้นทาง">⟳</button>
                         @endif
                         @if ($t->dubLabel())
                             <span class="absolute bottom-9 left-2 rounded bg-black/60 px-1.5 py-0.5 text-[9px]">{{ $t->dubLabel() }}</span>

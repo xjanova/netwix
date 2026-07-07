@@ -2,8 +2,7 @@
 
 namespace App\Console\Commands;
 
-use App\Models\SourceTitle;
-use App\Services\Import\ImportService;
+use App\Services\Import\EpisodeRefresher;
 use Illuminate\Console\Command;
 use Throwable;
 
@@ -11,16 +10,9 @@ use Throwable;
  * Re-scrape the episode list of already-imported, multi-episode-capable titles and refresh their
  * episodes in place — so a series that gained new episodes at the source (dramas/anime air weekly)
  * doesn't stay frozen at its first-import count, and a title the source now flags as a series (but
- * we first imported as a 1-episode "movie") gets corrected. The re-import is idempotent: it upserts
- * episodes, PRESERVES the current publish state + genres + maturity, and fixes movie↔series
- * mis-typing via auto_type (the source's own is_movie flag).
- *
- * Which titles are "refreshable" (can legitimately gain episodes):
- *   - wowdrama         → all (long-form CN/KR/JP series)
- *   - 24hdx / anime108 → only where the source flags is_movie=false (a series; this also catches the
- *                        1-episode "movie" that is really a series, e.g. The Evil Lawyer)
- *   - rongyok          → only with --include-rongyok (short verticals arrive complete; low value)
- *   - 9nung            → never (single-video movies — can't gain episodes)
+ * we first imported as a 1-episode "movie") gets corrected. Selection + per-title refresh live in
+ * [App\Services\Import\EpisodeRefresher] (shared with the admin "รีเฟรชตอน" button and the
+ * post-sync [App\Jobs\RefreshEpisodesJob]).
  *
  * Movies never gain episodes, so they're skipped to spare the source sites needless scraping.
  * See [[NetWix — airing series stuck at old episode count (auto-import never re-imports)]].
@@ -37,40 +29,17 @@ class RefreshEpisodesCommand extends Command
 
     protected $description = 'Refresh episode lists of imported series (catch newly-aired episodes + fix movie→series mis-typing).';
 
-    /** Raw-title markers that a series has finished — used by --airing-only to skip completed titles. */
-    private const ENDED_MARKERS = ['จบ', 'ครบทุกตอน', 'END'];
-
-    public function handle(ImportService $importer): int
+    public function handle(EpisodeRefresher $refresher): int
     {
-        $only = $this->option('source');
         $limit = (int) $this->option('limit');
         $sleepUs = max(0, (int) $this->option('sleep')) * 1000;
 
-        $q = SourceTitle::query()->imported()
-            ->when($only, fn ($w) => $w->where('source', $only))
-            ->where(function ($w) {
-                // wowdrama: every title is a long-form series.
-                $w->where('source', 'wowdrama')
-                    // Halim sources: only titles the source itself flags as a series.
-                    ->orWhere(fn ($x) => $x->whereIn('source', ['24hdx', 'anime108'])
-                        ->whereRaw("JSON_EXTRACT(extra, '$.is_movie') = false"));
-                if ($this->option('include-rongyok')) {
-                    $w->orWhere('source', 'rongyok');
-                }
-            });
-
+        $q = $refresher->query($this->option('source'), (bool) $this->option('include-rongyok'));
         if ($this->option('airing-only')) {
-            $days = max(1, (int) $this->option('recent-days'));
-            $q->whereHas('content', fn ($w) => $w->where('created_at', '>=', now()->subDays($days)));
-            foreach (self::ENDED_MARKERS as $m) {
-                $q->where('title', 'not like', '%'.$m.'%');
-            }
-            // Least-recently-touched first → the nightly run rotates through the pool over time.
-            $q->orderBy('updated_at');
+            $refresher->airingOnly($q, (int) $this->option('recent-days'));
         } else {
             $q->orderByDesc('view_count')->orderBy('id');
         }
-
         if ($limit > 0) {
             $q->limit($limit);
         }
@@ -95,32 +64,22 @@ class RefreshEpisodesCommand extends Command
         $samples = [];
 
         foreach ($titles as $st) {
-            $content = $st->content;
-            if (! $content) {
+            if (! $st->content) {
                 $bar->advance();
 
                 continue;
             }
-            $before = $content->episodes()->count();
-            $typeBefore = $content->type;
             try {
-                // auto_type = fix movie↔series from current source metadata; publish preserved
-                // (hidden_sources still force-unpublish inside import). No 'genres' key → genres
-                // are left untouched. No 'maturity' → existing rating preserved.
-                $fresh = $importer->import($st, [
-                    'auto_type' => true,
-                    'publish' => (bool) $content->is_published,
-                ]);
-                $after = $fresh->episodes()->count();
+                $r = $refresher->refresh($st);
                 $scanned++;
-                if ($after > $before) {
+                if ($r['after'] > $r['before']) {
                     $gained++;
-                    $gainedEps += ($after - $before);
+                    $gainedEps += ($r['after'] - $r['before']);
                     if (count($samples) < 12) {
-                        $samples[] = "  +{$before}→{$after}  {$st->displayTitle()}";
+                        $samples[] = "  +{$r['before']}→{$r['after']}  {$r['title']}";
                     }
                 }
-                if ($fresh->type !== $typeBefore) {
+                if ($r['retyped']) {
                     $retyped++;
                 }
             } catch (Throwable $e) {
