@@ -6,7 +6,6 @@ use App\Models\Announcement;
 use App\Models\Content;
 use App\Models\Setting;
 use App\Services\AppRelease;
-use App\Support\HeroBillboard;
 use Illuminate\Support\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
@@ -80,10 +79,6 @@ class HomeController extends Controller
             'emailReg' => Setting::flag('email_registration_enabled', true),
             'stats' => $stats,
             'app' => $app,
-            // Rotating whole-site billboard on top of the landing (cached ~2 min, shared by all guests).
-            'heroSlides' => HeroBillboard::slides('all'),
-            'heroSeconds' => HeroBillboard::seconds(),
-            'heroVideo' => HeroBillboard::videoEnabled(),
         ]);
     }
 }
