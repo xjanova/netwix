@@ -108,10 +108,13 @@ class NaayNungSource implements BackupPoolSource, EmbedPlayback, MediaSource, Pr
 
     private function http(): PendingRequest
     {
+        // 9nung is FLAKY — good pages answer in ~0.3s but a chunk intermittently 500/refuse (worse when
+        // it's soft-rate-limiting us). Keep the timeout short + one quick retry so a bad page fails in
+        // ~seconds instead of stalling an import/resolve for 45s×3.
         return Http::withHeaders([
             'User-Agent' => self::UA,
             'Accept-Language' => 'th,en;q=0.8',
-        ])->timeout(45)->retry(2, 400);
+        ])->connectTimeout(8)->timeout(12)->retry(1, 600);
     }
 
     /**
