@@ -45,10 +45,15 @@ Route::middleware('throttle:120,1')->group(function () {
     Route::get('/anime', [PublicCatalogController::class, 'anime'])->name('browse.anime');
     Route::get('/vertical', [PublicCatalogController::class, 'vertical'])->name('browse.vertical');
 
-    // Public search — results page is noindex,follow; suggest feeds the nav type-ahead.
-    Route::get('/search', [SearchController::class, 'index'])->name('search');
-    Route::get('/api/search', [SearchController::class, 'suggest'])->name('search.suggest');
+    // Public search — results page is noindex,follow; suggest feeds the nav type-ahead. Both sit
+    // behind the once-per-session Turnstile human gate (no-op until keys are configured).
+    Route::get('/search', [SearchController::class, 'index'])->middleware('turnstile.search')->name('search');
+    Route::get('/api/search', [SearchController::class, 'suggest'])->middleware('turnstile.search')->name('search.suggest');
 });
+
+// The gate page above POSTs its solved token here to flag the session as human.
+Route::post('/turnstile/verify', [\App\Http\Controllers\TurnstileController::class, 'verify'])
+    ->middleware('throttle:20,1')->name('turnstile.verify');
 
 // ---- Public info pages (guests + members) ------------------------------
 Route::get('/download', [PageController::class, 'download'])->name('download');

@@ -266,7 +266,7 @@
                 <span class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-cream/50">○ ยังไม่ตั้งค่า</span>
             @endif
         </div>
-        <p class="mb-4 text-[13px] text-cream/50">ป้องกันบอทสมัคร/ล็อกอิน และสแปมคอมเมนต์ — เมื่อตั้งค่าแล้วจะมีกล่องยืนยัน “ไม่ใช่บอท” โผล่บนฟอร์มล็อกอิน สมัครสมาชิก และช่องคอมเมนต์อัตโนมัติ (คนจริงส่วนใหญ่ผ่านแบบไม่ต้องกดอะไร)</p>
+        <p class="mb-4 text-[13px] text-cream/50">ป้องกันบอทสมัคร/ล็อกอิน สแปมคอมเมนต์ และบอทยิงหน้าค้นหา — เมื่อตั้งค่าแล้วจะมีกล่องยืนยัน “ไม่ใช่บอท” โผล่บนฟอร์มล็อกอิน สมัครสมาชิก ช่องคอมเมนต์ และก่อนการค้นหาครั้งแรกของผู้เยี่ยมชม (ครั้งเดียวต่อการเข้าชม — คนจริงส่วนใหญ่ผ่านแบบไม่ต้องกดอะไร)</p>
         <div class="flex flex-col gap-3">
             <label class="text-[13px] text-cream/60">Site Key
                 <input name="turnstile_site_key" value="{{ old('turnstile_site_key', $turnstile_site_key) }}" placeholder="0x4AAAAAAA…" class="nx-input mt-1">

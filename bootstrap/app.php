@@ -18,6 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin' => \App\Http\Middleware\EnsureAdmin::class,
             'auth.apptoken' => \App\Http\Middleware\AuthenticateAppToken::class,
             'turnstile' => \App\Http\Middleware\VerifyTurnstile::class,
+            'turnstile.search' => \App\Http\Middleware\TurnstileSearchGate::class,
         ]);
 
         // Ingest bridge is token-authenticated, not session/CSRF based.

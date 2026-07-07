@@ -21,6 +21,12 @@ class VerifyTurnstile
         }
 
         if (Turnstile::passes($request->input('cf-turnstile-response'), $request->ip())) {
+            // A solved challenge proves the session is human — unlock the search gate too
+            // (TurnstileSearchGate), so e.g. a failed register attempt still counts.
+            if ($request->hasSession()) {
+                $request->session()->put('turnstile_human', true);
+            }
+
             return $next($request);
         }
 
