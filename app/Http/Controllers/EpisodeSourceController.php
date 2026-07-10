@@ -117,10 +117,13 @@ class EpisodeSourceController extends Controller
             return response()->json(['ready' => false], 202);
         }
 
-        // Cache until ~1h before the signed url's own expiry (ex=<hex unix seconds>), min 60s.
+        // Cache until ~1h before the signed url's own expiry, min 60s. Two known formats: Discord's
+        // ex=<hex unix seconds> (rongyok) and e=<decimal unix seconds> (anifume/rukoluo, short-lived).
         $ttl = 6 * 3600;
         if (preg_match('~[?&]ex=([0-9a-f]+)~i', $stream->url, $m)) {
             $ttl = max(60, (int) hexdec($m[1]) - time() - 3600);
+        } elseif (preg_match('~[?&]e=(\d{10})(?:&|$)~', $stream->url, $m)) {
+            $ttl = max(60, (int) $m[1] - time() - 3600);
         }
         Cache::put($cacheKey, $stream->url, now()->addSeconds($ttl));
 

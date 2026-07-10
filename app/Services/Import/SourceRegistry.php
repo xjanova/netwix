@@ -4,6 +4,7 @@ namespace App\Services\Import;
 
 use App\Services\Import\Contracts\BackupPoolSource;
 use App\Services\Import\Contracts\MediaSource;
+use App\Services\Import\Sources\AnifumeSource;
 use App\Services\Import\Sources\HalimSource;
 use App\Services\Import\Sources\HalimSites;
 use App\Services\Import\Sources\NaayNungSource;
@@ -17,7 +18,7 @@ class SourceRegistry
 
     public function __construct()
     {
-        $sources = [new RongYokSource, new WowDramaSource, new NaayNungSource];
+        $sources = [new RongYokSource, new WowDramaSource, new NaayNungSource, new AnifumeSource];
         // Every Halim-theme site (24-hdx, anime108, …) is the same engine + a config — see [HalimSites].
         foreach (HalimSites::all() as $config) {
             $sources[] = new HalimSource($config);
