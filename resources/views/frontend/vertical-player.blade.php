@@ -211,10 +211,8 @@
                     const v = this.$refs.video;
                     if (!v || v.readyState < 2) return;
                     try { ctx.drawImage(v, 0, 0, c.width, c.height); } catch (e) {}
-                    // ~every 2s: lazily grab an on-demand cover for an uncovered episode (light).
-                    if (((this._ambiN = (this._ambiN || 0) + 1) % 14) === 0) {
-                        window.nxMaybeThumb(v, this.episodes[this.index]);
-                    }
+                    // (cover capture moved to onTime()/maybeCapture — a reliable playback tick that
+                    // doesn't depend on this ambient-glow canvas existing.)
                 }, 140);
             },
 
@@ -281,6 +279,7 @@
                 this.dur = v.duration || 0;
                 this.progress = this.dur ? (this.cur / this.dur) * 100 : 0;
                 this.resume();   // frames are advancing → definitely not stalled, hide the loader
+                this.maybeCapture();   // grab + live-swap this episode's cover once past its intro
                 this.saveProgress();
             },
 
@@ -369,9 +368,10 @@
                 if (i !== this.index) { this.index = i; this.load(); }
             },
 
-            // Covers are generated in the admin panel now (Admin → สร้างปกตอน) —
-            // no more on-watch capture.
-            maybeCapture() {},
+            // Capture a cover frame for the episode being watched if it has none yet, and swap it into
+            // the grid live (nxMaybeThumb → ep.thumb). Driven by onTime() so it fires on every playback
+            // tick — reliable, unlike the old ambient-glow-timer path. Guarded once-per-episode inside.
+            maybeCapture() { window.nxMaybeThumb(this.$refs.video, this.episodes[this.index]); },
             // A tap/scroll that lands on a control (mute, play, seek, volume, nav ↑↓, ✕, ตอน menu) must
             // NEVER be read as a swipe-to-change-episode. @click.stop on those buttons only stops the
             // 'click' event — touchstart/touchend/wheel still bubble to this root — so without this guard
