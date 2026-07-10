@@ -266,6 +266,16 @@ class Content extends Model
         return $this->is_adult;
     }
 
+    /** Number of days a freshly-imported title keeps its "มาใหม่" badge. */
+    public const NEW_BADGE_DAYS = 7;
+
+    /** True for the first {NEW_BADGE_DAYS} days after a title was added (created_at = first import). */
+    public function getIsNewAttribute(): bool
+    {
+        return $this->created_at !== null
+            && $this->created_at->greaterThan(now()->subDays(self::NEW_BADGE_DAYS));
+    }
+
     /** Best-effort YouTube id from either the trailer field or a video_url. */
     public function getYoutubeIdAttribute(): ?string
     {

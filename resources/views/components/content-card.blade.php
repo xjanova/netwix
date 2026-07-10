@@ -125,6 +125,9 @@
             @endif
 
             <div class="absolute left-2 top-2 z-10 flex flex-col items-start gap-1">
+                @if ($content->is_new)
+                    <span class="rounded bg-gradient-to-r from-brand to-[#ff5a7a] px-1.5 py-0.5 text-[9px] font-extrabold tracking-wide text-white shadow" title="เพิ่งนำเข้าใหม่ภายใน 7 วัน">🆕 มาใหม่</span>
+                @endif
                 @if ($content->link_under_review)
                     <span class="rounded bg-gold/90 px-1.5 py-0.5 text-[9px] font-bold text-black shadow" title="กำลังตรวจสอบลิงก์ อาจดูไม่ได้ชั่วคราว">🚧 ตรวจสอบลิงก์</span>
                 @endif

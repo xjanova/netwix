@@ -74,6 +74,9 @@
 
         {{-- top: rating stars + maturity / PRO / year / match badges --}}
         <div class="absolute left-5 right-28 top-4 z-20 flex flex-wrap items-center gap-1.5">
+            @if ($content->is_new)
+                <span class="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-brand to-[#ff5a7a] px-2.5 py-1 text-xs font-extrabold tracking-wide text-white shadow backdrop-blur" title="เพิ่งนำเข้าใหม่ภายใน 7 วัน">🆕 มาใหม่</span>
+            @endif
             <span class="inline-flex items-center gap-1 rounded-full bg-black/45 px-2.5 py-1 text-sm font-bold text-gold backdrop-blur">★ {{ $content->rating }}</span>
             <span class="rounded-full px-2.5 py-1 text-xs font-semibold backdrop-blur {{ $content->is_adult ? 'bg-gold/90 text-black' : 'bg-black/45 text-cream/90' }}">{{ $content->maturity }}</span>
             @if ($content->requires_pro)
