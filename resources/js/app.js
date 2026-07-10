@@ -215,7 +215,7 @@ window.nxCaptureThumb = function (video, postUrl) {
         const data = c.toDataURL('image/jpeg', 0.72);      // also throws if tainted
         if (!data || data.length < 1200) return false;
         window.nxPost(postUrl, { image: data }).catch(() => {});
-        return true;
+        return data;                                       // the caller shows this frame at once (live cover)
     } catch (e) {
         return false;                                      // tainted / unsupported → silently skip
     }
@@ -230,7 +230,10 @@ window.nxMaybeThumb = function (video, ep) {
     const d = video.duration || 0;
     const thr = (d && d < 120) ? Math.max(8, d * 0.2) : 40;   // past the intro, not too late
     if ((video.currentTime || 0) < thr) return;
-    if (window.nxCaptureThumb(video, ep.post)) { ep._thumbDone = true; ep.has = true; }
+    const frame = window.nxCaptureThumb(video, ep.post);
+    // Swap the just-captured frame into the episode-grid cover NOW (Alpine reactive) so it appears
+    // while you're still watching — no page refresh. On next load it serves the saved media/thumbs file.
+    if (frame) { ep._thumbDone = true; ep.has = true; ep.thumb = frame; }
 };
 
 /**
