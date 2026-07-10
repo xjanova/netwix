@@ -30,7 +30,7 @@ class AutoImportCommand extends Command
             return self::SUCCESS;
         }
 
-        $sources = collect(explode(',', (string) Setting::get('auto_import_sources', '24hdx,wowdrama,anime108,rongyok')))
+        $sources = collect(explode(',', (string) Setting::get('auto_import_sources', '24hdx,wowdrama,anime108,rongyok,anifume')))
             ->map(fn ($s) => trim($s))->filter()->all();
         $perSource = (int) ($this->option('limit') ?: Setting::get('auto_import_per_run', 40));
 

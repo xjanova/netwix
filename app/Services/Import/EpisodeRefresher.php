@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Builder;
  * ([App\Jobs\RefreshEpisodesJob]) — so their selection rules can never drift apart.
  *
  * Which titles are refreshable:
- *   - wowdrama                 → all (long-form CN/KR/JP series)
+ *   - wowdrama / anifume       → all (long-form series / airing anime — every title can gain episodes)
  *   - 24hdx / anime108 / 9nung → only where the source flags is_movie=false (also catches the
  *                                1-episode "movie" that is really a series, e.g. The Evil Lawyer;
  *                                9nung series = the clean-fembed /tvshows/ subset)
@@ -35,8 +35,8 @@ class EpisodeRefresher
         return SourceTitle::query()->imported()
             ->when($source, fn ($w) => $w->where('source', $source))
             ->where(function ($w) use ($includeRongyok) {
-                // wowdrama: every title is a long-form series.
-                $w->where('source', 'wowdrama')
+                // wowdrama + anifume: every title is a series that can gain episodes.
+                $w->whereIn('source', ['wowdrama', 'anifume'])
                     // Halim + 9nung: only titles the source itself flags as a series (9nung's
                     // abyss movies are excluded here by is_movie=true / missing key).
                     ->orWhere(fn ($x) => $x->whereIn('source', ['24hdx', 'anime108', '9nung'])
