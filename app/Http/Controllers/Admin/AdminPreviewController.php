@@ -8,6 +8,7 @@ use App\Models\SourceTitle;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
+use App\Support\HlsSegment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -150,11 +151,7 @@ class AdminPreviewController extends Controller
         }
         abort_unless($resp && $resp->ok(), 502);
 
-        $data = $resp->body();
-        $pos = strpos($data, "\x47");
-        if ($pos !== false && $pos > 0 && $pos < 512) {
-            $data = substr($data, $pos);
-        }
+        $data = HlsSegment::stripToTsSync($resp->body());
 
         return response($data, 200)->withHeaders(['Content-Type' => 'video/mp2t', 'Cache-Control' => 'no-store']);
     }

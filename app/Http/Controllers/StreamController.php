@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Episode;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
+use App\Support\HlsSegment;
 use App\Support\PlaybackHealth;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -112,12 +113,8 @@ class StreamController extends Controller
         }
         abort_unless($resp && $resp->ok(), 502);
 
-        $data = $resp->body();
-        // Strip the fake image header: seek to the first MPEG-TS sync byte (0x47).
-        $pos = strpos($data, "\x47");
-        if ($pos !== false && $pos > 0 && $pos < 512) {
-            $data = substr($data, $pos);
-        }
+        // Strip any fake-image wrapper (torbo007's tiktokcdn PNGs, getplay-cdn) down to the TS payload.
+        $data = HlsSegment::stripToTsSync($resp->body());
 
         return response($data, 200)->withHeaders([
             'Content-Type' => 'video/mp2t',
