@@ -20,6 +20,13 @@ use Throwable;
  */
 class EpisodeThumbnailer
 {
+    /**
+     * Progressive-mp4 sources (rongyok, anifume) are faststart (moov up front), so ffmpeg can seek
+     * inside just the opening chunk — no need to pull a whole ~130MB anifume episode for one frame.
+     * Cap the download to this many bytes (~28MB ≈ the first ~20-40s of video) to slash ingress.
+     */
+    private const PROGRESSIVE_CAP_BYTES = 28_000_000;
+
     public function __construct(private SourceRegistry $registry) {}
 
     /**
@@ -39,21 +46,27 @@ class EpisodeThumbnailer
             return 'no_source';
         }
 
-        $src = $this->downloadToTemp($url);
+        // Whole file for HLS (segment) / manual urls; a capped range for progressive mp4 (faststart).
+        $cap = str_contains($url, '.m3u8') ? null : self::PROGRESSIVE_CAP_BYTES;
+        $src = $this->downloadToTemp($url, $cap);
         if ($src === null) {
             // Transient (CDN throttle / hiccup on a burst) — re-resolve a FRESH
             // signed link and try once more before giving up.
             usleep(700_000);
             $retry = $this->playableUrl($episode);
-            $src = $retry ? $this->downloadToTemp($retry) : null;
+            $src = $retry ? $this->downloadToTemp($retry, $cap) : null;
             if ($src === null) {
                 return 'download_failed';
             }
         }
 
+        // If the cap actually truncated the video (file filled to the cap), the deep proportional
+        // seeks in grab() would land past the bytes we have → tell it to grab from the opening window.
+        $partial = $cap !== null && (int) @filesize($src) >= $cap;
+
         $out = $src.'.jpg';
         try {
-            if (! $this->grab($src, $out)) {
+            if (! $this->grab($src, $out, $partial)) {
                 return 'ffmpeg_failed';
             }
 
@@ -90,15 +103,19 @@ class EpisodeThumbnailer
      * window (it naturally skips flat/black frames), then reject near-black results with a GD luminance
      * check — trying a few points and keeping the brightest as a last resort. `-threads 2` caps CPU.
      */
-    private function grab(string $src, string $out): bool
+    private function grab(string $src, string $out, bool $partial = false): bool
     {
         $bin = config('services.ffmpeg.bin', '/home/admin/bin/ffmpeg');
         $dur = $this->duration($src);
         // Sample points: skip the intro, avoid credits. Proportional when the duration is known;
-        // a short HLS segment / unknown duration falls back to small fixed offsets.
-        $seeks = $dur > 25
-            ? [(int) ($dur * 0.30), (int) ($dur * 0.50), (int) ($dur * 0.15), (int) ($dur * 0.70)]
-            : ($dur > 6 ? [(int) ($dur * 0.5), 3, 1] : [2, 1, 0]);
+        // a short HLS segment / unknown duration falls back to small fixed offsets. For a PARTIAL
+        // (range-capped) progressive file only the opening ~20-40s is on disk, so seek early — the
+        // moov header still reports the FULL duration, so proportional seeks would miss the data.
+        $seeks = $partial
+            ? [16, 10, 5, 20]
+            : ($dur > 25
+                ? [(int) ($dur * 0.30), (int) ($dur * 0.50), (int) ($dur * 0.15), (int) ($dur * 0.70)]
+                : ($dur > 6 ? [(int) ($dur * 0.5), 3, 1] : [2, 1, 0]));
 
         $bestData = null;
         $bestLuma = -1.0;
@@ -177,7 +194,7 @@ class EpisodeThumbnailer
         return $n > 0 ? $sum / $n : 999.0;
     }
 
-    private function downloadToTemp(string $url): ?string
+    private function downloadToTemp(string $url, ?int $capBytes = null): ?string
     {
         try {
             if (str_contains($url, '.m3u8')) {
@@ -186,10 +203,15 @@ class EpisodeThumbnailer
                     return null;
                 }
                 $url = $seg;
+                $capBytes = null;   // a single HLS segment is already small — take it whole
             }
 
-            $resp = Http::timeout(90)->get($url);
-            if (! $resp->successful()) {
+            $req = Http::timeout(90);
+            if ($capBytes !== null) {
+                $req = $req->withHeaders(['Range' => 'bytes=0-'.$capBytes]);   // 206 for a faststart mp4
+            }
+            $resp = $req->get($url);
+            if (! $resp->successful()) {   // 2xx incl. 206
                 return null;
             }
             $body = $resp->body();
