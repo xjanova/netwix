@@ -126,3 +126,19 @@ foreach ([220, 224] as $maxTime) {
     Schedule::command("queue:work --queue=clips --sleep=1 --max-time={$maxTime} --timeout=310 --memory=512 --tries=2")
         ->everyMinute()->withoutOverlapping(5)->runInBackground();
 }
+
+// ---- Clip marketing campaigns (Phase 3) -----------------------------------
+// The publisher heartbeat: every 5 minutes it fires any campaign whose slot is due (pick a
+// title → cut a clip → auto-post to Facebook). It is CHEAP — it only writes rows + enqueues,
+// never ffmpeg — so it's safe on every tick. Self-gates on the `clip_campaigns_enabled`
+// kill-switch (admin: /admin/clip-campaigns), so it's fine to always schedule. The DB unique
+// key on clip_campaign_posts makes a double-fire inside a slot window a no-op.
+Schedule::command('netwix:clips:publish')
+    ->everyFiveMinutes()->withoutOverlapping()->runInBackground();
+
+// The Facebook publish lane (PostClipToFacebook): a light HTTP upload — FB pulls the hosted
+// clip URL — so, unlike the ffmpeg clip cutter, ONE modest worker is plenty and it won't load
+// the CPU. --stop-when-empty keeps idle minutes cheap; a post lands within ~a minute of its
+// clip being cut. In dry-run (no FB token) the job still runs and records the simulated post.
+Schedule::command('queue:work --queue=clips-post --stop-when-empty --sleep=2 --max-time=55 --timeout=250 --memory=256 --tries=3')
+    ->everyMinute()->withoutOverlapping()->runInBackground();

@@ -92,4 +92,19 @@ return [
         'lucky_line' => env('CAPTION_LUCKY_LINE', 'โหลดแอปเลย ดูฟรียาวๆ + ลุ้นรับโชคทุกสัปดาห์ 🎁'),
     ],
 
+    // Facebook page auto-post for the clip marketing campaigns (App\Support\FacebookPublisher +
+    // the netwix:clips:publish scheduler). Posting is HOSTED — FB fetches the clip from its public
+    // netwix.online URL. With no token the whole campaign pipeline still runs, in DRY-RUN (nothing is
+    // sent) so it's fully testable; set the three FB_* vars to go live. Use the EXISTING NetWix page
+    // (kept separate from the Fortune Bot page so a movie-clip takedown never touches the fortune page).
+    //   enabled     — master on/off for real posting (FB_AUTOPOST_ENABLED=true to go live).
+    //   page_id     — numeric Facebook Page id.
+    //   page_token  — a LONG-LIVED Page access token (pages_manage_posts + pages_read_engagement).
+    'facebook' => [
+        'enabled' => (bool) env('FB_AUTOPOST_ENABLED', false),
+        'page_id' => env('FB_PAGE_ID', ''),
+        'page_token' => env('FB_PAGE_TOKEN', ''),
+        'api_version' => env('FB_GRAPH_VERSION', 'v21.0'),
+    ],
+
 ];

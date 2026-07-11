@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\ClipCampaignPost;
 use App\Models\MarketingClip;
 use App\Support\CaptionWriter;
 use App\Support\ClipMaker;
@@ -67,8 +68,31 @@ class GenerateMarketingClip implements ShouldQueue
             }
         }
 
+        // Campaign clips flow straight on to Facebook once cut. Success → hand off to the
+        // light `clips-post` lane (HTTP upload, never ffmpeg). Failure → flag the campaign
+        // post so the admin log shows why this slot produced nothing (source down, etc.).
+        if ($clip->auto_post && $clip->campaign_id) {
+            if ($status === 'ok') {
+                PostClipToFacebook::dispatch($clip->id)->onQueue('clips-post');
+            } else {
+                $this->flagCampaignPost($clip->id, 'cut_failed:'.$status);
+            }
+        }
+
         $this->reportAgent($pid, $label, true);
         $this->tally($status === 'ok', $status, $label);
+    }
+
+    /** Mark the campaign-post that owns this clip as failed (best-effort). */
+    private function flagCampaignPost(int $clipId, string $reason): void
+    {
+        try {
+            ClipCampaignPost::where('marketing_clip_id', $clipId)
+                ->whereNotIn('status', ['posted', 'failed'])
+                ->latest('id')->first()?->markFailed($reason);
+        } catch (Throwable $e) {
+            // best-effort
+        }
     }
 
     /** Publish this worker's live activity → one "agent" card per running worker. */
@@ -93,6 +117,7 @@ class GenerateMarketingClip implements ShouldQueue
         // Make sure a hard failure leaves a visible state, not a stuck "processing".
         MarketingClip::whereKey($this->clipId)->where('status', 'processing')
             ->update(['status' => 'failed', 'error' => 'error']);
+        $this->flagCampaignPost($this->clipId, 'cut_failed:error');
         $this->tally(false, 'error', null);
     }
 

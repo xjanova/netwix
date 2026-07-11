@@ -15,10 +15,10 @@ use Illuminate\Support\Facades\Storage;
 class MarketingClip extends Model
 {
     protected $fillable = [
-        'content_id', 'episode_id', 'start', 'duration', 'aspect',
+        'campaign_id', 'content_id', 'episode_id', 'start', 'duration', 'aspect',
         'status', 'error', 'file_path', 'poster_path', 'file_size',
-        'caption', 'platform', 'scheduled_at', 'posted_at', 'remote_post_id',
-        'batch_id', 'meta',
+        'caption', 'platform', 'auto_post', 'post_targets', 'scheduled_at', 'posted_at',
+        'remote_post_id', 'dry_run', 'batch_id', 'meta',
     ];
 
     protected function casts(): array
@@ -26,10 +26,18 @@ class MarketingClip extends Model
         return [
             'start' => 'integer',
             'duration' => 'integer',
+            'auto_post' => 'boolean',
+            'dry_run' => 'boolean',
             'scheduled_at' => 'datetime',
             'posted_at' => 'datetime',
             'meta' => 'array',
         ];
+    }
+
+    /** The campaign that produced this clip, if it was cut by the auto-post pipeline. */
+    public function campaign(): BelongsTo
+    {
+        return $this->belongsTo(ClipCampaign::class, 'campaign_id');
     }
 
     public function content(): BelongsTo

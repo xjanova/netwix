@@ -16,6 +16,7 @@
         ['route' => 'admin.storage.index', 'label' => 'จัดเก็บสื่อ'],
         ['route' => 'admin.thumbs.index', 'label' => 'สร้างปกตอน'],
         ['route' => 'admin.clips.index', 'label' => 'ตัดคลิป → เฟซบุ๊ก'],
+        ['route' => 'admin.clip-campaigns.index', 'label' => 'แคมเปญคลิปอัตโนมัติ'],
         ['route' => 'admin.genres.index', 'label' => 'หมวดหมู่'],
         ['route' => 'admin.announcements.index', 'label' => 'ข่าวสารหน้าแรก'],
         ['route' => 'admin.comments.index', 'label' => 'ความคิดเห็น'],

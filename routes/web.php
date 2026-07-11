@@ -218,6 +218,19 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('clips/{clip}/retry', [Admin\ClipController::class, 'retry'])->name('clips.retry');
     Route::delete('clips/{clip}', [Admin\ClipController::class, 'destroy'])->name('clips.destroy');
 
+    // Clip marketing CAMPAIGNS (Phase 3) — each campaign auto-picks a title on its schedule,
+    // cuts a clip, and posts it to the NetWix Facebook page. CRUD + per-campaign toggle + a
+    // global kill-switch + "โพสต์ทันที". The actual work runs on the queue (netwix:clips:publish).
+    Route::get('clip-campaigns', [Admin\ClipCampaignController::class, 'index'])->name('clip-campaigns.index');
+    Route::get('clip-campaigns/create', [Admin\ClipCampaignController::class, 'create'])->name('clip-campaigns.create');
+    Route::post('clip-campaigns', [Admin\ClipCampaignController::class, 'store'])->name('clip-campaigns.store');
+    Route::post('clip-campaigns/kill', [Admin\ClipCampaignController::class, 'kill'])->name('clip-campaigns.kill');
+    Route::get('clip-campaigns/{clipCampaign}/edit', [Admin\ClipCampaignController::class, 'edit'])->name('clip-campaigns.edit');
+    Route::put('clip-campaigns/{clipCampaign}', [Admin\ClipCampaignController::class, 'update'])->name('clip-campaigns.update');
+    Route::delete('clip-campaigns/{clipCampaign}', [Admin\ClipCampaignController::class, 'destroy'])->name('clip-campaigns.destroy');
+    Route::post('clip-campaigns/{clipCampaign}/toggle', [Admin\ClipCampaignController::class, 'toggle'])->name('clip-campaigns.toggle');
+    Route::post('clip-campaigns/{clipCampaign}/run', [Admin\ClipCampaignController::class, 'runNow'])->name('clip-campaigns.run');
+
     // Auto-suspended (un-playable) titles for review — re-publish or delete.
     Route::get('suspended', [Admin\SuspendedController::class, 'index'])->name('suspended.index');
     Route::post('suspended/{content}/republish', [Admin\SuspendedController::class, 'republish'])->name('suspended.republish');
