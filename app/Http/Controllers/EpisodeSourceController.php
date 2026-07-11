@@ -196,4 +196,23 @@ class EpisodeSourceController extends Controller
 
         return response()->json(['ok' => true, 'url' => Storage::disk('public')->url($path)]);
     }
+
+    /**
+     * Server-side cover fallback: the client calls this when it CAN'T grab a frame in-browser — the
+     * source's CDN sends no CORS so the <canvas> is tainted (e.g. anifume/rukoluo). We queue an ffmpeg
+     * grab off a small ranged download (EpisodeThumbnailer), which needs no CORS. One in-flight job per
+     * episode (5-min lock) so a burst of viewers on the same uncovered episode never stacks duplicates.
+     */
+    public function genCover(Request $request, Episode $episode): JsonResponse
+    {
+        abort_unless((bool) $episode->content?->is_published, 404);
+        if ($episode->thumbnail_path) {
+            return response()->json(['ok' => true, 'skipped' => 'exists']);
+        }
+        if (Cache::add('episode:gencover:'.$episode->id, 1, now()->addMinutes(5))) {
+            \App\Jobs\GenerateEpisodeThumb::dispatch($episode->id)->onQueue('thumbs');
+        }
+
+        return response()->json(['ok' => true, 'queued' => true]);
+    }
 }

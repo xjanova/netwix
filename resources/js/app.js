@@ -217,7 +217,7 @@ window.nxCaptureThumb = function (video, postUrl) {
         window.nxPost(postUrl, { image: data }).catch(() => {});
         return data;                                       // the caller shows this frame at once (live cover)
     } catch (e) {
-        return false;                                      // tainted / unsupported → silently skip
+        return 'tainted';                                  // cross-origin canvas (no CORS) → caller asks the server to make it
     }
 };
 
@@ -231,6 +231,12 @@ window.nxMaybeThumb = function (video, ep) {
     const thr = (d && d < 120) ? Math.max(8, d * 0.2) : 40;   // past the intro, not too late
     if ((video.currentTime || 0) < thr) return;
     const frame = window.nxCaptureThumb(video, ep.post);
+    if (frame === 'tainted') {
+        // Browser can't read this CDN's frames (no CORS, e.g. anifume) → ask the server to ffmpeg the
+        // cover once. It shows on the next grid open / reload (can't live-swap what we can't read).
+        if (ep.gen && !ep._srvAsked) { ep._srvAsked = true; window.nxPost(ep.gen, {}).catch(() => {}); }
+        return;
+    }
     // Swap the just-captured frame into the episode-grid cover NOW (Alpine reactive) so it appears
     // while you're still watching — no page refresh. On next load it serves the saved media/thumbs file.
     if (frame) { ep._thumbDone = true; ep.has = true; ep.thumb = frame; }

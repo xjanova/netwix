@@ -13,6 +13,7 @@
         'thumb' => $e->thumbnail_path ? $e->thumbnail_url : $content->poster_url,
         'has' => (bool) $e->thumbnail_path,
         'post' => route('episode.thumb', $e),
+        'gen' => route('episode.gencover', $e),
     ])->values();
 @endphp
 

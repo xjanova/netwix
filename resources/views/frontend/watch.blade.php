@@ -12,6 +12,7 @@
         'thumb' => $e->thumbnail_path ? $e->thumbnail_url : $content->poster_url,
         'has' => (bool) $e->thumbnail_path,
         'post' => route('episode.thumb', $e),
+        'gen' => route('episode.gencover', $e),
     ])->values();
     // Manual movie with a URL on the content itself and no episode rows → one synthetic entry.
     if ($eps->isEmpty() && $content->video_url) {

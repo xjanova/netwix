@@ -135,6 +135,9 @@ Route::middleware(['auth', 'profile'])->group(function () {
         ->middleware('throttle:60,1')->name('episode.source');
     Route::post('/api/episode/{episode}/thumb', [EpisodeSourceController::class, 'captureThumb'])
         ->middleware('throttle:60,1')->name('episode.thumb');
+    // Server-side cover fallback for no-CORS sources (anifume) the browser can't frame-grab.
+    Route::post('/api/episode/{episode}/gencover', [EpisodeSourceController::class, 'genCover'])
+        ->middleware('throttle:60,1')->name('episode.gencover');
 
     // Member account: Pro status, coins, referral code + share, redeem a code.
     Route::get('/account', [\App\Http\Controllers\AccountController::class, 'index'])->name('account');
