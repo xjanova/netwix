@@ -403,7 +403,12 @@
                 // More episodes to go → auto-play the next one.
                 if (this.index < this.episodes.length - 1) { this.next(); return; }
                 // Finished the LAST episode of a MULTI-episode title → invite a rating + comment.
-                if (this.episodes.length > 1) { this.finished = true; this.ui = true; clearTimeout(this._uiT); }
+                if (this.episodes.length > 1) {
+                    this.finished = true; this.ui = true; clearTimeout(this._uiT);
+                    // The Turnstile widget rendered while the card was display:none — nudge it once the
+                    // card is visible so getResponse() returns a fresh token for the comment post.
+                    this.$nextTick(() => { try { window.turnstile && window.turnstile.reset(); } catch (e) {} });
+                }
             },
 
             // Covers are generated in the admin panel now (Admin → สร้างปกตอน) —
