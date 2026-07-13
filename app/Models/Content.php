@@ -24,7 +24,7 @@ class Content extends Model
         'match_score', 'rating', 'is_original', 'is_featured', 'is_published', 'is_vip', 'vip_price_gold',
         'suspended_at', 'suspend_reason', 'playback_fail_count', 'review_flagged_at', 'review_ignored',
         'poster_path', 'backdrop_path', 'trailer_youtube_id', 'video_url',
-        'duration_minutes', 'views', 'sort',
+        'duration_minutes', 'intro_end_seconds', 'outro_seconds', 'views', 'sort',
     ];
 
     protected function casts(): array
@@ -38,6 +38,8 @@ class Content extends Model
             'review_flagged_at' => 'datetime',
             'review_ignored' => 'boolean',
             'rating' => 'decimal:1',
+            'intro_end_seconds' => 'integer',
+            'outro_seconds' => 'integer',
         ];
     }
 

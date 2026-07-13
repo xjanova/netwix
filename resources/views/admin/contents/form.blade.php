@@ -220,6 +220,20 @@
                 <div><label class="mb-1.5 block text-xs text-cream/60">% ตรงใจ</label><input name="match_score" type="number" min="0" max="100" value="{{ $val('match_score', 96) }}" class="nx-input"></div>
                 <div><label class="mb-1.5 block text-xs text-cream/60">คะแนน (0-10)</label><input name="rating" type="number" step="0.1" min="0" max="10" value="{{ $val('rating', 8.5) }}" class="nx-input"></div>
                 <div class="col-span-2"><label class="mb-1.5 block text-xs text-cream/60">ความยาว (นาที) — เฉพาะหนัง</label><input name="duration_minutes" type="number" value="{{ $val('duration_minutes') }}" class="nx-input"></div>
+                <div class="col-span-2 rounded-lg border border-white/10 bg-white/[0.02] p-3">
+                    <div class="mb-2 text-xs font-semibold text-cream/70">⏱ มาร์คเวลา (ข้ามอินโทร / เครดิต) — ใช้กับทุกตอน</div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="mb-1 block text-[11px] text-cream/55">ข้ามอินโทรถึงวินาทีที่</label>
+                            <input name="intro_end_seconds" type="number" min="0" max="36000" value="{{ $val('intro_end_seconds') }}" placeholder="เช่น 90 = 1:30" class="nx-input">
+                        </div>
+                        <div>
+                            <label class="mb-1 block text-[11px] text-cream/55">ความยาวเครดิตท้ายเรื่อง (วินาที)</label>
+                            <input name="outro_seconds" type="number" min="0" max="36000" value="{{ $val('outro_seconds') }}" placeholder="เช่น 60 = 1:00" class="nx-input">
+                        </div>
+                    </div>
+                    <p class="mt-1.5 text-[11px] leading-tight text-cream/40">เว้นว่าง = ปิดใช้งาน · ปุ่ม “ข้ามอินโทร” จะโผล่ช่วงต้นเรื่อง และเมื่อถึงเครดิตจะเด้ง “เล่นตอนต่อไป” อัตโนมัติ (ตอนสุดท้าย/หนัง = เด้งการ์ดให้คะแนน)</p>
+                </div>
             </div>
             <div class="mt-4 flex flex-col gap-2.5 text-sm">
                 <label class="flex items-center gap-2.5"><input type="checkbox" name="is_original" value="1" class="accent-brand" @checked($val('is_original'))> NetWix Original</label>

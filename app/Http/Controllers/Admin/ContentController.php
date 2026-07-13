@@ -196,6 +196,8 @@ class ContentController extends Controller
             'trailer_youtube_id' => ['nullable', 'string', 'max:64'],
             'video_url' => ['nullable', 'string', 'max:2048'],
             'duration_minutes' => ['nullable', 'integer', 'between:0,1000'],
+            'intro_end_seconds' => ['nullable', 'integer', 'between:0,36000'],
+            'outro_seconds' => ['nullable', 'integer', 'between:0,36000'],
             'genres' => ['array'],
             'genres.*' => ['integer', 'exists:genres,id'],
             'primary_genre' => ['nullable', 'integer'],

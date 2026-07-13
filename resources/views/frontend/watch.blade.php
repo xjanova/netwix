@@ -54,6 +54,8 @@
         ratingCount: {{ $ratingCount }},
         comments: @js($endComments),
         commentCount: {{ $commentCount }},
+        introEnd: {{ (int) ($content->intro_end_seconds ?? 0) }},
+        outroSeconds: {{ (int) ($content->outro_seconds ?? 0) }},
      })"
      x-init="init()" @mousemove="poke()" @touchstart="poke()">
 
@@ -102,7 +104,7 @@
              its native video fullscreen works, and our button falls back to it there.) --}}
         <video x-ref="video" x-show="!embedUrl" controls controlsList="nofullscreen" autoplay playsinline
                @timeupdate.throttle.10000ms="saveProgress()"
-               @timeupdate="resume()"
+               @timeupdate="resume(); marks()"
                @ended="onEnded()"
                @waiting="stall()" @stalled="stall()"
                @playing="resume(); maybeCapture()" @canplay="resume()" @loadeddata="resume()" x-on:error="resume()"
@@ -121,6 +123,26 @@
                 class="absolute right-4 top-4 z-40 flex items-center gap-2 rounded-full bg-black/60 px-3.5 py-2 text-sm font-semibold backdrop-blur hover:bg-black/80">
             <span class="text-base">🔇</span> แตะเพื่อเปิดเสียง
         </button>
+
+        {{-- Skip-intro (appears while inside [1s, intro_end]); the toggle remembers auto-skip in localStorage --}}
+        <div x-show="showSkip" x-cloak class="absolute bottom-24 right-4 z-40 flex items-center gap-2">
+            <label class="flex cursor-pointer items-center gap-1.5 rounded-full bg-black/60 px-3 py-2 text-xs text-cream/80 backdrop-blur">
+                <input type="checkbox" :checked="autoSkip" @change="setAutoSkip($event.target.checked)" class="accent-brand"> ข้ามอัตโนมัติ
+            </label>
+            <button type="button" @click="skipIntro()"
+                    class="rounded-lg bg-white/90 px-4 py-2.5 text-sm font-bold text-black shadow-lg transition hover:bg-white">ข้ามอินโทร ⏭</button>
+        </div>
+
+        {{-- Next-episode card at the credits marker (non-last episode): auto-advances at 0, cancelable --}}
+        <div x-show="showNext" x-cloak
+             class="absolute bottom-24 right-4 z-40 w-64 rounded-xl bg-black/85 p-4 ring-1 ring-white/10 backdrop-blur">
+            <div class="mb-1 text-xs text-cream/55">ตอนต่อไปกำลังจะเริ่ม</div>
+            <div class="mb-3 truncate text-sm font-semibold" x-text="episodes[index + 1] ? ('ตอนที่ ' + (episodes[index + 1].n || (index + 2))) : ''"></div>
+            <div class="flex items-center gap-2">
+                <button type="button" @click="playNextNow()" class="btn-brand flex-1 py-2 text-sm">▶ เล่นเลย (<span x-text="nextIn"></span>)</button>
+                <button type="button" @click="dismissNext()" class="rounded-lg bg-white/10 px-3 py-2 text-sm hover:bg-white/15">ยกเลิก</button>
+            </div>
+        </div>
 
         <div x-show="err" x-cloak class="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-cream/70">
             <span x-text="err"></span>
@@ -257,10 +279,15 @@
             loading: cfg.hasMedia,
             ui: true,
             embedUrl: null,      // set when the episode resolves to a 3rd-party player iframe (9nung/abyss)
-            // end-of-series rate + comment card (shown by onEnded on the last episode)
+            // end-of-series rate + comment card (shown by onEnded / at the outro marker on the last episode)
             finished: false,
             my: cfg.myRating || 0, avg: cfg.ratingAvg || 0, rcount: cfg.ratingCount || 0, hoverStar: 0, rbusy: false,
             comments: cfg.comments || [], ccount: cfg.commentCount || 0, cbody: '', cbusy: false,
+            // playback markers (content-level): skip-intro + credits/next
+            introEnd: cfg.introEnd || 0,
+            outroSeconds: cfg.outroSeconds || 0,
+            showSkip: false, autoSkip: false, showNext: false, nextIn: 0,
+            _outroFired: false, _nextT: null,
             _uiT: null,
             _stallT: null,
             _poll: null,
@@ -280,6 +307,7 @@
             init() {
                 document.addEventListener('fullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
                 document.addEventListener('webkitfullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
+                try { this.autoSkip = localStorage.getItem('nx_autoskip') === '1'; } catch (e) {}
                 this.poke();
                 if (cfg.youtube || !this.$refs.video) return;
                 if (this.episodes.length) this.load();
@@ -327,6 +355,7 @@
             async load() {
                 this.stopPoll();
                 this.err = '';
+                this._outroFired = false; this.showSkip = false; this.dismissNext();   // fresh markers per episode
                 const ep = this.episodes[this.index];
                 if (!ep) return;
                 if (ep.url) { this.attach(ep.url); return; }
@@ -402,13 +431,17 @@
                 this.saveProgress(100);
                 // More episodes to go → auto-play the next one.
                 if (this.index < this.episodes.length - 1) { this.next(); return; }
+                // Last episode. If the outro marker already popped the card, don't do it again.
+                if (this._outroFired) return;
                 // Finished the LAST episode of a MULTI-episode title → invite a rating + comment.
-                if (this.episodes.length > 1) {
-                    this.finished = true; this.ui = true; clearTimeout(this._uiT);
-                    // The Turnstile widget rendered while the card was display:none — nudge it once the
-                    // card is visible so getResponse() returns a fresh token for the comment post.
-                    this.$nextTick(() => { try { window.turnstile && window.turnstile.reset(); } catch (e) {} });
-                }
+                if (this.episodes.length > 1) { this.showEndCard(); }
+            },
+            // Reveal the rate+comment card (from the real end, or early at the credits marker).
+            showEndCard() {
+                this.finished = true; this.ui = true; clearTimeout(this._uiT);
+                // The Turnstile widget rendered while the card was display:none — nudge it once the card
+                // is visible so getResponse() returns a fresh token for the comment post.
+                this.$nextTick(() => { try { window.turnstile && window.turnstile.reset(); } catch (e) {} });
             },
 
             // Covers are generated in the admin panel now (Admin → สร้างปกตอน) —
@@ -453,6 +486,52 @@
                 } catch (e) {} finally { this.cbusy = false; }
             },
             replayAll() { this.finished = false; this.go(0); },   // rewatch from episode 1
+
+            // ---- playback markers: skip-intro + credits/next --------------------
+            // Runs on every timeupdate (cheap numeric checks). Shows the skip button inside the intro
+            // window, and once the credits marker is reached fires enterOutro() a single time.
+            marks() {
+                const v = this.$refs.video;
+                if (!v || !isFinite(v.duration) || !v.duration) return;
+                const t = v.currentTime, dur = v.duration;
+                this.showSkip = this.introEnd > 1 && t >= 1 && t < this.introEnd;
+                if (this.showSkip && this.autoSkip) this.skipIntro();
+                if (this.outroSeconds > 0 && t > 5 && (dur - t) <= this.outroSeconds) this.enterOutro();
+            },
+            skipIntro() {
+                const v = this.$refs.video;
+                if (!v || this.introEnd <= 0) return;
+                try { v.currentTime = this.introEnd; } catch (e) {}
+                this.showSkip = false;
+                this.tryPlay(v);
+            },
+            setAutoSkip(on) {
+                this.autoSkip = on;
+                try { localStorage.setItem('nx_autoskip', on ? '1' : '0'); } catch (e) {}
+            },
+            // Hit the credits marker (once per episode): last episode / movie → rate+comment card;
+            // otherwise a "next episode" countdown that auto-advances (cancelable).
+            enterOutro() {
+                if (this._outroFired) return;
+                this._outroFired = true;
+                if (this.index >= this.episodes.length - 1) {
+                    if (this.episodes.length > 1 || this.outroSeconds > 0) this.showEndCard();
+                } else {
+                    this.startNextCountdown();
+                }
+            },
+            startNextCountdown() {
+                this.showNext = true;
+                this.nextIn = 10;
+                this.cancelNextTimer();
+                this._nextT = setInterval(() => {
+                    this.nextIn--;
+                    if (this.nextIn <= 0) { this.playNextNow(); }
+                }, 1000);
+            },
+            cancelNextTimer() { if (this._nextT) { clearInterval(this._nextT); this._nextT = null; } },
+            dismissNext() { this.cancelNextTimer(); this.showNext = false; },   // keep watching the credits
+            playNextNow() { this.cancelNextTimer(); this.showNext = false; this.next(); },
         };
     }
 </script>
