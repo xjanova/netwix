@@ -70,10 +70,15 @@ return [
     //              uploaded to the box). Only when set + present does ClipMaker burn the
     //              CTA onto the clip; otherwise it degrades to no overlay (never breaks).
     //   clip_cta — the burned-in call-to-action text on each clip.
+    //   nice_prefix — command prefix that makes every ffmpeg run yield CPU/IO on the shared box
+    //              (App\Support\Ffmpeg::cmd). null = auto ("nice -n 19 ionice -c 2 -n 7" on Linux,
+    //              no-op on Windows/mac dev); set "" to disable. Stops one re-encode from monopolising
+    //              all cores (see brain: "2026-07-06 INCIDENT — stacked ffmpeg cover/clip workers").
     'ffmpeg' => [
         'bin' => env('FFMPEG_BIN', '/home/admin/bin/ffmpeg'),
         'font' => env('FFMPEG_FONT', ''),
         'clip_cta' => env('FFMPEG_CLIP_CTA', 'ดูเต็มเรื่องฟรี · แอป NetWix'),
+        'nice_prefix' => env('FFMPEG_NICE_PREFIX'),
     ],
 
     // AI caption writer for marketing clips (App\Support\CaptionWriter). The LLM only

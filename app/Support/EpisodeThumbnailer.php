@@ -122,10 +122,10 @@ class EpisodeThumbnailer
         foreach (array_values(array_unique($seeks)) as $ss) {
             @unlink($out);
             try {
-                Process::timeout(60)->run([
+                Process::timeout(60)->run(Ffmpeg::cmd([
                     $bin, '-y', '-nostdin', '-threads', '2', '-ss', (string) $ss, '-i', $src,
                     '-frames:v', '1', '-vf', 'thumbnail=n=40,scale=640:-2', '-q:v', '4', $out,
-                ]);
+                ]));
             } catch (Throwable $e) {
                 continue;
             }
@@ -157,7 +157,7 @@ class EpisodeThumbnailer
     {
         $bin = config('services.ffmpeg.bin', '/home/admin/bin/ffmpeg');
         try {
-            $r = Process::timeout(20)->run([$bin, '-hide_banner', '-i', $src]);
+            $r = Process::timeout(20)->run(Ffmpeg::cmd([$bin, '-hide_banner', '-i', $src]));
             $txt = $r->errorOutput()."\n".$r->output();
             if (preg_match('/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/', $txt, $m)) {
                 return (int) $m[1] * 3600 + (int) $m[2] * 60 + (float) $m[3];

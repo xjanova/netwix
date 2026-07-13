@@ -296,7 +296,7 @@ class ClipMaker
         @unlink($out);
         $bin = config('services.ffmpeg.bin', '/home/admin/bin/ffmpeg');
         $args = [
-            $bin, '-y', '-nostdin',
+            $bin, '-y', '-nostdin', '-threads', '4',
             '-ss', number_format($offset, 3, '.', ''),
             '-i', $src,
             '-t', (string) $dur,
@@ -308,7 +308,7 @@ class ClipMaker
             $out,
         ];
         try {
-            Process::timeout(240)->run($args);
+            Process::timeout(240)->run(Ffmpeg::cmd($args));
         } catch (Throwable $e) {
             return false;
         }
@@ -349,10 +349,10 @@ class ClipMaker
         $jpg = $localMp4.'.poster.jpg';
         $bin = config('services.ffmpeg.bin', '/home/admin/bin/ffmpeg');
         try {
-            Process::timeout(30)->run([
+            Process::timeout(30)->run(Ffmpeg::cmd([
                 $bin, '-y', '-nostdin', '-ss', '1', '-i', $localMp4,
                 '-frames:v', '1', '-q:v', '4', $jpg,
-            ]);
+            ]));
             $data = @file_get_contents($jpg);
             if ($data !== false && strlen($data) > 400) {
                 return ImageStore::putWebp($data, 'media/clips', 'poster-'.$clipId, 640);
