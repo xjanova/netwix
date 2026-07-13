@@ -382,29 +382,53 @@ window.syncer = () => ({
     <a href="{{ route('admin.storage.index') }}" class="ml-auto text-xs text-brand hover:underline">ดูสถานะ →</a>
 </div>
 
-{{-- When the daily auto-import runs (drives netwix:auto-import via routes/console.php). --}}
-<div class="mb-5 nx-card p-4" x-data="{ days: @js(array_values($autoImportDays)) }">
-    <form method="POST" action="{{ route('admin.import.auto-schedule') }}" class="flex flex-wrap items-center gap-3 text-sm">
+{{-- Per-source auto-import schedule — each source runs on its OWN time/weekdays/limit
+     (netwix:auto-import {source} via routes/console.php). --}}
+<div class="mb-5 nx-card p-4">
+    <div class="mb-3 flex flex-wrap items-center gap-2">
+        <span class="font-semibold text-cream/80">⏰ ตารางเวลานำเข้าอัตโนมัติ — ตั้งแยกแต่ละแหล่ง</span>
+        <span class="text-xs text-cream/40">ทำงานเมื่อสวิตช์ “นำเข้าอัตโนมัติทุกวัน” (มุมขวาบน) เปิดอยู่เท่านั้น</span>
+    </div>
+    <form method="POST" action="{{ route('admin.import.auto-schedule') }}">
         @csrf
-        <span class="font-semibold text-cream/80">⏰ เวลานำเข้าอัตโนมัติทุกวัน</span>
-        <input type="time" name="time" value="{{ $autoImportTime }}" required
-               class="rounded-md border border-white/10 bg-surface-2 px-2.5 py-1.5 outline-none focus:border-brand">
-        <span class="text-cream/45">เลือกวัน:</span>
-        <div class="flex flex-wrap gap-1.5">
-            @foreach (['0' => 'อา', '1' => 'จ', '2' => 'อ', '3' => 'พ', '4' => 'พฤ', '5' => 'ศ', '6' => 'ส'] as $d => $lbl)
-                <label class="cursor-pointer select-none rounded-md border px-2.5 py-1.5 transition"
-                       :class="days.includes('{{ $d }}') ? 'border-brand bg-white/10 text-cream font-semibold' : 'border-white/10 bg-white/5 text-cream/55'">
-                    <input type="checkbox" name="days[]" value="{{ $d }}" class="hidden" x-model="days">
-                    {{ $lbl }}
-                </label>
+        <div class="space-y-2">
+            @foreach ($autoImportSchedules as $sid => $cfg)
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5 text-sm"
+                     x-data="{ on: {{ $cfg['enabled'] ? 'true' : 'false' }}, days: @js(array_map('strval', $cfg['days'])) }">
+                    <label class="flex min-w-[150px] cursor-pointer select-none items-center gap-2">
+                        <input type="checkbox" name="sched[{{ $sid }}][enabled]" value="1" x-model="on" class="accent-brand">
+                        <span class="font-semibold" :class="on ? 'text-cream' : 'text-cream/45'">{{ $cfg['name'] }}</span>
+                    </label>
+
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-2 transition" :class="on ? '' : 'pointer-events-none opacity-40'">
+                        <input type="time" name="sched[{{ $sid }}][time]" value="{{ $cfg['time'] }}"
+                               class="rounded-md border border-white/10 bg-surface-2 px-2.5 py-1.5 outline-none focus:border-brand">
+                        <div class="flex flex-wrap gap-1">
+                            @foreach (['0' => 'อา', '1' => 'จ', '2' => 'อ', '3' => 'พ', '4' => 'พฤ', '5' => 'ศ', '6' => 'ส'] as $d => $lbl)
+                                <label class="cursor-pointer select-none rounded-md border px-2 py-1 text-xs transition"
+                                       :class="days.includes('{{ $d }}') ? 'border-brand bg-white/10 text-cream font-semibold' : 'border-white/10 bg-white/5 text-cream/55'">
+                                    <input type="checkbox" name="sched[{{ $sid }}][days][]" value="{{ $d }}" class="hidden" x-model="days">
+                                    {{ $lbl }}
+                                </label>
+                            @endforeach
+                        </div>
+                        <span class="text-xs text-cream/40" x-show="days.length === 0" x-cloak>= ทุกวัน</span>
+                        <label class="ml-auto flex items-center gap-1.5 whitespace-nowrap text-xs text-cream/50">
+                            จำนวน/รอบ
+                            <input type="number" name="sched[{{ $sid }}][limit]" value="{{ $cfg['limit'] }}" min="1" max="200"
+                                   class="w-16 rounded-md border border-white/10 bg-surface-2 px-2 py-1 text-cream outline-none focus:border-brand">
+                        </label>
+                    </div>
+                </div>
             @endforeach
         </div>
-        <span class="text-xs text-cream/40" x-show="days.length === 0" x-cloak>= ทุกวัน</span>
-        <button class="ml-auto btn-brand px-4 py-1.5 text-sm">บันทึกเวลา</button>
+        <div class="mt-3 flex flex-wrap items-center gap-3">
+            <button class="btn-brand px-4 py-1.5 text-sm">บันทึกตารางเวลา</button>
+            <p class="text-xs text-cream/40">
+                แต่ละแหล่งจะดึง “หนังใหม่” แล้วนำเข้าเรื่องยอดนิยมที่ยังไม่มีในคลังตามเวลาของแหล่งนั้น (ใส่หมวด/แยกหนัง-ซีรีส์/เรื่องย่อให้เอง)
+            </p>
+        </div>
     </form>
-    <p class="mt-2 text-xs text-cream/40">
-        ระบบจะดึง “หนังใหม่” จากทุกแหล่งตามเวลาที่ตั้ง แล้วนำเข้าเรื่องยอดนิยมที่ยังไม่มีในคลังโดยอัตโนมัติ (ใส่หมวด/แยกหนัง-ซีรีส์/เรื่องย่อให้เอง) — ทำงานเมื่อเปิดสวิตช์ “นำเข้าอัตโนมัติทุกวัน” ด้านบนเท่านั้น
-    </p>
 </div>
 
 @if ($titles->total() === 0)

@@ -26,30 +26,64 @@ Schedule::command('netwix:import wowdrama --limit=8 --sync')
 // Schedule::command('netwix:previews --limit=40')
 //     ->hourly()->withoutOverlapping()->runInBackground();
 
-// Daily auto top-up of new releases. Time + days are admin-configurable (Setting `auto_import_time` =
-// "HH:MM", `auto_import_days` = CSV of 0-6 where 0=Sun; empty = every day) on /admin/import. Reads are
-// cache-backed (Setting::map), so evaluating this every scheduler tick is cheap; wrapped so a DB blip
-// falls back to the 05:00-daily default instead of breaking every other scheduled task. Self-gates on
-// the `auto_import_enabled` toggle inside the command, so it's safe to always schedule.
-$aiTime = '05:00';
-$aiDays = '';
-try {
-    $aiTime = (string) (\App\Models\Setting::get('auto_import_time', '05:00') ?: '05:00');
-    $aiDays = (string) \App\Models\Setting::get('auto_import_days', '');
-} catch (\Throwable $e) {
-    // DB not ready (e.g. pre-migrate) → defaults
-}
-if (! preg_match('/^([01]?\d|2[0-3]):[0-5]\d$/', $aiTime)) {
-    $aiTime = '05:00';
-}
-$autoImport = Schedule::command('netwix:auto-import')
-    ->dailyAt($aiTime)->withoutOverlapping()->runInBackground();
-$aiDayList = array_values(array_filter(
-    array_map('intval', array_filter(explode(',', $aiDays), fn ($d) => trim($d) !== '')),
-    fn ($d) => $d >= 0 && $d <= 6,
+// Auto top-up of new releases — schedulable PER SOURCE. Each source has its own time + weekdays +
+// per-run limit, saved as JSON `auto_import_schedules` on /admin/import; we register one scheduled
+// `netwix:auto-import {source}` per ENABLED source at its own time/days. The command self-gates on the
+// master `auto_import_enabled` toggle, so registering these every tick is safe. Reads are cache-backed
+// (Setting::map) and wrapped so a DB blip can't break the rest of the schedule. Back-compat: if no
+// per-source table has been saved yet, fall back to the single global `auto_import_time`/
+// `auto_import_days` run that loops every source in `auto_import_sources`.
+$aiClampTime = static fn ($t): string => preg_match('/^([01]?\d|2[0-3]):[0-5]\d$/', (string) $t) ? (string) $t : '05:00';
+$aiCleanDays = static fn ($d): array => array_values(array_filter(
+    array_map('intval', is_array($d) ? $d : []),
+    fn ($x) => $x >= 0 && $x <= 6,
 ));
-if ($aiDayList) {
-    $autoImport->days($aiDayList);   // restrict to chosen weekdays; empty = every day
+
+$aiSchedules = [];
+try {
+    $aiRaw = (string) \App\Models\Setting::get('auto_import_schedules', '');
+    $aiDecoded = $aiRaw !== '' ? json_decode($aiRaw, true) : null;
+    $aiSchedules = is_array($aiDecoded) ? $aiDecoded : [];
+} catch (\Throwable $e) {
+    // DB not ready (e.g. pre-migrate) → no per-source schedules; legacy fallback below.
+}
+
+if ($aiSchedules) {
+    // Per-source: distinct command string per source → distinct withoutOverlapping mutex, so a slow
+    // source never blocks another and they run independently at their own configured time.
+    foreach ($aiSchedules as $aiSid => $aiCfg) {
+        if (! is_array($aiCfg) || empty($aiCfg['enabled'])) {
+            continue;
+        }
+        $aiSid = preg_replace('/[^A-Za-z0-9_\-]/', '', (string) $aiSid);
+        if ($aiSid === '') {
+            continue;
+        }
+        $aiLimit = (int) ($aiCfg['limit'] ?? 0);
+        $aiCmd = 'netwix:auto-import '.$aiSid.($aiLimit > 0 ? ' --limit='.$aiLimit : '');
+        $aiEvent = Schedule::command($aiCmd)
+            ->dailyAt($aiClampTime($aiCfg['time'] ?? '05:00'))
+            ->withoutOverlapping()->runInBackground();
+        if ($aiDayList = $aiCleanDays($aiCfg['days'] ?? [])) {
+            $aiEvent->days($aiDayList);   // restrict to chosen weekdays; empty = every day
+        }
+    }
+} else {
+    // Legacy single global run — until the admin saves a per-source schedule table on /admin/import.
+    $aiTime = '05:00';
+    $aiDays = '';
+    try {
+        $aiTime = (string) (\App\Models\Setting::get('auto_import_time', '05:00') ?: '05:00');
+        $aiDays = (string) \App\Models\Setting::get('auto_import_days', '');
+    } catch (\Throwable $e) {
+        // DB not ready (e.g. pre-migrate) → defaults
+    }
+    $autoImport = Schedule::command('netwix:auto-import')
+        ->dailyAt($aiClampTime($aiTime))->withoutOverlapping()->runInBackground();
+    $aiDayList = $aiCleanDays(array_map('intval', array_filter(explode(',', $aiDays), fn ($d) => trim($d) !== '')));
+    if ($aiDayList) {
+        $autoImport->days($aiDayList);
+    }
 }
 
 // Nightly episode refresh: re-scrape the episode list of recently-imported, still-airing series so a
