@@ -15,11 +15,27 @@
         'post' => route('episode.thumb', $e),
         'gen' => route('episode.gencover', $e),
     ])->values();
+
+    // Rating + latest comments seed for the end-of-series card (last vertical episode). Same shapes as
+    // partials/title-feedback + the horizontal watch player, reusing the content.rate/comment endpoints.
+    $ratingAvg = round((float) $content->ratings()->avg('stars'), 1);
+    $ratingCount = $content->ratings()->count();
+    $myRating = isset($currentProfile) ? (int) $content->ratings()->where('profile_id', $currentProfile->id)->value('stars') : 0;
+    $commentCount = $content->comments()->count();
+    $endComments = $content->comments()->with('profile')->latest()->limit(6)->get()->map(fn ($c) => [
+        'author' => $c->profile?->name ?? 'สมาชิก',
+        'color' => $c->profile?->avatar_color ?? '#8b2ff0',
+        'initial' => $c->profile?->initial ?? 'N',
+        'text' => $c->body,
+        'ago' => optional($c->created_at)->diffForHumans(),
+    ])->values();
 @endphp
 
 @section('content')
 <div
-    x-data="verticalPlayer({ episodes: @js($eps), start: {{ $start }}, progressUrl: '{{ route('content.progress', $content) }}', reportUrl: '{{ route('playback.report', $content) }}' })"
+    x-data="verticalPlayer({ episodes: @js($eps), start: {{ $start }}, progressUrl: '{{ route('content.progress', $content) }}', reportUrl: '{{ route('playback.report', $content) }}',
+        rateUrl: '{{ route('content.rate', $content) }}', commentUrl: '{{ route('content.comment', $content) }}',
+        myRating: {{ $myRating }}, ratingAvg: {{ $ratingAvg ?: 0 }}, ratingCount: {{ $ratingCount }}, comments: @js($endComments), commentCount: {{ $commentCount }} })"
     x-init="init()"
     @wheel.prevent="onWheel($event)"
     @touchstart.passive="onTouchStart($event)"
@@ -83,7 +99,7 @@
                :muted="muted"
                @click="togglePlay()"
                @timeupdate="onTime()"
-               @ended="next()"
+               @ended="onEnded()"
                @play="playing = true" @pause="playing = false"
                @waiting="stall()" @stalled="stall()"
                @playing="resume(); maybeCapture()" @canplay="resume()" @loadeddata="resume()" x-on:error="resume()"
@@ -150,6 +166,84 @@
 
         <div x-show="episodes.length === 0" class="absolute inset-0 flex items-center justify-center text-cream/60">ยังไม่มีตอน</div>
     </div>
+
+    {{-- End-of-series card: shown by onEnded() when the LAST vertical episode finishes. Members get
+         interactive stars + a comment box (same content.rate/comment endpoints); guests see the score
+         read-only + a login CTA. Full-screen so it's readable over the narrow 9:16 player. --}}
+    <div x-show="finished" x-cloak x-transition.opacity
+         class="absolute inset-0 z-[55] flex items-start justify-center overflow-y-auto bg-black/90 px-4 py-8 backdrop-blur">
+        <div class="w-full max-w-lg">
+            <div class="text-center text-2xl font-extrabold">🎉 ดูจบแล้ว!</div>
+            <div class="mb-5 mt-1 text-center text-sm text-cream/60">{{ $content->title }} — ให้คะแนนเรื่องนี้หน่อยไหม?</div>
+
+            <div class="nx-card p-5">
+                {{-- rating --}}
+                @auth
+                    <div class="flex flex-col items-center gap-1">
+                        <div class="flex items-center gap-1.5">
+                            <template x-for="n in 5" :key="n">
+                                <button type="button" @click.stop="rate(n)" @mouseenter="hoverStar = n" @mouseleave="hoverStar = 0"
+                                        class="text-4xl leading-none transition" :class="(hoverStar || my) >= n ? 'text-gold' : 'text-cream/25'">★</button>
+                            </template>
+                        </div>
+                        <p class="text-sm text-cream/70"><span x-text="avg || '-'"></span> <span class="text-cream/45">(<span x-text="rcount"></span> รีวิว)</span></p>
+                        <p class="text-[12px] text-brand-2" x-show="my > 0" x-cloak>ให้ไว้ <span x-text="my"></span> ดาว · แตะเพื่อแก้</p>
+                    </div>
+                @else
+                    <div class="flex flex-col items-center gap-1">
+                        <div class="flex items-center gap-1.5">
+                            @for ($i = 1; $i <= 5; $i++)
+                                <span class="text-4xl leading-none {{ $i <= round($ratingAvg) ? 'text-gold' : 'text-cream/25' }}">★</span>
+                            @endfor
+                        </div>
+                        <p class="text-sm text-cream/70">{{ $ratingAvg ?: '-' }} <span class="text-cream/45">({{ $ratingCount }} รีวิว)</span></p>
+                        <a href="{{ route('login') }}" class="text-[13px] text-brand-2 hover:underline">เข้าสู่ระบบเพื่อให้คะแนน</a>
+                    </div>
+                @endauth
+
+                {{-- comment --}}
+                <div class="mt-5 border-t border-white/10 pt-4">
+                    <div class="mb-2 text-sm font-semibold">ความคิดเห็น <span class="text-cream/45">(<span x-text="ccount"></span>)</span></div>
+                    @auth
+                        <form @submit.prevent="postComment()">
+                            <textarea x-model="cbody" maxlength="500" rows="2" placeholder="บอกความรู้สึกหลังดูจบ…"
+                                      class="w-full resize-none rounded-lg border border-white/10 bg-surface-2 px-3.5 py-2.5 text-sm outline-none focus:border-brand"></textarea>
+                            @include('partials.turnstile')
+                            <div class="mt-2 flex justify-end">
+                                <button type="submit" :disabled="cbusy || !cbody.trim()" class="btn-brand px-5 py-1.5 text-sm disabled:opacity-40">ส่งความคิดเห็น</button>
+                            </div>
+                        </form>
+                    @else
+                        <a href="{{ route('login') }}" class="flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-surface-2 px-3.5 py-3 text-sm text-cream/70 transition hover:border-brand hover:text-cream">
+                            เข้าสู่ระบบเพื่อร่วมแสดงความคิดเห็น
+                        </a>
+                    @endauth
+
+                    <div class="mt-3 flex max-h-40 flex-col gap-3 overflow-y-auto">
+                        <template x-for="(c, i) in comments" :key="i">
+                            <div class="flex gap-2.5">
+                                <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-black/60"
+                                      :style="'background:' + (c.color || '#8b2ff0')" x-text="c.initial || (c.author || '?').charAt(0)"></span>
+                                <div class="min-w-0 flex-1">
+                                    <div class="flex items-center gap-2 text-[12px]"><span class="font-semibold" x-text="c.author"></span><span class="text-cream/40" x-text="c.ago"></span></div>
+                                    <p class="mt-0.5 whitespace-pre-line break-words text-[13px] text-cream/80" x-text="c.text"></p>
+                                </div>
+                            </div>
+                        </template>
+                        <p x-show="comments.length === 0" class="py-3 text-center text-[13px] text-cream/40">ยังไม่มีความคิดเห็น — เป็นคนแรกเลย!</p>
+                    </div>
+                </div>
+            </div>
+
+            {{-- actions --}}
+            <div class="mt-4 flex flex-wrap items-center justify-center gap-2.5">
+                <button type="button" @click.stop="replayAll()" class="rounded-lg bg-white/10 px-4 py-2.5 text-sm font-semibold hover:bg-white/15">↻ ดูอีกครั้งตั้งแต่ตอนแรก</button>
+                <button type="button" @click.stop="finished = false; epMenu = true" class="rounded-lg bg-white/10 px-4 py-2.5 text-sm font-semibold hover:bg-white/15">▦ เลือกตอน</button>
+                <a href="{{ route('browse.vertical') }}" class="btn-brand px-5 py-2.5 text-sm font-semibold">ดูเรื่องอื่น →</a>
+                <button type="button" @click.stop="finished = false" class="rounded-lg px-4 py-2.5 text-sm text-cream/55 hover:text-cream">ปิด</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 @push('scripts')
@@ -187,6 +281,11 @@
             _hideT: null,
             _ambi: null,
             _lastSave: 0,
+
+            // end-of-series rate + comment card (last episode)
+            finished: false,
+            my: cfg.myRating || 0, avg: cfg.ratingAvg || 0, rcount: cfg.ratingCount || 0, hoverStar: 0, rbusy: false,
+            comments: cfg.comments || [], ccount: cfg.commentCount || 0, cbody: '', cbusy: false,
 
             init() {
                 document.addEventListener('fullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
@@ -369,6 +468,36 @@
                 if (i !== this.index) { this.index = i; this.load(); }
             },
 
+            // ---- end-of-series card: rate + comment on the last episode ---------
+            onEnded() {
+                if (this.index < this.episodes.length - 1) { this.next(); return; }
+                this.showEndCard();   // finished the LAST vertical episode → invite a rating + comment
+            },
+            showEndCard() {
+                this.finished = true; this.ui = true;
+                // nudge the Turnstile widget (it rendered while the card was display:none) so the
+                // comment post gets a fresh token.
+                this.$nextTick(() => { try { window.turnstile && window.turnstile.reset(); } catch (e) {} });
+            },
+            async rate(n) {
+                if (this.rbusy) return;
+                this.rbusy = true;
+                try { const d = await nxPost(cfg.rateUrl, { stars: n }); this.my = d.my_rating; this.avg = d.avg; this.rcount = d.count; }
+                catch (e) {} finally { this.rbusy = false; }
+            },
+            async postComment() {
+                if (this.cbusy || !this.cbody.trim()) return;
+                this.cbusy = true;
+                const ts = window.turnstile ? window.turnstile.getResponse() : '';
+                try {
+                    const d = await nxPost(cfg.commentUrl, { body: this.cbody, 'cf-turnstile-response': ts });
+                    this.comments.unshift({ author: d.comment.author, color: d.comment.avatar_color, initial: d.comment.initial, text: d.comment.text, ago: d.comment.ago });
+                    this.ccount = d.count; this.cbody = '';
+                    if (window.turnstile) window.turnstile.reset();
+                } catch (e) {} finally { this.cbusy = false; }
+            },
+            replayAll() { this.finished = false; this.go(0); },   // rewatch from episode 1
+
             // Capture a cover frame for the episode being watched if it has none yet, and swap it into
             // the grid live (nxMaybeThumb → ep.thumb). Driven by onTime() so it fires on every playback
             // tick — reliable, unlike the old ambient-glow-timer path. Guarded once-per-episode inside.
@@ -379,7 +508,7 @@
             // tapping 🔊 on mobile registers as a swipe and jumps episodes (owner: กดลำโพงแต่เปลี่ยนวีดีโอ).
             _onControl(e) { return !!(e.target && e.target.closest && e.target.closest('button, a, input, label, [role="button"]')); },
             onWheel(e) {
-                if (this.lock || this.epMenu || this._onControl(e)) return;
+                if (this.lock || this.epMenu || this.finished || this._onControl(e)) return;
                 if (e.deltaY > 25) this.next();
                 else if (e.deltaY < -25) this.prev();
                 else return;
@@ -393,7 +522,7 @@
             onTouchEnd(e) {
                 // Skip when the gesture began on a control, or while the episode grid is open (its own
                 // scroll must not change the underlying episode).
-                if (this._touchCtl || this.epMenu) { this._touchCtl = false; return; }
+                if (this._touchCtl || this.epMenu || this.finished) { this._touchCtl = false; return; }
                 const dy = this.touchY - e.changedTouches[0].clientY;
                 if (dy > 50) this.next();
                 else if (dy < -50) this.prev();
