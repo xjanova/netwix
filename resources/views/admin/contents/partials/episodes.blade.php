@@ -21,7 +21,8 @@
     @if ($content->episodes->isNotEmpty())
         <div class="mb-5 flex flex-col gap-1.5">
             @foreach ($content->episodes as $ep)
-                <div class="flex items-center gap-3 rounded-lg bg-white/[0.03] px-3 py-2.5">
+                <div class="rounded-lg bg-white/[0.03] px-3 py-2.5">
+                  <div class="flex items-center gap-3">
                     <span class="w-16 text-xs text-cream/45">
                         @if ($content->type === 'series' && $ep->season_id)S{{ $ep->season?->number }} @endif EP{{ $ep->number }}
                     </span>
@@ -58,6 +59,18 @@
                         @csrf @method('DELETE')
                         <button class="rounded-md bg-[#e5484d]/15 px-2.5 py-1 text-xs text-[#ff6b81] hover:bg-[#e5484d]/25">ลบ</button>
                     </form>
+                  </div>
+                  {{-- Per-episode marker override (blank input = inherit the content default shown as placeholder). --}}
+                  <form method="POST" action="{{ route('admin.contents.episodes.markers', [$content, $ep]) }}" class="mt-2 flex flex-wrap items-center gap-2 pl-16 text-xs text-cream/55">
+                      @csrf
+                      <span>⏱ ข้ามอินโทรถึง</span>
+                      <input name="intro_end_seconds" type="number" min="0" max="36000" value="{{ $ep->intro_end_seconds }}" placeholder="{{ $content->intro_end_seconds ?? '—' }}" class="w-16 rounded border border-white/10 bg-surface-2 px-1.5 py-1 text-center outline-none focus:border-brand">
+                      <span>วิ · เครดิตท้าย</span>
+                      <input name="outro_seconds" type="number" min="0" max="36000" value="{{ $ep->outro_seconds }}" placeholder="{{ $content->outro_seconds ?? '—' }}" class="w-16 rounded border border-white/10 bg-surface-2 px-1.5 py-1 text-center outline-none focus:border-brand">
+                      <span>วิ</span>
+                      <button class="rounded bg-white/10 px-2.5 py-1 font-semibold hover:bg-white/15">บันทึก</button>
+                      <span class="text-cream/35">(เว้นว่าง = ใช้ค่าของเรื่อง)</span>
+                  </form>
                 </div>
             @endforeach
         </div>

@@ -52,4 +52,22 @@ class EpisodeController extends Controller
 
         return back()->with('status', 'ลบตอนแล้ว');
     }
+
+    /** Per-episode playback markers (blank = inherit the content-level default). */
+    public function setMarkers(Request $request, Content $content, Episode $episode): RedirectResponse
+    {
+        abort_unless($episode->content_id === $content->id, 404);
+
+        $data = $request->validate([
+            'intro_end_seconds' => ['nullable', 'integer', 'between:0,36000'],
+            'outro_seconds' => ['nullable', 'integer', 'between:0,36000'],
+        ]);
+
+        $episode->update([
+            'intro_end_seconds' => $data['intro_end_seconds'] ?? null,
+            'outro_seconds' => $data['outro_seconds'] ?? null,
+        ]);
+
+        return back()->with('status', "บันทึกมาร์คเวลาตอนที่ {$episode->number} แล้ว");
+    }
 }

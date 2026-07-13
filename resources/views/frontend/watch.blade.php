@@ -13,6 +13,9 @@
         'has' => (bool) $e->thumbnail_path,
         'post' => route('episode.thumb', $e),
         'gen' => route('episode.gencover', $e),
+        // Per-episode marker override, else the content default (0 = off).
+        'introEnd' => (int) ($e->intro_end_seconds ?? $content->intro_end_seconds ?? 0),
+        'outroSeconds' => (int) ($e->outro_seconds ?? $content->outro_seconds ?? 0),
     ])->values();
     // Manual movie with a URL on the content itself and no episode rows → one synthetic entry.
     if ($eps->isEmpty() && $content->video_url) {
@@ -20,6 +23,8 @@
             'n' => 1, 'title' => $content->title, 'id' => null,
             'url' => $content->video_url, 'resolve' => null,
             'thumb' => $content->poster_url, 'has' => true, 'post' => null,
+            'introEnd' => (int) ($content->intro_end_seconds ?? 0),
+            'outroSeconds' => (int) ($content->outro_seconds ?? 0),
         ]]);
     }
 
@@ -358,6 +363,7 @@
                 this._outroFired = false; this.showSkip = false; this.dismissNext();   // fresh markers per episode
                 const ep = this.episodes[this.index];
                 if (!ep) return;
+                this.introEnd = ep.introEnd || 0; this.outroSeconds = ep.outroSeconds || 0;   // per-episode override ?? content default
                 if (ep.url) { this.attach(ep.url); return; }
 
                 const d = await this.tryResolve(ep);

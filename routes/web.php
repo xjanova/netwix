@@ -279,6 +279,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('contents/{content}/review-ignore', [Admin\ContentController::class, 'toggleReviewIgnore'])->name('contents.review-ignore');
     Route::post('contents/{content}/episodes', [Admin\EpisodeController::class, 'store'])->name('contents.episodes.store');
     Route::delete('contents/{content}/episodes/{episode}', [Admin\EpisodeController::class, 'destroy'])->name('contents.episodes.destroy');
+    Route::post('contents/{content}/episodes/{episode}/markers', [Admin\EpisodeController::class, 'setMarkers'])->name('contents.episodes.markers');
 
     Route::get('genres', [Admin\GenreController::class, 'index'])->name('genres.index');
     Route::post('genres', [Admin\GenreController::class, 'store'])->name('genres.store');
