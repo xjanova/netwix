@@ -108,6 +108,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/profiles', [ProfileSelectionController::class, 'index'])->name('profiles.index');
     Route::post('/profiles', [ProfileSelectionController::class, 'store'])->name('profiles.store');
     Route::post('/profiles/{profile}/select', [ProfileSelectionController::class, 'select'])->name('profiles.select');
+    Route::post('/profiles/{profile}', [ProfileSelectionController::class, 'update'])->name('profiles.update');
+    Route::post('/profiles/{profile}/avatar', [ProfileSelectionController::class, 'avatar'])->middleware('throttle:20,1')->name('profiles.avatar');
     Route::delete('/profiles/{profile}', [ProfileSelectionController::class, 'destroy'])->name('profiles.destroy');
 });
 
@@ -143,6 +145,9 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::get('/account', [\App\Http\Controllers\AccountController::class, 'index'])->name('account');
     Route::post('/account/redeem', [\App\Http\Controllers\AccountController::class, 'redeem'])
         ->middleware('throttle:10,1')->name('account.redeem');
+    // Member self-service: own contact info + profile management.
+    Route::get('/account/settings', [\App\Http\Controllers\AccountController::class, 'settings'])->name('account.settings');
+    Route::post('/account/settings', [\App\Http\Controllers\AccountController::class, 'updateContact'])->name('account.contact');
 
     // Gold wallet + real USDT (BSC) top-up on the account page.
     Route::post('/account/gold/convert', [\App\Http\Controllers\WalletController::class, 'convert'])
@@ -258,6 +263,9 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('import/auto', [Admin\ImportController::class, 'auto'])->name('import.auto');
     Route::post('import', [Admin\ImportController::class, 'import'])->name('import.store');
 
+    // Import history ("ประวัติการนำเข้าหนัง") — read-only log written by the import entry points.
+    Route::get('import-logs', [Admin\ImportLogController::class, 'index'])->name('import-logs.index');
+
     // Admin QA playback — watch anything for verification, bypassing public gates (unpublished/18+/VIP).
     // episode = imported episode (content management); source = not-yet-imported title (import preview).
     Route::get('preview/episode/{episode}', [Admin\AdminPreviewController::class, 'episode'])->name('preview.episode');
@@ -295,7 +303,10 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::delete('comments/{comment}', [Admin\CommentController::class, 'destroy'])->name('comments.destroy');
 
     Route::get('users', [Admin\UserController::class, 'index'])->name('users.index');
+    Route::get('users/{user}/edit', [Admin\UserController::class, 'edit'])->name('users.edit');
     Route::put('users/{user}', [Admin\UserController::class, 'update'])->name('users.update');
+    Route::post('users/{user}/active', [Admin\UserController::class, 'toggleActive'])->name('users.active');
+    Route::post('users/{user}/profiles/{profile}/avatar', [Admin\UserController::class, 'avatar'])->name('users.avatar');
 
     Route::get('settings', [Admin\SettingController::class, 'index'])->name('settings.index');
     Route::put('settings', [Admin\SettingController::class, 'update'])->name('settings.update');

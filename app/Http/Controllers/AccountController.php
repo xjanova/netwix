@@ -35,6 +35,33 @@ class AccountController extends Controller
         ]);
     }
 
+    /** Member self-service: edit own contact details + manage viewing profiles. */
+    public function settings(Request $request): View
+    {
+        return view('frontend.account-settings', [
+            'user' => $request->user(),
+            'profiles' => $request->user()->profiles()->orderBy('id')->get(),
+        ]);
+    }
+
+    /** Save the member's own contact info. Email (the login) is intentionally NOT editable here. */
+    public function updateContact(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'phone' => ['nullable', 'string', 'max:32'],
+            'address' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $request->user()->update([
+            'name' => $data['name'],
+            'phone' => $data['phone'] ?? null,
+            'address' => $data['address'] ?? null,
+        ]);
+
+        return back()->with('status', 'บันทึกข้อมูลแล้ว');
+    }
+
     public function redeem(Request $request): RedirectResponse
     {
         $request->validate(['code' => ['required', 'string', 'max:16']]);

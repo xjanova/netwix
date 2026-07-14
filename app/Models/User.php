@@ -19,6 +19,9 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        'is_active',
+        'phone',
+        'address',
         'plan',
         'provider',
         'provider_id',
@@ -43,6 +46,7 @@ class User extends Authenticatable
             'pro_until' => 'datetime',
             'coins' => 'integer',
             'gold_coins' => 'integer',
+            'is_active' => 'boolean',
         ];
     }
 

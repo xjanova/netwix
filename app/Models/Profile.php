@@ -13,6 +13,7 @@ class Profile extends Model
         'user_id',
         'name',
         'avatar_color',
+        'avatar_path',
         'is_kids',
     ];
 
@@ -47,5 +48,17 @@ class Profile extends Model
     public function getInitialAttribute(): string
     {
         return mb_substr(trim($this->name), 0, 1);
+    }
+
+    /** Uploaded avatar as a URL, or null → the UI falls back to the coloured initial tile. */
+    public function getAvatarUrlAttribute(): ?string
+    {
+        if (! $this->avatar_path) {
+            return null;
+        }
+
+        return str_starts_with($this->avatar_path, 'http')
+            ? $this->avatar_path
+            : \Illuminate\Support\Facades\Storage::url($this->avatar_path);
     }
 }

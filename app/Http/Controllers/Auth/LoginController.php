@@ -33,6 +33,14 @@ class LoginController extends Controller
             ]);
         }
 
+        // Suspended account → refuse the session immediately.
+        if (! Auth::user()->is_active) {
+            Auth::logout();
+            throw ValidationException::withMessages([
+                'email' => 'บัญชีนี้ถูกระงับการใช้งาน — ติดต่อผู้ดูแลระบบ',
+            ]);
+        }
+
         $request->session()->regenerate();
 
         return redirect()->intended(route('profiles.index'));

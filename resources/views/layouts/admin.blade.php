@@ -13,6 +13,7 @@
         ['route' => 'admin.backups.index', 'label' => 'หนังที่ใช้ลิ้งค์สำรอง'],
         ['route' => 'admin.force-link.index', 'label' => 'บังคับอัพเดทลิ้งค์'],
         ['route' => 'admin.import.index', 'label' => 'นำเข้าหนัง'],
+        ['route' => 'admin.import-logs.index', 'label' => 'ประวัตินำเข้า'],
         ['route' => 'admin.storage.index', 'label' => 'จัดเก็บสื่อ'],
         ['route' => 'admin.thumbs.index', 'label' => 'สร้างปกตอน'],
         ['route' => 'admin.clips.index', 'label' => 'ตัดคลิป → เฟซบุ๊ก'],

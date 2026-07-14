@@ -12,6 +12,15 @@ class EnsureProfileSelected
 {
     public function handle(Request $request, Closure $next): Response
     {
+        // A member suspended mid-session is logged out on their next authenticated request.
+        if (! $request->user()->is_active) {
+            \Illuminate\Support\Facades\Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return redirect()->route('login')->withErrors(['email' => 'บัญชีนี้ถูกระงับการใช้งาน']);
+        }
+
         $profileId = $request->session()->get('profile_id');
 
         $profile = $profileId

@@ -95,5 +95,7 @@ class AutoImportCommand extends Command
             }
         }
         $this->info("{$sid}: synced {$synced}, imported {$ok}".($skip ? " ({$skip} skipped)" : '').($fail ? " ({$fail} failed)" : '').'.');
+
+        \App\Models\ImportLog::record($sid, 'scheduled', $ok, $skip, $fail, 'นำเข้าอัตโนมัติตามเวลา');
     }
 }

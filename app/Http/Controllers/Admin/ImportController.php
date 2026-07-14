@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\SyncCatalogJob;
 use App\Models\Content;
 use App\Models\Genre;
+use App\Models\ImportLog;
 use App\Models\Setting;
 use App\Models\SourceTitle;
 use App\Services\Import\EpisodeRefresher;
@@ -356,6 +357,13 @@ class ImportController extends Controller
             }
         }
 
+        ImportLog::record(
+            $data['source'], 'manual',
+            collect($results)->where('ok', true)->where('type', '!=', 'ข้าม—เล่นไม่ได้')->count(),
+            collect($results)->where('type', 'ข้าม—เล่นไม่ได้')->count(),
+            collect($results)->where('ok', false)->count(),
+        );
+
         return response()->json([
             'ok' => collect($results)->where('ok', true)->count(),
             'failed' => collect($results)->where('ok', false)->count(),
@@ -424,6 +432,13 @@ class ImportController extends Controller
             ->whereNotIn('id', array_merge($exclude, $failedNow) ?: [0])
             ->count();
 
+        ImportLog::record(
+            $data['source'], 'manual',
+            collect($results)->where('ok', true)->where('type', '!=', 'ข้าม—เล่นไม่ได้')->count(),
+            collect($results)->where('type', 'ข้าม—เล่นไม่ได้')->count(),
+            collect($results)->where('ok', false)->count(),
+        );
+
         return response()->json([
             'ok' => collect($results)->where('ok', true)->count(),
             'failed' => collect($results)->where('ok', false)->count(),
@@ -476,6 +491,8 @@ class ImportController extends Controller
                 $failed[] = $st->displayTitle();
             }
         }
+
+        ImportLog::record($data['source'], 'manual', $ok, $skipped, count($failed), 'เลือกนำเข้าเอง');
 
         $msg = "นำเข้าสำเร็จ {$ok} เรื่อง";
         if ($skipped) {
