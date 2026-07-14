@@ -349,6 +349,9 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('payments', [Admin\PaymentController::class, 'index'])->name('payments.index');
     Route::put('payments', [Admin\PaymentController::class, 'update'])->name('payments.update');
 
+    // App download counts ("ยอดดาวน์โหลดแอป") — read-only, written by AppDownload::record.
+    Route::get('downloads', [Admin\DownloadController::class, 'index'])->name('downloads.index');
+
     Route::get('analytics', [Admin\AnalyticsController::class, 'index'])->name('analytics');
 
     Route::get('seo', [Admin\SeoController::class, 'index'])->name('seo');

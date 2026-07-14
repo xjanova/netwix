@@ -29,6 +29,7 @@
         ['route' => 'admin.payments.index', 'label' => 'เหรียญทอง / ชำระ USDT'],
         ['route' => 'admin.analytics', 'label' => 'วิเคราะห์ข้อมูล'],
         ['route' => 'admin.seo', 'label' => 'SEO / ทราฟฟิก'],
+        ['route' => 'admin.downloads.index', 'label' => 'ยอดดาวน์โหลดแอป'],
         ['route' => 'admin.debug.index', 'label' => 'Debug แอป'],
     ];
     $admin = auth()->user();

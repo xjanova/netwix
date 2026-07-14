@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AppDownload;
 use App\Services\AppRelease;
 use Illuminate\Http\File;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -15,7 +17,7 @@ class AppDownloadController extends Controller
      * GitHub. The binary is mirrored to (private) local storage once per version
      * and then streamed on every download, so we hit GitHub at most once/release.
      */
-    public function apk(AppRelease $release): BinaryFileResponse
+    public function apk(Request $request, AppRelease $release): BinaryFileResponse
     {
         $rel = $release->latest();
         abort_unless($rel && $rel['apk_url'] !== '', 404);
@@ -38,6 +40,9 @@ class AppDownloadController extends Controller
                 @unlink($tmp);
             }
         }
+
+        // Count it only once we know we're actually handing over the file.
+        AppDownload::record($request, $version);
 
         return response()->download($disk->path($rel_path), "NetWix-{$version}.apk", [
             'Content-Type' => 'application/vnd.android.package-archive',
