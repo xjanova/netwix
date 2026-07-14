@@ -149,6 +149,11 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::get('/account/settings', [\App\Http\Controllers\AccountController::class, 'settings'])->name('account.settings');
     Route::post('/account/settings', [\App\Http\Controllers\AccountController::class, 'updateContact'])->name('account.contact');
 
+    // Missions — watch a video → earn coins. beat is throttled (heartbeat ~every 15s).
+    Route::get('/missions', [\App\Http\Controllers\MissionController::class, 'index'])->name('missions.index');
+    Route::post('/missions/{mission}/start', [\App\Http\Controllers\MissionController::class, 'start'])->middleware('throttle:20,1')->name('missions.start');
+    Route::post('/missions/{mission}/beat', [\App\Http\Controllers\MissionController::class, 'beat'])->middleware('throttle:30,1')->name('missions.beat');
+
     // Gold wallet + real USDT (BSC) top-up on the account page.
     Route::post('/account/gold/convert', [\App\Http\Controllers\WalletController::class, 'convert'])
         ->middleware('throttle:30,1')->name('account.gold.convert');
@@ -298,6 +303,13 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('announcements', [Admin\AnnouncementController::class, 'store'])->name('announcements.store');
     Route::put('announcements/{announcement}', [Admin\AnnouncementController::class, 'update'])->name('announcements.update');
     Route::delete('announcements/{announcement}', [Admin\AnnouncementController::class, 'destroy'])->name('announcements.destroy');
+
+    // Missions ("ภารกิจ / รางวัล") — watch-a-video → earn coins.
+    Route::get('missions', [Admin\MissionController::class, 'index'])->name('missions.index');
+    Route::post('missions', [Admin\MissionController::class, 'store'])->name('missions.store');
+    Route::put('missions/{mission}', [Admin\MissionController::class, 'update'])->name('missions.update');
+    Route::post('missions/{mission}/toggle', [Admin\MissionController::class, 'toggle'])->name('missions.toggle');
+    Route::delete('missions/{mission}', [Admin\MissionController::class, 'destroy'])->name('missions.destroy');
 
     Route::get('comments', [Admin\CommentController::class, 'index'])->name('comments.index');
     Route::delete('comments/{comment}', [Admin\CommentController::class, 'destroy'])->name('comments.destroy');
