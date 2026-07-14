@@ -58,6 +58,7 @@
         <p class="mb-4 text-[13px] text-cream/50">Pro ได้จากการเติมเงิน หรือจากโค้ดแนะนำ/โปรโมชัน</p>
         <div class="grid gap-4 sm:grid-cols-3">
             {!! $num('pro_price_thb', 'ราคา Pro (บาท/เดือน)', $pro['price_thb']) !!}
+            {!! $num('pro_free_days', 'ฟรี Pro สมาชิกใหม่ (วัน · 0=ปิด)', $pro['free_days'] ?? 365) !!}
             <label class="flex items-end gap-2 pb-2.5 text-sm text-cream/70">
                 <input type="checkbox" name="pro_removes_ads" value="1" @checked($pro['removes_ads']) class="h-4 w-4 accent-brand"> ไม่มีโฆษณา
             </label>

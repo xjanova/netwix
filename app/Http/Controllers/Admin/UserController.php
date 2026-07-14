@@ -40,6 +40,7 @@ class UserController extends Controller
         return view('admin.users.edit', [
             'user' => $user,
             'isPro' => $membership->isPro($user),
+            'freeDays' => $membership->signupProDays(),
         ]);
     }
 

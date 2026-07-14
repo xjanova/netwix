@@ -80,8 +80,15 @@
                 </div>
                 <div class="col-span-2">
                     <label class="mb-1.5 block text-xs text-cream/60">Pro หมดอายุ (เว้นว่าง = ไม่กำหนด)</label>
-                    <input name="pro_until" type="datetime-local" value="{{ old('pro_until', optional($user->pro_until)->format('Y-m-d\TH:i')) }}" class="nx-input">
-                    <p class="mt-1 text-[11px] text-cream/40">สถานะตอนนี้: {{ $isPro ? 'เป็น Pro อยู่' : 'ไม่ใช่ Pro' }}</p>
+                    <input id="pro_until_input" name="pro_until" type="datetime-local" value="{{ old('pro_until', optional($user->pro_until)->format('Y-m-d\TH:i')) }}" class="nx-input">
+                    <div class="mt-1.5 flex flex-wrap items-center gap-2">
+                        @if ($freeDays > 0)
+                            <button type="button" onclick="nxSetProExpiry({{ $freeDays }})" class="rounded-md bg-brand/15 px-2.5 py-1 text-[11px] font-semibold text-brand hover:bg-brand/25">ตั้งตามแพ็กเกจ (+{{ $freeDays }} วัน)</button>
+                        @endif
+                        <button type="button" onclick="nxSetProExpiry(30)" class="rounded-md bg-white/5 px-2.5 py-1 text-[11px] hover:bg-white/10">+30 วัน</button>
+                        <button type="button" onclick="document.getElementById('pro_until_input').value=''" class="rounded-md bg-white/5 px-2.5 py-1 text-[11px] text-cream/50 hover:bg-white/10">ล้าง</button>
+                        <span class="text-[11px] text-cream/40">สถานะตอนนี้: {{ $isPro ? 'เป็น Pro อยู่' : 'ไม่ใช่ Pro' }}</span>
+                    </div>
                 </div>
                 <div><label class="mb-1.5 block text-xs text-cream/60">เหรียญเงิน</label><input name="coins" type="number" min="0" value="{{ $val('coins', 0) }}" class="nx-input"></div>
                 <div><label class="mb-1.5 block text-xs text-cream/60">เหรียญทอง</label><input name="gold_coins" type="number" min="0" value="{{ $val('gold_coins', 0) }}" class="nx-input"></div>
@@ -115,6 +122,14 @@
                 r.readAsDataURL(f);
             },
         };
+    }
+
+    // Fill the Pro-expiry field with (now + N days) in the input's local datetime-local format.
+    function nxSetProExpiry(days) {
+        const d = new Date(Date.now() + days * 86400000);
+        const p = (n) => String(n).padStart(2, '0');
+        document.getElementById('pro_until_input').value =
+            d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
     }
 </script>
 @endpush

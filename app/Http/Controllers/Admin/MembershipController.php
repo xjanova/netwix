@@ -34,6 +34,7 @@ class MembershipController extends Controller
             'unlock_cost_coins' => ['required', 'integer', 'between:0,1000000'],
             'signup_bonus_coins' => ['required', 'integer', 'between:0,1000000'],
             'pro_price_thb' => ['required', 'integer', 'between:0,1000000'],
+            'pro_free_days' => ['required', 'integer', 'between:0,3650'],
             'daily_checkin_coins' => ['required', 'integer', 'between:0,1000000'],
             'watch_reward_coins' => ['required', 'integer', 'between:0,1000000'],
             'watch_reward_daily_cap' => ['required', 'integer', 'between:0,10000'],
@@ -55,6 +56,7 @@ class MembershipController extends Controller
             'signup_bonus_coins' => (int) $data['signup_bonus_coins'],
             'pro' => [
                 'price_thb' => (int) $data['pro_price_thb'],
+                'free_days' => (int) $data['pro_free_days'],
                 'removes_ads' => $request->boolean('pro_removes_ads'),
                 'unlocks_all' => $request->boolean('pro_unlocks_all'),
             ],

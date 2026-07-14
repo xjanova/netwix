@@ -110,6 +110,7 @@ class SocialController extends Controller
         if ($user->wasRecentlyCreated) {
             $m = app(\App\Services\Membership::class);
             $m->addCoins($user, (int) ($m->config()['signup_bonus_coins'] ?? 0), 'signup');
+            $m->grantSignupPro($user);   // same free Pro window as email sign-ups (admin-configured)
         }
 
         // Give brand-new accounts a starter profile (mirrors RegisterController).

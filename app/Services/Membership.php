@@ -33,6 +33,7 @@ class Membership
         'signup_bonus_coins' => 10,     // granted once on registration
         'pro' => [
             'price_thb' => 129,
+            'free_days' => 365,     // free Pro window granted to a brand-new member on signup (0 = off)
             'removes_ads' => true,
             'unlocks_all' => true,
         ],
@@ -120,6 +121,18 @@ class Membership
         }
 
         return $u->pro_until !== null && $u->pro_until->isFuture();
+    }
+
+    /** The standard free Pro window (in days) a new member gets on signup. 0 = disabled. */
+    public function signupProDays(): int
+    {
+        return max(0, (int) ($this->config()['pro']['free_days'] ?? 0));
+    }
+
+    /** Grant the standard free Pro window to a brand-new member (no-op when disabled). Stacks safely. */
+    public function grantSignupPro(User $u): void
+    {
+        $this->grantProDays($u, $this->signupProDays());
     }
 
     /** Extend the time-limited Pro grant by N days (stacks on remaining time). */
