@@ -6,24 +6,33 @@ use App\Models\AdCampaign;
 use App\Models\Content;
 use App\Models\Episode;
 use App\Models\User;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 
 class WatchController extends Controller
 {
-    public function show(Request $request, Content $content, ?Episode $episode = null): View
+    public function show(Request $request, Content $content, ?Episode $episode = null): View|RedirectResponse
     {
         abort_unless($content->is_published, 404);
 
         // Adult (18+/20+) titles need Pro. Kids profiles never get here — the maturity global scope
         // 404s the route binding for them; an adult profile without Pro sees the upgrade wall instead.
+        // Guests (the page is open to them now) get bounced to sign in first — fail-closed.
         if ($content->requires_pro && ! $request->user()?->isProMember()) {
+            if (! $request->user()) {
+                return redirect()->guest(route('login'));
+            }
+
             return view('frontend.locked-pro', ['content' => $content]);
         }
 
         // VIP zone: needs a gold-unlock (or Pro). Fail-closed — same web-auth model as the adult gate.
         if ($content->is_vip) {
+            if (! $request->user()) {
+                return redirect()->guest(route('login'));
+            }
             $gold = app(\App\Services\GoldWallet::class);
             if ($gold->vipAccess($request->user(), $content) === 'locked') {
                 return view('frontend.locked-vip', [

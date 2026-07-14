@@ -11,8 +11,9 @@
         'resolve' => ($e->source && ! $e->video_url) ? route('episode.source', $e) : null,
         'thumb' => $e->thumbnail_path ? $e->thumbnail_url : $content->poster_url,
         'has' => (bool) $e->thumbnail_path,
-        'post' => route('episode.thumb', $e),
-        'gen' => route('episode.gencover', $e),
+        // Thumb capture/gen are member-only writes — null for guests (the JS null-guards).
+        'post' => auth()->check() ? route('episode.thumb', $e) : null,
+        'gen' => auth()->check() ? route('episode.gencover', $e) : null,
         // Per-episode marker override, else the content default (0 = off).
         'introEnd' => (int) ($e->intro_end_seconds ?? $content->intro_end_seconds ?? 0),
         'outroSeconds' => (int) ($e->outro_seconds ?? $content->outro_seconds ?? 0),
@@ -46,7 +47,7 @@
 @section('content')
 <div class="relative h-[100dvh] w-full bg-black"
      x-data="watchPlayer({
-        progressUrl: '{{ route('content.progress', $content) }}',
+        progressUrl: @js(auth()->check() ? route('content.progress', $content) : null),
         reportUrl: '{{ route('playback.report', $content) }}',
         episodes: @js($eps),
         start: {{ $startIndex }},
@@ -477,7 +478,7 @@
 
             saveProgress(force = null) {
                 const v = this.$refs.video;
-                if (!v || !v.duration) return;
+                if (!v || !v.duration || !cfg.progressUrl) return;
                 const ep = this.episodes[this.index];
                 // floor to 1 while playing so a brief watch of a long title still lands in "ดูต่อ"
                 // (a few seconds of a 2-hour movie used to round to 0% → excluded from continue).

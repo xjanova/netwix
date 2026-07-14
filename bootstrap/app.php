@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'profile' => \App\Http\Middleware\EnsureProfileSelected::class,
+            'profile.optional' => \App\Http\Middleware\OptionalProfile::class,
             'admin' => \App\Http\Middleware\EnsureAdmin::class,
             'auth.apptoken' => \App\Http\Middleware\AuthenticateAppToken::class,
             'turnstile' => \App\Http\Middleware\VerifyTurnstile::class,

@@ -12,8 +12,9 @@
         // per-episode cover: captured frame if we have one, else the title's main poster
         'thumb' => $e->thumbnail_path ? $e->thumbnail_url : $content->poster_url,
         'has' => (bool) $e->thumbnail_path,
-        'post' => route('episode.thumb', $e),
-        'gen' => route('episode.gencover', $e),
+        // Thumb capture/gen are member-only writes — null for guests (the JS null-guards).
+        'post' => auth()->check() ? route('episode.thumb', $e) : null,
+        'gen' => auth()->check() ? route('episode.gencover', $e) : null,
     ])->values();
 
     // Rating + latest comments seed for the end-of-series card (last vertical episode). Same shapes as
@@ -33,7 +34,7 @@
 
 @section('content')
 <div
-    x-data="verticalPlayer({ episodes: @js($eps), start: {{ $start }}, progressUrl: '{{ route('content.progress', $content) }}', reportUrl: '{{ route('playback.report', $content) }}',
+    x-data="verticalPlayer({ episodes: @js($eps), start: {{ $start }}, progressUrl: @js(auth()->check() ? route('content.progress', $content) : null), reportUrl: '{{ route('playback.report', $content) }}',
         rateUrl: '{{ route('content.rate', $content) }}', commentUrl: '{{ route('content.comment', $content) }}',
         myRating: {{ $myRating }}, ratingAvg: {{ $ratingAvg ?: 0 }}, ratingCount: {{ $ratingCount }}, comments: @js($endComments), commentCount: {{ $commentCount }} })"
     x-init="init()"

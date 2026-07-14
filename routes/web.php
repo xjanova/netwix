@@ -123,7 +123,6 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::get('/my-list', [BrowseController::class, 'myList'])->name('browse.mylist');
 
     Route::get('/title/{content}/modal', [TitleController::class, 'modal'])->name('title.modal');
-    Route::get('/watch/{content}/{episode?}', [WatchController::class, 'show'])->name('watch');
 
     Route::post('/api/content/{content}/list', [InteractionController::class, 'toggleMyList'])->name('content.list');
     Route::post('/api/content/{content}/like', [InteractionController::class, 'toggleLike'])->name('content.like');
@@ -133,8 +132,6 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::post('/api/content/{content}/comment', [InteractionController::class, 'comment'])->middleware(['throttle:30,1', 'turnstile'])->name('content.comment');
     Route::post('/api/content/{content}/rate', [InteractionController::class, 'rate'])->name('content.rate');
 
-    Route::get('/api/episode/{episode}/source', [EpisodeSourceController::class, 'resolve'])
-        ->middleware('throttle:60,1')->name('episode.source');
     Route::post('/api/episode/{episode}/thumb', [EpisodeSourceController::class, 'captureThumb'])
         ->middleware('throttle:60,1')->name('episode.thumb');
     // Server-side cover fallback for no-CORS sources (anifume) the browser can't frame-grab.
@@ -163,6 +160,21 @@ Route::middleware(['auth', 'profile'])->group(function () {
         ->middleware('throttle:20,1')->name('account.usdt.order');
     Route::get('/account/usdt/order/{order}', [\App\Http\Controllers\WalletController::class, 'orderStatus'])
         ->middleware('throttle:120,1')->name('account.usdt.status');
+});
+
+// ---- Watch — guests welcome (campaign: ดูฟรีก่อน สมัครรับของฟรีทีหลัง) ----
+// The player page is open to guests now: they can watch general content with no
+// account/profile, and the layout shows the register-CTA banner derived from the
+// live campaign config (Campaigns::active). A signed-in member still gets the full
+// profile behaviour (suspension kick / profile pick) via profile.optional. Adult
+// (18+/20+) and VIP titles stay fail-closed — WatchController bounces guests to
+// /login. The stream itself was already public (proxy below + /api/app/…/source);
+// member-only writes (progress/rate/comment/thumbs) stay in the auth group above
+// and the views pass null / hide those for guests.
+Route::middleware('profile.optional')->group(function () {
+    Route::get('/watch/{content}/{episode?}', [WatchController::class, 'show'])->name('watch');
+    Route::get('/api/episode/{episode}/source', [EpisodeSourceController::class, 'resolve'])
+        ->middleware('throttle:60,1')->name('episode.source');
 });
 
 // ---- Public streaming proxy (guests can watch) -------------------------

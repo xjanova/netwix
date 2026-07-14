@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\App\DebugController;
 use App\Http\Controllers\Api\App\FeedbackController;
 use App\Http\Controllers\Api\App\LibraryController;
 use App\Http\Controllers\Api\App\MembershipController;
+use App\Http\Controllers\Api\App\MissionController;
 use App\Http\Controllers\Api\App\SourceController;
 use App\Http\Controllers\Api\App\WalletController;
 use Illuminate\Support\Facades\Route;
@@ -72,6 +73,13 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
 
         // Affiliate downline (levels + dividend earned) for the "My Team" screen.
         Route::get('team', [AffiliateController::class, 'team']);
+
+        // Missions — watch a clip to earn silver/gold coins. Same MissionService
+        // anti-cheat as the web /missions page; beat throttle matches the ~15s
+        // client heartbeat.
+        Route::get('missions', [MissionController::class, 'index']);
+        Route::post('missions/{mission}/start', [MissionController::class, 'start'])->middleware('throttle:20,1');
+        Route::post('missions/{mission}/beat', [MissionController::class, 'beat'])->middleware('throttle:30,1');
 
         // Coin economy: earn (daily/watch), episode access map, spend-to-unlock.
         Route::post('coins/earn', [MembershipController::class, 'earn']);
