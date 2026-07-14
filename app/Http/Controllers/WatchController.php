@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AdCampaign;
 use App\Models\Content;
 use App\Models\Episode;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
@@ -39,6 +41,10 @@ class WatchController extends Controller
         }
 
         $content->load(['episodes' => fn ($q) => $q->orderBy('season_id')->orderBy('number')]);
+        $content->loadMissing('genres');   // for pre-roll genre targeting
+
+        // Pre-roll ad to play before the video starts (null when none is eligible / Pro-hidden / off).
+        $ad = $this->preroll($content, $request->user());
 
         // Vertical short-drama gets its own swipeable player.
         if ($content->type === 'vertical') {
@@ -46,6 +52,7 @@ class WatchController extends Controller
                 'content' => $content,
                 'episodes' => $content->episodes,
                 'start' => (int) $request->query('ep', 0),
+                'ad' => $ad,
             ]);
         }
 
@@ -66,6 +73,17 @@ class WatchController extends Controller
             'episodes' => $content->episodes,
             'startIndex' => $startIndex === false ? 0 : (int) $startIndex,
             'youtubeId' => Content::youtubeIdFrom($source) ?? $content->youtube_id,
+            'ad' => $ad,
         ]);
+    }
+
+    /** The eligible pre-roll ad payload for this title + viewer, or null. Never blocks playback. */
+    private function preroll(Content $content, ?User $user): ?array
+    {
+        try {
+            return AdCampaign::pickFor($content, $user)?->toPlayerPayload();
+        } catch (\Throwable $e) {
+            return null;   // table missing / any error → just skip the ad
+        }
     }
 }

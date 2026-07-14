@@ -304,6 +304,13 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::put('announcements/{announcement}', [Admin\AnnouncementController::class, 'update'])->name('announcements.update');
     Route::delete('announcements/{announcement}', [Admin\AnnouncementController::class, 'destroy'])->name('announcements.destroy');
 
+    // Pre-roll ads ("โฆษณาก่อนเล่น") — shown on the player before the video starts.
+    Route::get('ads', [Admin\AdController::class, 'index'])->name('ads.index');
+    Route::post('ads', [Admin\AdController::class, 'store'])->name('ads.store');
+    Route::put('ads/{ad}', [Admin\AdController::class, 'update'])->name('ads.update');
+    Route::post('ads/{ad}/toggle', [Admin\AdController::class, 'toggle'])->name('ads.toggle');
+    Route::delete('ads/{ad}', [Admin\AdController::class, 'destroy'])->name('ads.destroy');
+
     // Missions ("ภารกิจ / รางวัล") — watch-a-video → earn coins.
     Route::get('missions', [Admin\MissionController::class, 'index'])->name('missions.index');
     Route::post('missions', [Admin\MissionController::class, 'store'])->name('missions.store');

@@ -244,6 +244,9 @@
             </div>
         </div>
     </div>
+
+    {{-- pre-roll ad: covers the feed (z-70) until skipped/finished, then _begin() starts the first clip --}}
+    @include('partials.preroll-ad', ['ad' => $ad ?? null])
 </div>
 
 @push('scripts')
@@ -294,10 +297,17 @@
                 this.muted = localStorage.getItem('nx_unmuted') !== '1';
                 const v = parseFloat(localStorage.getItem('nx_volume'));
                 if (!isNaN(v)) this.volume = Math.min(1, Math.max(0, v));
-                if (this.episodes.length) this.load();
+                // Gate the FIRST playback behind a pre-roll ad if one is showing (partials/preroll-ad).
+                if (window.nxPreroll && window.nxPreroll.pending && !window.nxPreroll.done) {
+                    window.addEventListener('nx-preroll-done', () => this._begin(), { once: true });
+                } else {
+                    this._begin();
+                }
                 this.startAmbi();
                 this.poke();
             },
+
+            _begin() { if (this.episodes.length) this.load(); },
 
             // Ambilight: repaint the ambient canvas from the current frame a few times a second. Uses
             // the already-playing <video> as the source (no extra download); a cross-origin frame just

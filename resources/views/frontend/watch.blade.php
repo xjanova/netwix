@@ -98,7 +98,8 @@
     </div>
 
     @if ($youtubeId)
-        <iframe src="https://www.youtube.com/embed/{{ $youtubeId }}?autoplay=1&rel=0&modestbranding=1&playsinline=1"
+        {{-- src is bound (not server-set) so a pre-roll ad can play first; beginPlayback() fills it in --}}
+        <iframe :src="ytSrc" x-show="ytSrc" x-cloak
                 @load="loading = false"
                 class="h-full w-full border-0" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>
     @elseif ($eps->isNotEmpty())
@@ -268,6 +269,9 @@
     <div x-show="loading && ! err" x-cloak class="pointer-events-none absolute inset-0 z-40">
         @include('partials.player-loading')
     </div>
+
+    {{-- pre-roll ad: sits on top (z-70) until skipped/finished, then playback begins (see beginPlayback) --}}
+    @include('partials.preroll-ad', ['ad' => $ad ?? null])
 </div>
 
 @push('scripts')
@@ -283,6 +287,7 @@
             forcedMute: false,   // true only when iPad refused sound-autoplay and we fell back to muted
             loading: cfg.hasMedia,
             ui: true,
+            ytSrc: '',           // YouTube embed src — filled by beginPlayback() (after any pre-roll ad)
             embedUrl: null,      // set when the episode resolves to a 3rd-party player iframe (9nung/abyss)
             // end-of-series rate + comment card (shown by onEnded / at the outro marker on the last episode)
             finished: false,
@@ -314,7 +319,21 @@
                 document.addEventListener('webkitfullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
                 try { this.autoSkip = localStorage.getItem('nx_autoskip') === '1'; } catch (e) {}
                 this.poke();
-                if (cfg.youtube || !this.$refs.video) return;
+                // Gate the FIRST playback behind a pre-roll ad if one is showing (partials/preroll-ad).
+                if (window.nxPreroll && window.nxPreroll.pending && !window.nxPreroll.done) {
+                    window.addEventListener('nx-preroll-done', () => this.beginPlayback(), { once: true });
+                } else {
+                    this.beginPlayback();
+                }
+            },
+
+            // Start the real video — YouTube gets its src now; a <video> title loads + arms the watchdog.
+            beginPlayback() {
+                if (cfg.youtube) {
+                    this.ytSrc = 'https://www.youtube.com/embed/' + cfg.youtube + '?autoplay=1&rel=0&modestbranding=1&playsinline=1';
+                    return;
+                }
+                if (!this.$refs.video) return;
                 if (this.episodes.length) this.load();
                 // watch for a mid-episode freeze that never recovers on its own (see watchdog()); the
                 // same tick lazily grabs an on-demand cover for an episode that has none yet.

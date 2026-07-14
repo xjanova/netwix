@@ -25,6 +25,7 @@
         ['route' => 'admin.settings.index', 'label' => 'ตั้งค่า / เชื่อมต่อ'],
         ['route' => 'admin.membership.index', 'label' => 'โปรโมชัน / รางวัล'],
         ['route' => 'admin.missions.index', 'label' => 'ภารกิจ (ดูคลิปรับเหรียญ)'],
+        ['route' => 'admin.ads.index', 'label' => 'โฆษณาก่อนเล่น (Pre-roll)'],
         ['route' => 'admin.payments.index', 'label' => 'เหรียญทอง / ชำระ USDT'],
         ['route' => 'admin.analytics', 'label' => 'วิเคราะห์ข้อมูล'],
         ['route' => 'admin.seo', 'label' => 'SEO / ทราฟฟิก'],
