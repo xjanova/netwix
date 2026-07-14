@@ -10,10 +10,12 @@
     {{-- floating fireflies (see nxFireflies in app.js) --}}
     <canvas id="nx-fireflies" aria-hidden="true" class="pointer-events-none absolute inset-0"></canvas>
 
-    {{-- glossy aero orbs — 3D spheres peeking behind the glass slab for depth --}}
-    <div aria-hidden="true" class="pointer-events-none absolute -left-12 top-10 h-44 w-44 rounded-full opacity-50 blur-[1px]"
+    {{-- glossy aero orbs — 3D spheres peeking behind the glass slab for depth. Kept fully INSIDE the
+         footer bounds so their soft radial fade completes before the edge (overflow-hidden no longer
+         hard-clips them into ugly semicircles). --}}
+    <div aria-hidden="true" class="pointer-events-none absolute left-4 top-6 h-40 w-40 rounded-full opacity-50 blur-[1px]"
          style="background:radial-gradient(circle at 34% 26%, #ffffff 0%, rgba(255,45,85,.85) 18%, rgba(255,45,85,.28) 52%, transparent 72%)"></div>
-    <div aria-hidden="true" class="pointer-events-none absolute -right-16 -top-6 h-52 w-52 rounded-full opacity-45 blur-[1px]"
+    <div aria-hidden="true" class="pointer-events-none absolute right-4 top-3 h-44 w-44 rounded-full opacity-45 blur-[1px]"
          style="background:radial-gradient(circle at 30% 24%, #ffffff 0%, rgba(0,229,255,.6) 16%, rgba(176,38,255,.5) 48%, transparent 72%)"></div>
 
     {{-- the frosted-glass slab --}}

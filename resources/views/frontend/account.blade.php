@@ -38,7 +38,14 @@
         </div>
         <div class="nx-card p-5">
             <div class="text-[13px] text-cream/50">เหรียญเงิน</div>
-            <div class="mt-1 flex items-center gap-2 text-2xl font-extrabold text-gold">🪙 {{ number_format($state['coins']) }}</div>
+            <div class="mt-1 flex items-center gap-2 text-2xl font-extrabold" style="color:#d6dce6">
+                <svg class="h-6 w-6" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" fill="#c8cfda"/>
+                    <circle cx="12" cy="12" r="10" fill="none" stroke="#9aa4b4" stroke-width="1.3"/>
+                    <circle cx="12" cy="12" r="6.3" fill="none" stroke="#eef2f7" stroke-width="1.4" opacity="0.75"/>
+                </svg>
+                {{ number_format($state['coins']) }}
+            </div>
             <div class="mt-1 text-[13px] text-cream/55">ได้จากภารกิจ — ใช้ปลดล็อกตอน</div>
         </div>
         <div class="nx-card p-5">
@@ -179,7 +186,7 @@
         <p class="mt-1 text-[13.5px] text-cream/60">
             เพื่อนใช้โค้ดนี้ตอนสมัคร → เพื่อนได้ Pro ฟรี {{ $ref['referee_pro_days'] }} วัน
             @if ($ref['referrer_pro_days'] > 0 || $ref['referrer_coins'] > 0)
-                · คุณได้{{ $ref['referrer_pro_days'] > 0 ? ' Pro +'.$ref['referrer_pro_days'].' วัน' : '' }}{{ $ref['referrer_coins'] > 0 ? ' 🪙'.$ref['referrer_coins'] : '' }} ต่อ 1 คน
+                · คุณได้{{ $ref['referrer_pro_days'] > 0 ? ' Pro +'.$ref['referrer_pro_days'].' วัน' : '' }}{{ $ref['referrer_coins'] > 0 ? ' +'.$ref['referrer_coins'].' เหรียญเงิน' : '' }} ต่อ 1 คน
             @endif
         </p>
 
