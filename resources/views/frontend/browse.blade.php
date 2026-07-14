@@ -2,6 +2,9 @@
 @section('title', $heading ?? 'หน้าแรก')
 
 @section('content')
+{{-- Running promo banner — active campaigns (สมัครฟรี 1 ปี / ชวนเพื่อน 1 เดือน + admin promos). --}}
+@include('partials.promo-marquee')
+
 {{-- Rotating "หนังตัวอย่าง" billboard — whole-site pool on the home, cached + shared across visitors.
      See partials/hero-billboard.blade.php + App\Support\HeroBillboard. --}}
 @if (count($heroSlides ?? []))

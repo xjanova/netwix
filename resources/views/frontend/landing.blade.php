@@ -35,12 +35,12 @@
             <a href="{{ route('login') }}" class="btn-brand px-5 py-2 text-sm sm:px-6">เข้าสู่ระบบ</a>
         </header>
 
-        {{-- news ticker (admin-editable) --}}
+        {{-- news ticker — live campaigns (config-derived free-Pro + referral) then admin announcements --}}
         @php
-            $ticker = collect($announcements)->map(fn ($a) => [
-                'badge' => $a->badge ?? null,
-                'body' => $a->body ?? '',
-                'link' => $a->link ?? null,
+            $ticker = collect(\App\Support\Campaigns::active(true))->map(fn ($p) => [
+                'badge' => $p['badge'],
+                'body' => $p['text'],
+                'link' => $p['link'],
             ])->values();
         @endphp
         <div class="relative z-20 px-6">
