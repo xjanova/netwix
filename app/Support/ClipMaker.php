@@ -383,14 +383,27 @@ class ClipMaker
         }
 
         try {
-            // A whole episode legitimately encodes for a long time (still nice/ionice'd + 4
-            // threads, so it only ever uses idle CPU — see the 2026-07-06 incident note).
-            Process::timeout($full ? 5100 : 240)->run(Ffmpeg::cmd($args));
+            // Long cuts legitimately encode for a long time (still nice/ionice'd + 4 threads, so
+            // they only ever use idle CPU — see the 2026-07-06 incident note). This budget MUST
+            // scale with the clip: a flat 240s silently killed every 5-minute cut mid-encode and
+            // reported it as ffmpeg_failed. The job timeout on each lane is the real backstop.
+            Process::timeout($this->encodeBudget($dur, $full))->run(Ffmpeg::cmd($args));
         } catch (Throwable $e) {
             return false;
         }
 
         return is_file($out) && filesize($out) >= 2000;
+    }
+
+    /**
+     * Seconds to allow the encode. Roughly 12x realtime — an idle-priority libx264 veryfast pass
+     * on this shared box runs a few times faster than realtime, and the margin covers the box
+     * being busy. Capped just under the clips-heavy job timeout (5400s) so the queue, not the
+     * process, owns the final say.
+     */
+    private function encodeBudget(int $dur, bool $full): int
+    {
+        return $full ? 5100 : min(5100, max(240, $dur * 12 + 60));
     }
 
     /**
