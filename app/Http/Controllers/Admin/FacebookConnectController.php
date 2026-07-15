@@ -27,7 +27,11 @@ use Throwable;
  */
 class FacebookConnectController extends Controller
 {
-    private const SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts';
+    // pages_manage_engagement = reply under comments (the invite funnel's public mode);
+    // pages_manage_metadata = subscribe the page to the `feed` webhook. pages_messaging (DM) is
+    // deliberately NOT here — it isn't in the app's use case yet, so requesting it errors the dialog
+    // with "Invalid Scopes"; add it after the pages_messaging App Review is approved.
+    private const SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_engagement,pages_manage_metadata';
 
     /**
      * Store the app secret pasted into the admin form (encrypted at rest). This exists so
