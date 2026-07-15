@@ -36,6 +36,9 @@ class ClipMaker
     /** Encoded output ceiling — Facebook's hosted file_url upload tops out around 1GB. */
     private const OUT_MAX_BYTES = 980 * 1024 * 1024;
 
+    /** Silent stereo audio source, used to give the outro card (or a silent clip) an audio leg. */
+    private const SILENCE = 'anullsrc=r=44100:cl=stereo';
+
     public function __construct(private SourceRegistry $registry) {}
 
     /**
@@ -50,8 +53,8 @@ class ClipMaker
         // Load the episode with ALL its columns (source/source_ref/video_url) — the job's
         // eager-load is column-limited for the label, which isn't enough to resolve a stream.
         $episode = $clip->episode_id
-            ? Episode::with('content:id,source_key')->find($clip->episode_id)
-            : Episode::with('content:id,source_key')->where('content_id', $clip->content_id)->orderBy('sort')->first();
+            ? Episode::with('content:id,source_key,outro_seconds')->find($clip->episode_id)
+            : Episode::with('content:id,source_key,outro_seconds')->where('content_id', $clip->content_id)->orderBy('sort')->first();
         if (! $episode) {
             return $this->fail($clip, 'no_source');
         }
@@ -66,13 +69,20 @@ class ClipMaker
         $full = (int) $clip->duration <= 0;
         $dur = $full ? 0 : max(5, min(600, (int) $clip->duration));
 
+        // "ending" clips take the LAST $dur seconds. The window is resolved from the real
+        // media (playlist sum / probe), and stops short of the end credits when the title has
+        // them marked — so the clip ends on the cliffhanger instead of a credits roll, which
+        // is the entire point of teasing the end of an episode.
+        $fromEnd = ! $full && $clip->start_mode === 'ending';
+        $trimEnd = $fromEnd ? max(0, (int) ($episode->content?->outro_seconds ?? 0)) : 0;
+
         // ---- 1. get the source window onto local disk --------------------------
-        [$srcPath, $seekOffset] = $this->fetchWindow($url, $start, $dur, $full);
+        [$srcPath, $seekOffset] = $this->fetchWindow($url, $start, $dur, $full, $fromEnd, $trimEnd);
         if ($srcPath === null) {
             // transient CDN hiccup on a burst — re-resolve a fresh link + retry once
             usleep(700_000);
             $retry = $this->playableUrl($episode);
-            [$srcPath, $seekOffset] = $retry ? $this->fetchWindow($retry, $start, $dur, $full) : [null, 0];
+            [$srcPath, $seekOffset] = $retry ? $this->fetchWindow($retry, $start, $dur, $full, $fromEnd, $trimEnd) : [null, 0];
             if ($srcPath === null) {
                 return $this->fail($clip, 'download_failed');
             }
@@ -131,11 +141,11 @@ class ClipMaker
      *
      * @return array{0: ?string, 1: float}
      */
-    private function fetchWindow(string $url, int $start, int $dur, bool $full = false): array
+    private function fetchWindow(string $url, int $start, int $dur, bool $full = false, bool $fromEnd = false, int $trimEnd = 0): array
     {
         try {
             if (str_contains($url, '.m3u8')) {
-                return $this->fetchHlsWindow($url, $start, $dur, $full);
+                return $this->fetchHlsWindow($url, $start, $dur, $full, $fromEnd, $trimEnd);
             }
 
             // Direct mp4/file: no cheap way to time-seek a remote file, and ffmpeg
@@ -155,6 +165,12 @@ class ClipMaker
                 return [null, 0.0];
             }
 
+            // Whole file on disk → its real length is only knowable by probing it.
+            if ($fromEnd) {
+                $total = $this->probe($tmp)['duration'];
+                $start = $total > 0 ? max(0, (int) round($total - $trimEnd - $dur)) : 0;
+            }
+
             return [$tmp, (float) $start];   // whole file downloaded → seek the real start
         } catch (Throwable $e) {
             report($e);
@@ -169,11 +185,19 @@ class ClipMaker
      *
      * @return array{0: ?string, 1: float}
      */
-    private function fetchHlsWindow(string $m3u8Url, int $start, int $dur, bool $full = false): array
+    private function fetchHlsWindow(string $m3u8Url, int $start, int $dur, bool $full = false, bool $fromEnd = false, int $trimEnd = 0): array
     {
         $segments = $this->mediaSegments($m3u8Url);
         if (empty($segments)) {
             return [null, 0.0];
+        }
+
+        // The playlist knows the exact length (sum of #EXTINF) — no probing needed, and it is
+        // authoritative where contents.duration_minutes is rounded or missing. A short episode
+        // (total <= dur) collapses to start=0, i.e. the whole episode, which is what we want.
+        if ($fromEnd) {
+            $total = array_sum(array_column($segments, 'dur'));
+            $start = max(0, (int) round($total - $trimEnd - $dur));
         }
 
         if ($full) {
@@ -326,22 +350,37 @@ class ClipMaker
     {
         @unlink($out);
         $bin = config('services.ffmpeg.bin', '/home/admin/bin/ffmpeg');
+        $outro = app(ClipOutro::class);
+        // Full episodes keep their source aspect, so the card is built 16:9 and conformed by
+        // scale2ref below; the cropped modes already know their exact output size.
+        $card = $outro->card($full ? '16:9' : $aspect);
+
         $args = [
             $bin, '-y', '-nostdin', '-threads', '4',
             '-ss', number_format($offset, 3, '.', ''),
-            '-i', $src,
         ];
+        // -t BEFORE -i makes it an INPUT limit (this clip only). It must not be an output
+        // option here: with the outro concatenated on the end, an output -t would chop the
+        // outro back off again.
         if (! $full) {
-            array_push($args, '-t', (string) $dur);   // full episode = no cut, encode to the end
+            array_push($args, '-t', (string) $dur);
         }
-        array_push($args,
-            '-vf', $this->videoFilter($aspect, $full),
+        array_push($args, '-i', $src);
+
+        $codec = [
             '-c:v', 'libx264', '-preset', $full ? 'superfast' : 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
             '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
             '-movflags', '+faststart',
             '-avoid_negative_ts', 'make_zero',
             $out,
-        );
+        ];
+
+        if ($card === null) {
+            array_push($args, '-vf', $this->videoFilter($aspect, $full), ...$codec);
+        } else {
+            array_push($args, ...$this->outroArgs($src, $card, $outro->seconds(), $dur, $aspect, $full), ...$codec);
+        }
+
         try {
             // A whole episode legitimately encodes for a long time (still nice/ionice'd + 4
             // threads, so it only ever uses idle CPU — see the 2026-07-06 incident note).
@@ -351,6 +390,71 @@ class ClipMaker
         }
 
         return is_file($out) && filesize($out) >= 2000;
+    }
+
+    /**
+     * Extra inputs + filtergraph that glue the branding card onto the end of the clip, inside
+     * the SAME encode pass. Concatenating afterwards would mean re-encoding the whole clip a
+     * second time — on a 5-minute cut that alone can outrun the worker.
+     *
+     * Two things make this robust for any source:
+     *   - scale2ref conforms the card to whatever the clip's real output size is, so nothing
+     *     here has to know (or agree on) pixel dimensions.
+     *   - concat demands identical audio params, and a silent source has no audio stream at
+     *     all, so both legs are normalised and a missing track is replaced with silence.
+     *
+     * @return array<int, string>
+     */
+    private function outroArgs(string $src, string $card, int $outroSec, int $dur, string $aspect, bool $full): array
+    {
+        $args = [
+            '-loop', '1', '-t', (string) $outroSec, '-i', $card,                      // 1 = card
+            '-f', 'lavfi', '-t', (string) $outroSec, '-i', self::SILENCE,             // 2 = card audio
+        ];
+
+        $clipAudio = '[0:a]';
+        if (! $this->probe($src)['hasAudio']) {
+            // Silent source: concat still needs an audio leg of the clip's own length.
+            $args = array_merge($args, ['-f', 'lavfi', '-t', (string) ($full ? 36000 : $dur), '-i', self::SILENCE]);
+            $clipAudio = '[3:a]';
+        }
+
+        $norm = 'aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo';
+        $graph = "[0:v]{$this->videoFilter($aspect, $full)},fps=30,format=yuv420p,setsar=1[c];"
+            ."[1:v][c]scale2ref=flags=bicubic[card][cv];"
+            ."[card]fps=30,format=yuv420p,setsar=1[ov];"
+            ."{$clipAudio}{$norm}[ca];"
+            ."[2:a]{$norm}[oa];"
+            .'[cv][ca][ov][oa]concat=n=2:v=1:a=1[v][a]';
+
+        return array_merge($args, ['-filter_complex', $graph, '-map', '[v]', '-map', '[a]']);
+    }
+
+    /**
+     * Read a local file's duration + whether it carries audio. There is NO ffprobe on this box
+     * (only the static ffmpeg), so this parses `ffmpeg -i`, which prints the stream summary to
+     * stderr and exits non-zero because no output file was given — that is expected, not an error.
+     *
+     * @return array{duration: float, hasAudio: bool}
+     */
+    private function probe(string $file): array
+    {
+        try {
+            $res = Process::timeout(60)->run(Ffmpeg::cmd([Ffmpeg::bin(), '-hide_banner', '-i', $file]));
+            $text = $res->errorOutput().$res->output();
+        } catch (Throwable $e) {
+            return ['duration' => 0.0, 'hasAudio' => true];
+        }
+
+        $duration = 0.0;
+        if (preg_match('/Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)/', $text, $m)) {
+            $duration = ((int) $m[1] * 3600) + ((int) $m[2] * 60) + (float) $m[3];
+        }
+
+        return [
+            'duration' => $duration,
+            'hasAudio' => (bool) preg_match('/Stream #\d+:\d+.*: Audio:/', $text),
+        ];
     }
 
     /**

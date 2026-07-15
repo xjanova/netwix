@@ -254,6 +254,10 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('clip-campaigns/{clipCampaign}/run', [Admin\ClipCampaignController::class, 'runNow'])->name('clip-campaigns.run');
 
     // Facebook page connect for the clip auto-post pipeline (OAuth → page token in settings)
+    // Branding card burned onto the end of every marketing clip (App\Support\ClipOutro)
+    Route::post('clip-outro', [Admin\ClipOutroController::class, 'update'])->name('clip-outro.update');
+    Route::get('clip-outro/preview', [Admin\ClipOutroController::class, 'preview'])->name('clip-outro.preview');
+
     Route::post('facebook/secret', [Admin\FacebookConnectController::class, 'storeSecret'])->name('facebook.secret');
     Route::get('facebook/connect', [Admin\FacebookConnectController::class, 'redirect'])->name('facebook.connect');
     Route::get('facebook/callback', [Admin\FacebookConnectController::class, 'callback'])->name('facebook.callback');

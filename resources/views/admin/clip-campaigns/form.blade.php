@@ -149,7 +149,9 @@
                 <select name="start_mode" class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
                     <option value="middle" @selected(old('start_mode', $campaign->start_mode ?? 'middle') === 'middle')>กลางเรื่อง (เลี่ยงintro/เครดิต)</option>
                     <option value="random" @selected(old('start_mode', $campaign->start_mode ?? 'middle') === 'random')>สุ่มตำแหน่ง (ไม่ซ้ำฉากเดิม)</option>
+                    <option value="ending" @selected(old('start_mode', $campaign->start_mode ?? 'middle') === 'ending')>ท้ายตอน (ตัดช่วงสุดท้าย — น่าติดตาม)</option>
                 </select>
+                <p class="mt-1 text-[11px] text-cream/35">“ท้ายตอน” = เอาช่วงสุดท้ายตามความยาวที่ตั้งไว้ ตัดจบก่อนเครดิตท้ายเรื่อง (ถ้าตอนสั้นกว่านั้นจะได้ทั้งตอน)</p>
             </div>
             <div>
                 <label class="mb-1 block text-[12px] text-cream/50">สัดส่วน</label>
@@ -167,8 +169,12 @@
                 <option value="first" @selected(old('episode_pick', $campaign->episode_pick ?? 'first') === 'first')>ตอนแรกเสมอ</option>
                 <option value="random" @selected(old('episode_pick', $campaign->episode_pick ?? 'first') === 'random')>สุ่มตอน</option>
                 <option value="sequential" @selected(old('episode_pick', $campaign->episode_pick ?? 'first') === 'sequential')>เรียงตามลำดับ (โพสต์ถัดไป = ตอนถัดจากที่โพสต์ล่าสุด วนกลับตอน 1 เมื่อจบ)</option>
+                <option value="unposted" @selected(old('episode_pick', $campaign->episode_pick ?? 'first') === 'unposted')>ไม่ซ้ำเด็ดขาด (ไล่เฉพาะตอนที่แคมเปญนี้ยังไม่เคยโพสต์)</option>
             </select>
-            <p class="mt-1 text-[11px] text-cream/35">ใช้คู่กับ “เจาะจงเรื่องเดียว” ได้ เช่น ปักซีรีส์หนึ่งเรื่องแล้วให้โพสต์คลิปตอน 1, 2, 3, … ตามเวลาที่ตั้ง</p>
+            <p class="mt-1 text-[11px] text-cream/35">
+                ใช้คู่กับ “เจาะจงเรื่องเดียว” ได้ เช่น ปักซีรีส์หนึ่งเรื่องแล้วให้โพสต์คลิปตอน 1, 2, 3, … ตามเวลาที่ตั้ง<br>
+                <b>ไม่ซ้ำเด็ดขาด</b> = ดูจากประวัติการโพสต์จริง ถ้าเรื่องไหนโพสต์ครบทุกตอนแล้วจะข้ามไปเรื่องอื่นให้เอง (เหมาะกับสุ่มเรื่องรายชั่วโมง)
+            </p>
         </div>
         <div>
             <label class="mb-1.5 block text-[12px] text-cream/50">โพสต์ไปที่</label>

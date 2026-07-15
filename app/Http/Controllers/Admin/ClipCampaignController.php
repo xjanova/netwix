@@ -8,6 +8,7 @@ use App\Models\ClipCampaignPost;
 use App\Models\Genre;
 use App\Models\Setting;
 use App\Support\ClipCampaignRunner;
+use App\Support\ClipOutro;
 use App\Support\FacebookPublisher;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,7 +26,7 @@ use Illuminate\View\View;
  */
 class ClipCampaignController extends Controller
 {
-    public function index(FacebookPublisher $fb): View
+    public function index(FacebookPublisher $fb, ClipOutro $outro): View
     {
         $campaigns = ClipCampaign::withCount('posts')
             ->with('genre:id,name', 'content:id,title')
@@ -42,6 +43,10 @@ class ClipCampaignController extends Controller
             'fbConnected' => $fb->enabled(),
             'fbPageName' => $fb->pageName(),
             'fbSecretMissing' => blank(Setting::get('fb_app_secret')) && blank(config('services.facebook.app_secret')),
+            'outroEnabled' => $outro->enabled(),
+            'outroText' => Setting::get('clip_outro_text'),
+            'outroSeconds' => $outro->seconds(),
+            'outroCustomLogo' => filled(Setting::get('clip_outro_logo')),
         ]);
     }
 
@@ -142,8 +147,8 @@ class ClipCampaignController extends Controller
             'avoid_recent_days' => ['required', 'integer', 'min:0', 'max:365'],
             'duration' => ['required', 'integer', 'min:5', 'max:600'],
             'duration_max' => ['nullable', 'integer', 'min:5', 'max:600', 'gte:duration'],
-            'start_mode' => ['required', Rule::in(['middle', 'random'])],
-            'episode_pick' => ['required', Rule::in(['first', 'random', 'sequential'])],
+            'start_mode' => ['required', Rule::in(['middle', 'random', 'ending'])],
+            'episode_pick' => ['required', Rule::in(['first', 'random', 'sequential', 'unposted'])],
             'aspect' => ['required', Rule::in(['9:16', '1:1', '16:9'])],
             'targets' => ['required', 'array', 'min:1'],
             'targets.*' => [Rule::in(['reels', 'feed'])],

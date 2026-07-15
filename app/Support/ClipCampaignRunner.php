@@ -24,6 +24,12 @@ use Throwable;
  */
 class ClipCampaignRunner
 {
+    /** Clips longer than this are cut on the `clips-heavy` lane instead of the 2-worker pool. */
+    private const HEAVY_SECONDS = 120;
+
+    /** How many candidate titles to try when hunting for a never-posted episode. */
+    private const TITLE_CANDIDATES = 30;
+
     /**
      * Fire every campaign whose slot is due at $now. Returns [campaignId => slot] for logging.
      *
@@ -68,24 +74,33 @@ class ClipCampaignRunner
             return $post;
         }
 
-        $title = $this->pickTitle($campaign);
+        [$title, $episode] = $this->pickTarget($campaign);
         if (! $title) {
-            $post->update(['status' => 'skipped', 'error' => 'no_title', 'content_id' => null]);
+            // Nothing eligible: no title matches the filter, or (in no-repeat mode) every
+            // episode of every candidate title has already been posted by this campaign.
+            $post->update([
+                'status' => 'skipped',
+                'error' => $campaign->episode_pick === 'unposted' ? 'no_unposted_episode' : 'no_title',
+                'content_id' => null,
+            ]);
 
             return $post;
         }
 
-        $episode = $this->pickEpisode($campaign, $title);
         $full = (bool) $campaign->full_episode;
         // duration=0 is the "whole episode" sentinel ClipMaker understands (no -t, all segments).
         $duration = $full ? 0 : $this->pickDuration($campaign);
-        $start = $full ? 0 : $this->pickStart($episode?->duration_minutes, $duration, (string) $campaign->start_mode);
+        $ending = ! $full && $campaign->start_mode === 'ending';
+        // In "ending" mode the real window can only be worked out from the media itself, so the
+        // cutter resolves it (see the start_mode migration); the row just carries the intent.
+        $start = ($full || $ending) ? 0 : $this->pickStart($episode?->duration_minutes, $duration, (string) $campaign->start_mode);
 
         $clip = MarketingClip::create([
             'campaign_id' => $campaign->id,
             'content_id' => $title->id,
             'episode_id' => $episode?->id,
             'start' => $start,
+            'start_mode' => $ending ? 'ending' : 'absolute',
             'duration' => $duration,
             'aspect' => $campaign->aspect,
             'status' => 'pending',
@@ -105,15 +120,54 @@ class ClipCampaignRunner
 
         // Cut on the bounded CLI pool. On success the job auto-captions and dispatches the
         // Facebook post; on failure it flags this campaign-post (see GenerateMarketingClip).
-        // A full-episode cut re-encodes the entire file — that MUST NOT enter the 2-worker
-        // clips pool (310s worker timeout + shared box), so it goes to the single-worker
-        // clips-heavy lane with an hours-scale timeout instead.
-        GenerateMarketingClip::dispatch($clip->id, heavy: $full)->onQueue($full ? 'clips-heavy' : 'clips');
+        //
+        // Long cuts MUST NOT enter the 2-worker `clips` pool: that lane's worker dies at 310s,
+        // and a multi-minute clip (let alone a whole episode) is a download + re-encode that
+        // routinely outruns it — the job would be killed mid-encode and retried forever. They
+        // go to the single-worker `clips-heavy` lane (hours-scale timeout, withoutOverlapping)
+        // which also keeps two heavy ffmpeg runs off this shared box at once.
+        $heavy = $full || $duration > self::HEAVY_SECONDS;
+        GenerateMarketingClip::dispatch($clip->id, heavy: $heavy)->onQueue($heavy ? 'clips-heavy' : 'clips');
 
         return $post;
     }
 
-    // ---- title selection ----------------------------------------------------
+    // ---- title + episode selection -------------------------------------------
+
+    /**
+     * Pick what this run will cut: [title, episode].
+     *
+     * For every mode but "unposted" the two choices are independent (title first, then an
+     * episode of it). "unposted" is the no-repeat mode the hourly series/cartoon campaigns
+     * use: it must land on a (title, episode) pair this campaign has NEVER posted, so the
+     * two choices are coupled — a title whose episodes are exhausted is skipped and the next
+     * candidate is tried. Truth comes from the clip history itself, not a stored cursor, so
+     * it stays correct even if rows are deleted or campaigns are edited.
+     *
+     * @return array{0: ?Content, 1: ?Episode}
+     */
+    private function pickTarget(ClipCampaign $campaign): array
+    {
+        if ($campaign->episode_pick !== 'unposted') {
+            $title = $this->pickTitle($campaign);
+
+            return [$title, $title ? $this->pickEpisode($campaign, $title) : null];
+        }
+
+        $posted = MarketingClip::where('campaign_id', $campaign->id)
+            ->whereNotNull('episode_id')->pluck('episode_id')->all();
+
+        foreach ($this->titleCandidates($campaign) as $title) {
+            $episode = Episode::where('content_id', $title->id)
+                ->when($posted, fn ($q) => $q->whereNotIn('id', $posted))
+                ->orderBy('sort')->orderBy('id')->first();
+            if ($episode) {
+                return [$title, $episode];
+            }
+        }
+
+        return [null, null];
+    }
 
     /** Choose a title for this campaign per its filter + repeat guard, or null if the pool is dry. */
     private function pickTitle(ClipCampaign $campaign): ?Content
@@ -123,6 +177,37 @@ class ClipCampaignRunner
             return Content::withoutGlobalScopes()->whereKey($campaign->content_id)->has('episodes')->first();
         }
 
+        return $this->ordered($this->titleQuery($campaign), $campaign)->first();
+    }
+
+    /**
+     * The first N eligible titles in this campaign's preferred order — the pool the no-repeat
+     * mode walks. Bounded so a campaign whose whole catalogue is exhausted still finishes fast.
+     *
+     * @return \Illuminate\Support\Collection<int, Content>
+     */
+    private function titleCandidates(ClipCampaign $campaign)
+    {
+        if ($campaign->content_id) {
+            return Content::withoutGlobalScopes()->whereKey($campaign->content_id)->has('episodes')->get();
+        }
+
+        return $this->ordered($this->titleQuery($campaign), $campaign)->limit(self::TITLE_CANDIDATES)->get();
+    }
+
+    /** Apply the campaign's pick strategy to a title query. */
+    private function ordered($q, ClipCampaign $campaign)
+    {
+        return match ($campaign->pick) {
+            'random' => $q->inRandomOrder(),
+            'newest' => $q->orderByDesc('id'),
+            default => $q->orderByDesc('views')->orderByDesc('id'), // "trending" = most-watched
+        };
+    }
+
+    /** Every title matching this campaign's filters + repeat guard (unordered). */
+    private function titleQuery(ClipCampaign $campaign)
+    {
         $q = Content::withoutGlobalScopes()
             ->where('is_published', true)
             ->whereNull('suspended_at')
@@ -148,11 +233,7 @@ class ClipCampaignRunner
             $q->whereNotIn('id', $recent);
         }
 
-        return match ($campaign->pick) {
-            'random' => $q->inRandomOrder()->first(),
-            'newest' => $q->orderByDesc('id')->first(),
-            default => $q->orderByDesc('views')->orderByDesc('id')->first(), // "trending" = most-watched
-        };
+        return $q;
     }
 
     // ---- episode selection ----------------------------------------------------
@@ -161,6 +242,7 @@ class ClipCampaignRunner
      * Which EPISODE of the picked title to cut from, per the campaign's episode_pick:
      * first (default, the old behaviour), random, or sequential — continue from the last
      * episode this campaign posted for this title, wrapping back to episode 1 at the end.
+     * ("unposted" never reaches here — it is resolved together with the title in pickTarget.)
      */
     private function pickEpisode(ClipCampaign $campaign, Content $title): ?Episode
     {

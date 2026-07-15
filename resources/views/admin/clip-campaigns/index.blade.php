@@ -66,6 +66,73 @@
     </div>
 @endunless
 
+{{-- ── Outro card burned onto the end of every clip ───────────────────────── --}}
+<div class="nx-card mb-5 p-5" x-data="{ open: {{ $errors->has('clip_outro_text') || $errors->has('logo') ? 'true' : 'false' }}, ver: 0 }">
+    <button type="button" @click="open = !open" class="flex w-full items-center justify-between gap-3 text-left">
+        <div>
+            <div class="text-sm font-semibold text-cream/85">🎬 ท้ายคลิป — โลโก้ + ข้อความชวนดูต่อ</div>
+            <div class="mt-0.5 text-[12px] text-cream/45">
+                ต่อท้ายทุกคลิปที่ตัด ·
+                <span class="{{ $outroEnabled ? 'text-success' : 'text-cream/40' }}">{{ $outroEnabled ? 'เปิดอยู่' : 'ปิดอยู่' }}</span>
+                @if ($outroEnabled) · {{ $outroSeconds }} วินาที @endif
+            </div>
+        </div>
+        <span class="text-cream/40" x-text="open ? '▲' : '▼'"></span>
+    </button>
+
+    <div x-show="open" x-cloak class="mt-4 grid gap-5 border-t border-white/5 pt-4 md:grid-cols-[1fr_200px]">
+        <form method="POST" action="{{ route('admin.clip-outro.update') }}" enctype="multipart/form-data" class="space-y-4">
+            @csrf
+            <label class="flex items-center gap-3 text-sm">
+                <input type="checkbox" name="clip_outro_enabled" value="1" @checked($outroEnabled)
+                       class="h-4 w-4 rounded border-white/20 bg-white/5 text-brand-2">
+                <span>เปิดใช้งาน — ต่อท้ายทุกคลิปที่ตัดหลังจากนี้</span>
+            </label>
+
+            <div>
+                <label class="mb-1 block text-[12px] text-cream/50">ข้อความ <span class="text-cream/30">(ขึ้นบรรทัดใหม่ได้ สูงสุด 4 บรรทัด)</span></label>
+                <textarea name="clip_outro_text" rows="2" maxlength="200"
+                          placeholder="{{ \App\Support\ClipOutro::DEFAULT_TEXT }}"
+                          class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream placeholder:text-cream/30">{{ old('clip_outro_text', $outroText) }}</textarea>
+                @error('clip_outro_text')<p class="mt-1 text-[12px] text-[#ff6b81]">{{ $message }}</p>@enderror
+            </div>
+
+            <div class="grid gap-4 sm:grid-cols-2">
+                <div>
+                    <label class="mb-1 block text-[12px] text-cream/50">แสดงกี่วินาที</label>
+                    <input type="number" name="clip_outro_seconds" min="2" max="10" value="{{ old('clip_outro_seconds', $outroSeconds) }}"
+                           class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
+                </div>
+                <div>
+                    <label class="mb-1 block text-[12px] text-cream/50">โลโก้ <span class="text-cream/30">(ไม่ใส่ = โลโก้ NetWix)</span></label>
+                    <input type="file" name="logo" accept="image/png,image/jpeg,image/webp"
+                           class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[12px] text-cream/70 file:mr-2 file:rounded file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-[12px] file:text-cream">
+                    @error('logo')<p class="mt-1 text-[12px] text-[#ff6b81]">{{ $message }}</p>@enderror
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3">
+                <button class="nx-gradient rounded-lg px-5 py-2 text-sm font-semibold" style="box-shadow:0 8px 22px rgba(176,38,255,0.32)">💾 บันทึก</button>
+                @if ($outroCustomLogo)
+                    <label class="flex items-center gap-2 text-[12px] text-cream/50">
+                        <input type="checkbox" name="reset_logo" value="1" class="h-3.5 w-3.5 rounded border-white/20 bg-white/5">
+                        กลับไปใช้โลโก้ NetWix เดิม
+                    </label>
+                @endif
+            </div>
+        </form>
+
+        <div>
+            <div class="mb-1 text-[12px] text-cream/50">ตัวอย่าง (9:16)</div>
+            <img :src="'{{ route('admin.clip-outro.preview') }}?v=' + ver" alt="ตัวอย่างท้ายคลิป"
+                 class="w-full rounded-lg border border-white/10 bg-black/40"
+                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block'">
+            <p style="display:none" class="text-[11px] text-[#ff6b81]">ยังสร้างตัวอย่างไม่ได้ (ไม่พบโลโก้/ฟอนต์บนเซิร์ฟเวอร์)</p>
+            <button type="button" @click="ver++" class="mt-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[12px] text-cream/60 hover:text-cream">🔄 รีเฟรชตัวอย่าง</button>
+        </div>
+    </div>
+</div>
+
 @php
     $dayLabels = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
     $typeLabels = ['movie' => 'หนัง', 'series' => 'ซีรีส์', 'anime' => 'อนิเมะ', 'vertical' => 'แนวตั้ง'];
