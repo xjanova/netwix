@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Http\Controllers\StreamController;
 use App\Models\Episode;
 use App\Models\MarketingClip;
+use App\Services\Import\Contracts\EmbedPlayback;
 use App\Services\Import\SourceRegistry;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -686,14 +687,22 @@ class ClipMaker
         if ($episode->video_url) {
             return $episode->video_url;
         }
-        if (in_array($episode->source, ['wowdrama', 'anime108'], true)) {
-            // These sources only play through our own rewriting proxy, and that route rejects
-            // any request without a minted token (403) — which is exactly why clips for them
-            // used to die on download_failed. We are server-side and hold app.key, so mint one
-            // the same way the player's resolver does. ~80k episodes ride on this.
+
+        $source = $this->registry->get((string) $episode->source);
+
+        // HLS sources (wowdrama, anime108, 24hdx, goseries4k, any Halim pool site) only play through
+        // our own rewriting proxy: it adds the upstream Referer a plain ffmpeg/Http fetch can't send
+        // (torbo007/getplay 403 without it) and strips the fake-PNG wrapper off every segment. Handing
+        // the RAW upstream manifest to fetchHlsWindow instead 403s at mediaSegments (no Referer) or
+        // feeds ffmpeg PNG-wrapped segments it can't demux — which is exactly why these clips died on
+        // download_failed. We hold app.key server-side, so mint the manifest token the resolver mints.
+        // Gate on !isProgressive() (not a per-source whitelist) so a newly-added HLS source is covered
+        // automatically — mirrors EpisodeSourceController::resolve. Embed sources (9nung/abyss) have no
+        // proxiable stream and can't be clipped, so they fall through to the (null) resolve below.
+        if ($source && ! $source->isProgressive() && ! $source instanceof EmbedPlayback) {
             return route('stream.manifest', ['episode' => $episode, 't' => StreamController::token($episode)]);
         }
-        $source = $this->registry->get((string) $episode->source);
+
         $seriesKey = $episode->content?->source_key;
         if (! $source || ! $seriesKey || ! $episode->source_ref) {
             return null;
