@@ -18,7 +18,7 @@ class MarketingClip extends Model
         'campaign_id', 'content_id', 'episode_id', 'start', 'start_mode', 'duration', 'aspect',
         'status', 'error', 'file_path', 'poster_path', 'file_size', 'files_purged_at',
         'caption', 'platform', 'auto_post', 'post_targets', 'scheduled_at', 'posted_at',
-        'remote_post_id', 'dry_run', 'batch_id', 'meta',
+        'remote_post_id', 'remote_story_id', 'dry_run', 'batch_id', 'meta',
     ];
 
     protected function casts(): array
