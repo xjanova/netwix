@@ -30,6 +30,9 @@ class ClipCampaignRunner
     /** How many candidate titles to try when hunting for a never-posted episode. */
     private const TITLE_CANDIDATES = 30;
 
+    /** How many different titles one slot may try before it finally gives up (skip-on-failure). */
+    private const MAX_ATTEMPTS = 6;
+
     /**
      * Fire every campaign whose slot is due at $now. Returns [campaignId => slot] for logging.
      *
@@ -74,17 +77,34 @@ class ClipCampaignRunner
             return $post;
         }
 
-        [$title, $episode] = $this->pickTarget($campaign);
-        if (! $title) {
-            // Nothing eligible: no title matches the filter, or (in no-repeat mode) every
-            // episode of every candidate title has already been posted by this campaign.
+        // First attempt for this slot. Nothing eligible at all → the slot is skipped. A failed
+        // CUT later (source momentarily down) routes through advanceOnFailure(), which picks a
+        // DIFFERENT title and tries again — so a broken source never costs the whole slot.
+        if (! $this->dispatchCut($campaign, $post)) {
             $post->update([
                 'status' => 'skipped',
                 'error' => $campaign->episode_pick === 'unposted' ? 'no_unposted_episode' : 'no_title',
                 'content_id' => null,
             ]);
+        }
 
-            return $post;
+        $campaign->forceFill(['last_run_at' => now()])->saveQuietly();
+
+        return $post;
+    }
+
+    /**
+     * Pick a title this slot hasn't tried yet, cut it, and point the post at the new clip.
+     * Returns false when nothing eligible is left to try (the caller decides skip vs fail).
+     * Every call records the picked title in tried_content_ids and bumps attempts, so a retry
+     * never re-picks a title that already failed this slot.
+     */
+    private function dispatchCut(ClipCampaign $campaign, ClipCampaignPost $post): bool
+    {
+        $exclude = array_map('intval', (array) $post->tried_content_ids);
+        [$title, $episode] = $this->pickTarget($campaign, $exclude);
+        if (! $title) {
+            return false;
         }
 
         $full = (bool) $campaign->full_episode;
@@ -110,16 +130,16 @@ class ClipCampaignRunner
 
         $post->update([
             'status' => 'cutting',
+            'attempts' => (int) $post->attempts + 1,
             'content_id' => $title->id,
+            'tried_content_ids' => array_values(array_unique([...$exclude, $title->id])),
             'marketing_clip_id' => $clip->id,
             'error' => null,
             'dry_run' => false,
         ]);
 
-        $campaign->forceFill(['last_run_at' => now()])->saveQuietly();
-
-        // Cut on the bounded CLI pool. On success the job auto-captions and dispatches the
-        // Facebook post; on failure it flags this campaign-post (see GenerateMarketingClip).
+        // Cut on the bounded CLI pool. On success the job auto-captions and dispatches the FB
+        // post; on failure it calls advanceOnFailure() to try the next title (see GenerateMarketingClip).
         //
         // Long cuts MUST NOT enter the 2-worker `clips` pool: that lane's worker dies at 310s,
         // and a multi-minute clip (let alone a whole episode) is a download + re-encode that
@@ -129,7 +149,22 @@ class ClipCampaignRunner
         $heavy = $full || $duration > self::HEAVY_SECONDS;
         GenerateMarketingClip::dispatch($clip->id, heavy: $heavy)->onQueue($heavy ? 'clips-heavy' : 'clips');
 
-        return $post;
+        return true;
+    }
+
+    /**
+     * A campaign clip's cut failed. Skip that title and try another, up to MAX_ATTEMPTS per slot,
+     * so a momentarily-broken source (dead wowdrama token, a CDN blip) doesn't cost the whole
+     * slot. Only when the attempt budget is spent — or nothing eligible is left to try — is the
+     * slot finally marked failed. The just-failed title is already in tried_content_ids, so the
+     * retry always moves on to a different title.
+     */
+    public function advanceOnFailure(ClipCampaignPost $post, string $reason): void
+    {
+        $campaign = $post->campaign;
+        if (! $campaign || (int) $post->attempts >= self::MAX_ATTEMPTS || ! $this->dispatchCut($campaign, $post)) {
+            $post->markFailed($reason);
+        }
     }
 
     // ---- title + episode selection -------------------------------------------
@@ -144,12 +179,16 @@ class ClipCampaignRunner
      * candidate is tried. Truth comes from the clip history itself, not a stored cursor, so
      * it stays correct even if rows are deleted or campaigns are edited.
      *
+     * $exclude lists content ids this slot has already tried and failed to cut — the skip-on-
+     * failure retry passes it so a broken title is never re-picked (see advanceOnFailure).
+     *
+     * @param  array<int, int>  $exclude
      * @return array{0: ?Content, 1: ?Episode}
      */
-    private function pickTarget(ClipCampaign $campaign): array
+    private function pickTarget(ClipCampaign $campaign, array $exclude = []): array
     {
         if ($campaign->episode_pick !== 'unposted') {
-            $title = $this->pickTitle($campaign);
+            $title = $this->pickTitle($campaign, $exclude);
 
             return [$title, $title ? $this->pickEpisode($campaign, $title) : null];
         }
@@ -162,7 +201,7 @@ class ClipCampaignRunner
             ->where('status', '!=', 'failed')
             ->pluck('episode_id')->all();
 
-        foreach ($this->titleCandidates($campaign) as $title) {
+        foreach ($this->titleCandidates($campaign, $exclude) as $title) {
             $episode = Episode::where('content_id', $title->id)
                 ->when($posted, fn ($q) => $q->whereNotIn('id', $posted))
                 ->orderBy('sort')->orderBy('id')->first();
@@ -174,30 +213,40 @@ class ClipCampaignRunner
         return [null, null];
     }
 
-    /** Choose a title for this campaign per its filter + repeat guard, or null if the pool is dry. */
-    private function pickTitle(ClipCampaign $campaign): ?Content
+    /**
+     * Choose a title for this campaign per its filter + repeat guard, or null if the pool is dry.
+     *
+     * @param  array<int, int>  $exclude  content ids this slot already failed to cut
+     */
+    private function pickTitle(ClipCampaign $campaign, array $exclude = []): ?Content
     {
-        // A pinned title always wins (still must have an episode to cut from).
+        // A pinned title always wins (still must have an episode to cut from) — unless it's the
+        // very title that just failed this slot, in which case there is nothing else to try.
         if ($campaign->content_id) {
-            return Content::withoutGlobalScopes()->whereKey($campaign->content_id)->has('episodes')->first();
+            return in_array((int) $campaign->content_id, $exclude, true)
+                ? null
+                : Content::withoutGlobalScopes()->whereKey($campaign->content_id)->has('episodes')->first();
         }
 
-        return $this->ordered($this->titleQuery($campaign), $campaign)->first();
+        return $this->ordered($this->titleQuery($campaign, $exclude), $campaign)->first();
     }
 
     /**
      * The first N eligible titles in this campaign's preferred order — the pool the no-repeat
      * mode walks. Bounded so a campaign whose whole catalogue is exhausted still finishes fast.
      *
+     * @param  array<int, int>  $exclude  content ids this slot already failed to cut
      * @return \Illuminate\Support\Collection<int, Content>
      */
-    private function titleCandidates(ClipCampaign $campaign)
+    private function titleCandidates(ClipCampaign $campaign, array $exclude = [])
     {
         if ($campaign->content_id) {
-            return Content::withoutGlobalScopes()->whereKey($campaign->content_id)->has('episodes')->get();
+            return in_array((int) $campaign->content_id, $exclude, true)
+                ? Content::withoutGlobalScopes()->whereRaw('1=0')->get()
+                : Content::withoutGlobalScopes()->whereKey($campaign->content_id)->has('episodes')->get();
         }
 
-        return $this->ordered($this->titleQuery($campaign), $campaign)->limit(self::TITLE_CANDIDATES)->get();
+        return $this->ordered($this->titleQuery($campaign, $exclude), $campaign)->limit(self::TITLE_CANDIDATES)->get();
     }
 
     /** Apply the campaign's pick strategy to a title query. */
@@ -235,8 +284,12 @@ class ClipCampaignRunner
         $exclude ? $q->where('type', '!=', $type) : $q->where('type', $type);
     }
 
-    /** Every title matching this campaign's filters + repeat guard (unordered). */
-    private function titleQuery(ClipCampaign $campaign)
+    /**
+     * Every title matching this campaign's filters + repeat guard (unordered).
+     *
+     * @param  array<int, int>  $exclude  content ids this slot already failed to cut
+     */
+    private function titleQuery(ClipCampaign $campaign, array $exclude = [])
     {
         $q = Content::withoutGlobalScopes()
             ->where('is_published', true)
@@ -246,7 +299,8 @@ class ClipCampaignRunner
             ->when($campaign->genre_id, fn ($qq) => $qq->whereHas('genres', fn ($g) => $g->where('genres.id', $campaign->genre_id)))
             ->when(! $campaign->include_adult, fn ($qq) => $qq->where(
                 fn ($w) => $w->whereNull('maturity')->orWhereNotIn('maturity', Maturity::ADULT)
-            ));
+            ))
+            ->when($exclude, fn ($qq) => $qq->whereNotIn('id', $exclude));
 
         $this->applyTypeScope($q, (string) $campaign->content_type, false);
         $this->applyTypeScope($q, (string) $campaign->exclude_type, true);

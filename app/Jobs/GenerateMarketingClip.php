@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\ClipCampaignPost;
 use App\Models\MarketingClip;
 use App\Support\CaptionWriter;
+use App\Support\ClipCampaignRunner;
 use App\Support\ClipMaker;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -77,14 +78,15 @@ class GenerateMarketingClip implements ShouldQueue
             }
         }
 
-        // Campaign clips flow straight on to Facebook once cut. Success → hand off to the
-        // light `clips-post` lane (HTTP upload, never ffmpeg). Failure → flag the campaign
-        // post so the admin log shows why this slot produced nothing (source down, etc.).
+        // Campaign clips flow straight on to Facebook once cut. Success → hand off to the light
+        // `clips-post` lane (HTTP upload, never ffmpeg). Failure → tell the runner to SKIP this
+        // title and try another (a broken source shouldn't cost the whole slot); only when its
+        // retry budget is spent does the slot get marked failed.
         if ($clip->auto_post && $clip->campaign_id) {
             if ($status === 'ok') {
                 PostClipToFacebook::dispatch($clip->id)->onQueue('clips-post');
             } else {
-                $this->flagCampaignPost($clip->id, 'cut_failed:'.$status);
+                $this->advanceCampaignPost($clip->id, 'cut_failed:'.$status);
             }
         }
 
@@ -92,15 +94,21 @@ class GenerateMarketingClip implements ShouldQueue
         $this->tally($status === 'ok', $status, $label);
     }
 
-    /** Mark the campaign-post that owns this clip as failed (best-effort). */
-    private function flagCampaignPost(int $clipId, string $reason): void
+    /**
+     * A campaign clip's cut failed. Hand the owning campaign-post to the runner, which picks a
+     * DIFFERENT title and dispatches a fresh cut (skip-on-failure), or finally marks the slot
+     * failed once its attempt budget is spent. Best-effort — a bookkeeping hiccup here must not
+     * crash the worker.
+     */
+    private function advanceCampaignPost(int $clipId, string $reason): void
     {
         try {
-            ClipCampaignPost::where('marketing_clip_id', $clipId)
+            $post = ClipCampaignPost::where('marketing_clip_id', $clipId)
                 ->whereNotIn('status', ['posted', 'failed'])
-                ->latest('id')->first()?->markFailed($reason);
+                ->latest('id')->first();
+            $post && app(ClipCampaignRunner::class)->advanceOnFailure($post, $reason);
         } catch (Throwable $e) {
-            // best-effort
+            report($e);
         }
     }
 
@@ -126,7 +134,7 @@ class GenerateMarketingClip implements ShouldQueue
         // Make sure a hard failure leaves a visible state, not a stuck "processing".
         MarketingClip::whereKey($this->clipId)->where('status', 'processing')
             ->update(['status' => 'failed', 'error' => 'error']);
-        $this->flagCampaignPost($this->clipId, 'cut_failed:error');
+        $this->advanceCampaignPost($this->clipId, 'cut_failed:error');
         $this->tally(false, 'error', null);
     }
 

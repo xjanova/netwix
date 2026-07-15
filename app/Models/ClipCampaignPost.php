@@ -13,8 +13,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ClipCampaignPost extends Model
 {
     protected $fillable = [
-        'campaign_id', 'post_date', 'slot_time', 'status',
-        'content_id', 'marketing_clip_id', 'dry_run', 'targets_posted', 'error',
+        'campaign_id', 'post_date', 'slot_time', 'status', 'attempts',
+        'content_id', 'tried_content_ids', 'marketing_clip_id', 'dry_run', 'targets_posted', 'error',
     ];
 
     protected function casts(): array
@@ -23,6 +23,7 @@ class ClipCampaignPost extends Model
             'post_date' => 'date',
             'dry_run' => 'boolean',
             'targets_posted' => 'array',
+            'tried_content_ids' => 'array',
         ];
     }
 

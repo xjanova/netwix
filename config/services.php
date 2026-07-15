@@ -95,6 +95,9 @@ return [
         'app_url' => env('CAPTION_APP_URL', ''),
         'hashtags' => env('CAPTION_HASHTAGS', '#หนังฟรี #ดูหนังออนไลน์ #NetWix #ซีรีส์ #หนังใหม่'),
         'lucky_line' => env('CAPTION_LUCKY_LINE', 'โหลดแอปเลย ดูฟรียาวๆ + ลุ้นรับโชคทุกสัปดาห์ 🎁'),
+        // Weave the opening of the synopsis into every caption as a teaser (owner request).
+        'synopsis_teaser' => (bool) env('CAPTION_SYNOPSIS_TEASER', true),
+        'teaser_chars' => (int) env('CAPTION_TEASER_CHARS', 150),
     ],
 
     // Facebook page auto-post for the clip marketing campaigns (App\Support\FacebookPublisher +

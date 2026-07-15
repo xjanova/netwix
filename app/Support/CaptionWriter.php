@@ -32,7 +32,37 @@ class CaptionWriter
 
         $hook = $this->hook($clip, $title, $genres, $year, $synopsis);
 
-        return $this->assemble($hook, $title);
+        return $this->assemble($hook, $title, $this->teaser($synopsis));
+    }
+
+    /**
+     * A short teaser drawn from the synopsis (owner: "นำส่วนหนึ่งของสปอยมาร่วมด้วย"). Deliberately the
+     * OPENING of the synopsis — the premise that hooks, not the ending — so it entices without
+     * giving the whole plot away, then trails off with "…" to send them to watch the rest.
+     * Toggle with services.caption.synopsis_teaser; capped by services.caption.teaser_chars.
+     */
+    private function teaser(string $synopsis): string
+    {
+        if ($synopsis === '' || ! config('services.caption.synopsis_teaser', true)) {
+            return '';
+        }
+
+        // Clean: drop any HTML, a leading "เรื่องย่อ"/"เนื้อเรื่อง" label, and collapse whitespace.
+        $s = trim(preg_replace('~\s+~u', ' ', strip_tags($synopsis)));
+        $s = trim(preg_replace('~^(เรื่องย่อ|เนื้อเรื่อง|ย่อ)\s*[:：]?\s*~u', '', $s));
+        if (mb_strlen($s, 'UTF-8') < 20) {
+            return '';   // too short to be a real synopsis — skip rather than post a stub
+        }
+
+        $max = (int) config('services.caption.teaser_chars', 150);
+        if (mb_strlen($s, 'UTF-8') > $max) {
+            // Cut at the last space before the cap so we never split a word, then trail off.
+            $cut = mb_substr($s, 0, $max, 'UTF-8');
+            $sp = mb_strrpos($cut, ' ', 0, 'UTF-8');
+            $s = rtrim($sp && $sp > $max * 0.6 ? mb_substr($cut, 0, $sp, 'UTF-8') : $cut, " ,.·;:—-").'…';
+        }
+
+        return '📖 '.$s;
     }
 
     // ---- the creative hook --------------------------------------------------
@@ -117,9 +147,13 @@ class CaptionWriter
 
     // ---- deterministic marketing footer -------------------------------------
 
-    private function assemble(string $hook, string $title): string
+    private function assemble(string $hook, string $title, string $teaser = ''): string
     {
         $parts = [$hook];
+
+        if ($teaser !== '') {
+            $parts[] = $teaser;
+        }
 
         $lucky = trim((string) config('services.caption.lucky_line', ''));
         if ($lucky !== '') {
