@@ -189,9 +189,10 @@ class HeroBillboard
             return route('stream.manifest', $ep).'?t='.StreamController::token($ep);
         }
 
-        // Progressive (rongyok signed mp4): the public mp4 proxy resolves the signed URL server-side and
-        // honours Range, so a random-seek preview only pulls its window — never the whole file.
-        return $ep->source_ref ? route('stream.mp4', $ep) : null;
+        // Progressive (rongyok signed mp4): the token-gated mp4 proxy resolves the signed URL server-side
+        // and honours Range, so a random-seek preview only pulls its window — never the whole file. Mint
+        // the same short-lived token manifest() uses (the route is no longer open — see StreamController::mp4).
+        return $ep->source_ref ? route('stream.mp4', $ep).'?t='.StreamController::token($ep) : null;
     }
 
     /** @return int[] genre ids for the anime/cartoon umbrella (cached — it barely changes). */

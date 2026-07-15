@@ -8,13 +8,20 @@
     $val = fn ($f, $d = '') => old($f, $content->$f ?? $d);
 
     // A same-origin playable source for the first episode, so the admin can preview + grab a poster.
+    // Both proxy routes are token-gated, so mint one; route HLS sources (any !isProgressive() source —
+    // not a stale 2-name whitelist) to the manifest and progressive ones to the mp4 proxy.
     $firstEp = $content->exists ? $content->episodes->first() : null;
     $previewSrc = null;
-    if ($firstEp) {
-        $previewSrc = $firstEp->video_url
-            ?: ($firstEp->source
-                ? (in_array($firstEp->source, ['wowdrama', 'anime108'], true) ? route('stream.manifest', $firstEp) : route('stream.mp4', $firstEp))
-                : null);
+    if ($firstEp && $firstEp->video_url) {
+        $previewSrc = $firstEp->video_url;
+    } elseif ($firstEp && $firstEp->source) {
+        $previewSrc = (function () use ($firstEp) {
+            $src = app(\App\Services\Import\SourceRegistry::class)->get($firstEp->source);
+            $tok = \App\Http\Controllers\StreamController::token($firstEp);
+            return ($src && ! $src->isProgressive())
+                ? route('stream.manifest', $firstEp).'?t='.$tok
+                : route('stream.mp4', $firstEp).'?t='.$tok;
+        })();
     } elseif ($content->exists && $content->video_url) {
         $previewSrc = $content->video_url;
     }

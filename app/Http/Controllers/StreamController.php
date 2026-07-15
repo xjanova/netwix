@@ -145,12 +145,28 @@ class StreamController extends Controller
 
     public function mp4(Episode $episode, Request $request, SourceRegistry $registry): StreamedResponse
     {
+        // Same gate as manifest(): a resolver-minted token + no foreign embed. Without it the mp4 proxy
+        // was a hole straight around the m3u8 hardening — episode ids are sequential, so anyone could
+        // enumerate /stream/{id}/video.mp4 and hotlink our streams with no account, and for an HLS title
+        // it streamed the RAW upstream .m3u8, exposing the real CDN segment URLs. The hero preview and
+        // admin form now mint this token; the app never hits this route (it gets the direct mp4 url).
+        abort_unless($this->tokenOk($episode, (string) $request->query('t', '')), 403);
+        $this->blockForeignEmbed($request);
+
         $this->gateAdult($episode);
         $stream = $this->resolve($episode, $registry);
         if (! $stream) {
             if ($episode->content) {
                 PlaybackHealth::recordFailure($episode->content, PlaybackHealth::viewer(), 'no_source');
             }
+            abort(404);
+        }
+
+        // This route serves PROGRESSIVE files only. An HLS stream must go through manifest() (which
+        // proxies + rewrites its segments); streaming its raw upstream .m3u8 here would leak the real
+        // CDN URLs and bypass the segment proxy entirely.
+        if ($stream->kind === RemoteStream::KIND_HLS
+            || str_ends_with(strtolower((string) parse_url($stream->url, PHP_URL_PATH)), '.m3u8')) {
             abort(404);
         }
 
