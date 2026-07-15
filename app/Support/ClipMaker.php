@@ -7,6 +7,7 @@ use App\Models\Episode;
 use App\Models\MarketingClip;
 use App\Services\Import\SourceRegistry;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -351,10 +352,16 @@ class ClipMaker
     {
         @unlink($out);
         $bin = config('services.ffmpeg.bin', '/home/admin/bin/ffmpeg');
+        $probe = $this->probe($src);
+
+        // Everything downstream needs the EXACT output size: the outro card is concatenated to
+        // the clip, and concat refuses streams whose dimensions differ. Cropped modes are fixed;
+        // a full episode keeps its source shape, so its size comes from the probe.
+        [$w, $h] = $this->outputSize($aspect, $full, $probe);
+        $vf = $this->videoFilter($aspect, $full, $w, $h);
+
         $outro = app(ClipOutro::class);
-        // Full episodes keep their source aspect, so the card is built 16:9 and conformed by
-        // scale2ref below; the cropped modes already know their exact output size.
-        $card = $outro->card($full ? '16:9' : $aspect);
+        $card = ($w > 0 && $h > 0) ? $outro->card($full ? '16:9' : $aspect) : null;
 
         $args = [
             $bin, '-y', '-nostdin', '-threads', '4',
@@ -377,9 +384,9 @@ class ClipMaker
         ];
 
         if ($card === null) {
-            array_push($args, '-vf', $this->videoFilter($aspect, $full), ...$codec);
+            array_push($args, '-vf', $vf, ...$codec);
         } else {
-            array_push($args, ...$this->outroArgs($src, $card, $outro->seconds(), $dur, $aspect, $full), ...$codec);
+            array_push($args, ...$this->outroArgs($card, $outro->seconds(), $dur, $vf, $w, $h, $full, $probe), ...$codec);
         }
 
         try {
@@ -387,12 +394,26 @@ class ClipMaker
             // they only ever use idle CPU — see the 2026-07-06 incident note). This budget MUST
             // scale with the clip: a flat 240s silently killed every 5-minute cut mid-encode and
             // reported it as ffmpeg_failed. The job timeout on each lane is the real backstop.
-            Process::timeout($this->encodeBudget($dur, $full))->run(Ffmpeg::cmd($args));
+            $res = Process::timeout($this->encodeBudget($dur, $full))->run(Ffmpeg::cmd($args));
         } catch (Throwable $e) {
+            Log::warning('clip encode timed out', ['out' => basename($out), 'error' => $e->getMessage()]);
+
             return false;
         }
 
-        return is_file($out) && filesize($out) >= 2000;
+        if (is_file($out) && filesize($out) >= 2000) {
+            return true;
+        }
+
+        // Log WHY. ffmpeg's complaint only lives on stderr, and silently dropping it turned
+        // every failure into a bare "ffmpeg_failed" with nothing to debug.
+        Log::warning('clip encode failed', [
+            'out' => basename($out),
+            'exit' => $res->exitCode(),
+            'stderr' => mb_substr(trim($res->errorOutput() ?: $res->output()), -800),
+        ]);
+
+        return false;
     }
 
     /**
@@ -411,32 +432,37 @@ class ClipMaker
      * the SAME encode pass. Concatenating afterwards would mean re-encoding the whole clip a
      * second time — on a 5-minute cut that alone can outrun the worker.
      *
-     * Two things make this robust for any source:
-     *   - scale2ref conforms the card to whatever the clip's real output size is, so nothing
-     *     here has to know (or agree on) pixel dimensions.
-     *   - concat demands identical audio params, and a silent source has no audio stream at
-     *     all, so both legs are normalised and a missing track is replaced with silence.
+     * The card is scaled with plain numbers, NOT scale2ref: scale2ref walks both inputs in
+     * lockstep, so a 4-second card starves the reference passthrough after ~100 frames and the
+     * whole graph deadlocks ("buffers queued in out_0_0") until the process is killed.
      *
+     * concat also demands identical audio params, and a silent source has no audio stream at
+     * all — so both legs are normalised and a missing track is replaced with matching silence.
+     *
+     * @param  array{duration: float, hasAudio: bool, width: int, height: int}  $probe
      * @return array<int, string>
      */
-    private function outroArgs(string $src, string $card, int $outroSec, int $dur, string $aspect, bool $full): array
+    private function outroArgs(string $card, int $outroSec, int $dur, string $vf, int $w, int $h, bool $full, array $probe): array
     {
         $args = [
-            '-loop', '1', '-t', (string) $outroSec, '-i', $card,                      // 1 = card
-            '-f', 'lavfi', '-t', (string) $outroSec, '-i', self::SILENCE,             // 2 = card audio
+            '-loop', '1', '-t', (string) $outroSec, '-i', $card,               // 1 = card
+            '-f', 'lavfi', '-t', (string) $outroSec, '-i', self::SILENCE,      // 2 = card audio
         ];
 
-        $clipAudio = '[0:a]';
-        if (! $this->probe($src)['hasAudio']) {
-            // Silent source: concat still needs an audio leg of the clip's own length.
-            $args = array_merge($args, ['-f', 'lavfi', '-t', (string) ($full ? 36000 : $dur), '-i', self::SILENCE]);
+        $clipAudio = '[0:a:0]';
+        if (! $probe['hasAudio']) {
+            // Silent source: concat needs an audio leg exactly as long as this clip's video.
+            $silence = $full ? (int) ceil($probe['duration']) : $dur;
+            if ($silence <= 0) {
+                return ['-vf', $vf];   // unknown length — skip the card rather than risk a stall
+            }
+            $args = array_merge($args, ['-f', 'lavfi', '-t', (string) $silence, '-i', self::SILENCE]);
             $clipAudio = '[3:a]';
         }
 
         $norm = 'aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo';
-        $graph = "[0:v]{$this->videoFilter($aspect, $full)},fps=30,format=yuv420p,setsar=1[c];"
-            ."[1:v][c]scale2ref=flags=bicubic[card][cv];"
-            ."[card]fps=30,format=yuv420p,setsar=1[ov];"
+        $graph = "[0:v:0]{$vf},fps=30,format=yuv420p,setsar=1[cv];"
+            ."[1:v]scale={$w}:{$h},fps=30,format=yuv420p,setsar=1[ov];"
             ."{$clipAudio}{$norm}[ca];"
             ."[2:a]{$norm}[oa];"
             .'[cv][ca][ov][oa]concat=n=2:v=1:a=1[v][a]';
@@ -445,11 +471,38 @@ class ClipMaker
     }
 
     /**
+     * Exact pixel size of the encode's output. Cropped modes are fixed by their aspect; a full
+     * episode keeps its source shape, bounded to 1280 wide and never upscaled — [0,0] when the
+     * source dimensions couldn't be read, which tells the caller to skip the outro.
+     *
+     * @param  array{duration: float, hasAudio: bool, width: int, height: int}  $probe
+     * @return array{0: int, 1: int}
+     */
+    private function outputSize(string $aspect, bool $full, array $probe): array
+    {
+        if (! $full) {
+            return match ($aspect) {
+                '1:1' => [1080, 1080],
+                '16:9' => [1280, 720],
+                default => [720, 1280],   // 9:16 vertical (Reels/TikTok)
+            };
+        }
+        if ($probe['width'] < 2 || $probe['height'] < 2) {
+            return [0, 0];
+        }
+
+        $w = min(1280, $probe['width']);
+        $h = (int) (round($probe['height'] * $w / $probe['width'] / 2) * 2);   // even, like ffmpeg's -2
+
+        return [$w, max(2, $h)];
+    }
+
+    /**
      * Read a local file's duration + whether it carries audio. There is NO ffprobe on this box
      * (only the static ffmpeg), so this parses `ffmpeg -i`, which prints the stream summary to
      * stderr and exits non-zero because no output file was given — that is expected, not an error.
      *
-     * @return array{duration: float, hasAudio: bool}
+     * @return array{duration: float, hasAudio: bool, width: int, height: int}
      */
     private function probe(string $file): array
     {
@@ -457,7 +510,7 @@ class ClipMaker
             $res = Process::timeout(60)->run(Ffmpeg::cmd([Ffmpeg::bin(), '-hide_banner', '-i', $file]));
             $text = $res->errorOutput().$res->output();
         } catch (Throwable $e) {
-            return ['duration' => 0.0, 'hasAudio' => true];
+            return ['duration' => 0.0, 'hasAudio' => true, 'width' => 0, 'height' => 0];
         }
 
         $duration = 0.0;
@@ -465,43 +518,41 @@ class ClipMaker
             $duration = ((int) $m[1] * 3600) + ((int) $m[2] * 60) + (float) $m[3];
         }
 
+        // e.g. "Stream #0:0[0x100]: Video: h264 (High) ..., yuv420p(tv, bt709), 1920x1080 [SAR 1:1 ...]"
+        $width = $height = 0;
+        if (preg_match('/Video:.*?[\s,](\d{2,5})x(\d{2,5})[\s,\[]/', $text, $m)) {
+            $width = (int) $m[1];
+            $height = (int) $m[2];
+        }
+
         return [
             'duration' => $duration,
             'hasAudio' => (bool) preg_match('/Stream #\d+:\d+.*: Audio:/', $text),
+            'width' => $width,
+            'height' => $height,
         ];
     }
 
     /**
-     * Build the -vf chain: cover-and-crop to the target aspect (fills the frame, no
-     * letterbox), then an optional burned-in CTA. The CTA is only added when a usable
-     * font is configured (services.ffmpeg.font) — otherwise drawtext would abort the
-     * encode on a box with no fonts, so we degrade gracefully to no overlay.
+     * Build the -vf chain: cover-and-crop to the target aspect (fills the frame, no letterbox).
      *
-     * Full episodes are NOT cropped — cutting a whole episode to 9:16 would throw away
-     * most of the frame for 45 minutes. They keep the source aspect, just bounded to
-     * 1280 wide (never upscaled) to keep the output under Facebook's hosted-file limit.
+     * Full episodes are NOT cropped — cutting a whole episode to 9:16 would throw away most of
+     * the frame for 45 minutes. They keep the source aspect, just bounded to 1280 wide (never
+     * upscaled) to keep the output under Facebook's hosted-file limit.
+     *
+     * There is deliberately no drawtext CTA here any more: ffmpeg's drawtext cannot shape Thai
+     * (it misplaces vowels and tone marks), so it would burn broken text onto every clip the
+     * moment a font is configured. Branding is the ClipOutro card, which GD renders correctly.
      */
-    private function videoFilter(string $aspect, bool $full = false): string
+    private function videoFilter(string $aspect, bool $full = false, int $w = 0, int $h = 0): string
     {
-        [$w, $h] = match ($aspect) {
-            '1:1' => [1080, 1080],
-            '16:9' => [1280, 720],
-            default => [720, 1280],   // 9:16 vertical (Reels/TikTok)
-        };
-        $chain = $full
-            ? "scale=w='min(1280,iw)':h=-2"
-            : "scale={$w}:{$h}:force_original_aspect_ratio=increase,crop={$w}:{$h}";
-
-        $font = (string) config('services.ffmpeg.font', '');
-        $cta = trim((string) config('services.ffmpeg.clip_cta', 'ดูเต็มเรื่องฟรี · แอป NetWix'));
-        if ($font !== '' && is_file($font) && $cta !== '') {
-            $text = str_replace(["\\", ':', "'", '%'], ['\\\\', '\\:', "\u{2019}", '\\%'], $cta);
-            $fontEsc = str_replace(['\\', ':'], ['/', '\\:'], $font);
-            $chain .= ",drawtext=fontfile='{$fontEsc}':text='{$text}':fontcolor=white:fontsize=44"
-                .':box=1:boxcolor=black@0.55:boxborderw=16:x=(w-text_w)/2:y=h-th-70';
+        if ($full) {
+            return ($w > 0 && $h > 0) ? "scale={$w}:{$h}" : "scale=w='min(1280,iw)':h=-2";
         }
 
-        return $chain;
+        [$tw, $th] = $this->outputSize($aspect, false, ['duration' => 0.0, 'hasAudio' => true, 'width' => 0, 'height' => 0]);
+
+        return "scale={$tw}:{$th}:force_original_aspect_ratio=increase,crop={$tw}:{$th}";
     }
 
     /** Grab a still from the finished LOCAL mp4 for the admin thumbnail. */
