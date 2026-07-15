@@ -29,11 +29,25 @@ class FacebookConnectController extends Controller
 {
     private const SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts';
 
+    /**
+     * Store the app secret pasted into the admin form (encrypted at rest). This exists so
+     * the secret can travel browser → server directly instead of being copied into .env
+     * by hand (or worse, through a chat/support channel).
+     */
+    public function storeSecret(Request $request): RedirectResponse
+    {
+        $request->validate(['app_secret' => ['required', 'string', 'regex:/^[a-f0-9]{32}$/']]);
+        Setting::write('fb_app_secret', (string) $request->input('app_secret'));
+
+        return redirect()->route('admin.clip-campaigns.index')
+            ->with('status', 'บันทึก App Secret แล้ว — กด "เชื่อมต่อเพจ Facebook" ต่อได้เลย');
+    }
+
     /** Kick off the OAuth dialog. */
     public function redirect(Request $request): RedirectResponse
     {
-        if (blank(config('services.facebook.app_id')) || blank(config('services.facebook.app_secret'))) {
-            return back()->with('status', 'ยังตั้งค่าแอพ Facebook ไม่ครบ — ต้องใส่ FB_APP_ID และ FB_APP_SECRET ใน .env ก่อน');
+        if (blank(config('services.facebook.app_id')) || blank($this->secret())) {
+            return back()->with('status', 'ยังตั้งค่าแอพ Facebook ไม่ครบ — ต้องมี FB_APP_ID ใน .env และวาง App Secret ในช่องด้านบนก่อน');
         }
 
         $state = Str::random(40);
@@ -64,7 +78,7 @@ class FacebookConnectController extends Controller
         try {
             $shortToken = $this->graph('/oauth/access_token', [
                 'client_id' => config('services.facebook.app_id'),
-                'client_secret' => config('services.facebook.app_secret'),
+                'client_secret' => $this->secret(),
                 'redirect_uri' => $this->callbackUrl(),
                 'code' => (string) $request->input('code'),
             ])['access_token'] ?? null;
@@ -76,7 +90,7 @@ class FacebookConnectController extends Controller
             $longToken = $this->graph('/oauth/access_token', [
                 'grant_type' => 'fb_exchange_token',
                 'client_id' => config('services.facebook.app_id'),
-                'client_secret' => config('services.facebook.app_secret'),
+                'client_secret' => $this->secret(),
                 'fb_exchange_token' => $shortToken,
             ])['access_token'] ?? $shortToken;
 
@@ -176,6 +190,12 @@ class FacebookConnectController extends Controller
         }
 
         return is_array($json) ? $json : [];
+    }
+
+    /** App secret: pasted via the admin form (encrypted setting) wins; .env is the fallback. */
+    private function secret(): string
+    {
+        return (string) (Setting::get('fb_app_secret') ?: config('services.facebook.app_secret'));
     }
 
     private function callbackUrl(): string

@@ -254,6 +254,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('clip-campaigns/{clipCampaign}/run', [Admin\ClipCampaignController::class, 'runNow'])->name('clip-campaigns.run');
 
     // Facebook page connect for the clip auto-post pipeline (OAuth → page token in settings)
+    Route::post('facebook/secret', [Admin\FacebookConnectController::class, 'storeSecret'])->name('facebook.secret');
     Route::get('facebook/connect', [Admin\FacebookConnectController::class, 'redirect'])->name('facebook.connect');
     Route::get('facebook/callback', [Admin\FacebookConnectController::class, 'callback'])->name('facebook.callback');
     Route::get('facebook/pick', [Admin\FacebookConnectController::class, 'pick'])->name('facebook.pick');

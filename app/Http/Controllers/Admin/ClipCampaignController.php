@@ -41,6 +41,7 @@ class ClipCampaignController extends Controller
             'killEnabled' => Setting::flag('clip_campaigns_enabled', false),
             'fbConnected' => $fb->enabled(),
             'fbPageName' => $fb->pageName(),
+            'fbSecretMissing' => blank(Setting::get('fb_app_secret')) && blank(config('services.facebook.app_secret')),
         ]);
     }
 

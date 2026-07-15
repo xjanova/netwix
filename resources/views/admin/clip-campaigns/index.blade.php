@@ -34,11 +34,23 @@
                 </div>
             </div>
         </div>
-        <a href="{{ route('admin.facebook.connect') }}"
-           class="flex items-center gap-2 rounded-lg bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1568d8]">
-            <svg viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.09 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.7 4.53-4.7 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.96.93-1.96 1.89v2.26h3.33l-.53 3.49h-2.8V24C19.61 23.09 24 18.1 24 12.07z"/></svg>
-            เชื่อมต่อเพจ Facebook
-        </a>
+        <div class="flex flex-col items-stretch gap-2">
+            @if ($fbSecretMissing)
+                <form method="POST" action="{{ route('admin.facebook.secret') }}" class="flex items-center gap-2">
+                    @csrf
+                    <input type="password" name="app_secret" required pattern="[a-f0-9]{32}" autocomplete="off"
+                           placeholder="วาง App Secret ของแอพ NetwixAI Poster ที่นี่"
+                           class="w-72 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-cream placeholder:text-cream/40">
+                    <button class="rounded-lg border border-amber-300/40 bg-amber-400/20 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-400/30">บันทึก</button>
+                </form>
+                @error('app_secret')<p class="text-[12px] text-[#ff6b81]">App Secret ต้องเป็นตัวอักษร a-f/ตัวเลข 32 ตัว</p>@enderror
+            @endif
+            <a href="{{ route('admin.facebook.connect') }}"
+               class="flex items-center justify-center gap-2 rounded-lg bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1568d8] {{ $fbSecretMissing ? 'pointer-events-none opacity-40' : '' }}">
+                <svg viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.09 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.7 4.53-4.7 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.96.93-1.96 1.89v2.26h3.33l-.53 3.49h-2.8V24C19.61 23.09 24 18.1 24 12.07z"/></svg>
+                เชื่อมต่อเพจ Facebook
+            </a>
+        </div>
     </div>
 @else
     <div class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-success/25 bg-success/10 px-4 py-2.5 text-[13px] text-success">
