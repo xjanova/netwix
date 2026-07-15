@@ -23,6 +23,8 @@ class WowDramaSource implements MediaSource, ProvidesSynopsis
 {
     public const BASE = 'https://wow-drama.com';
     public const GETPLAY = 'https://getplay-cdn.com';
+    /** Host that embeds the getplay player — binds the playback token (see playToken). */
+    private const PARENT = 'wow-drama.com';
     private const CAT_ID = 1;
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
@@ -235,11 +237,52 @@ class WowDramaSource implements MediaSource, ProvidesSynopsis
             return null;
         }
         $hash = $m[1];
+        $embed = self::GETPLAY."/embed/{$hash}";
 
-        return new RemoteStream(
-            RemoteStream::KIND_HLS,
-            self::GETPLAY."/api/stream/{$hash}/index.m3u8",
-            self::GETPLAY."/embed/{$hash}",
-        );
+        // getplay-cdn now hotlink-gates the playlist: /api/stream/{hash}/index.m3u8 answers 403 unless it
+        // carries a short-lived token. The embed player mints one via POST /api/tokenplay {md5,parent} and
+        // appends token+expires+parent to the m3u8 URL (verified 2026-07-15). We replicate that. The token
+        // guards only the *playlist* request (segments are TikTok-CDN links with their own long x-expires),
+        // and StreamController fetches the playlist immediately, while the token is still seconds old.
+        $m3u8 = self::GETPLAY."/api/stream/{$hash}/index.m3u8";
+        if (($tok = $this->playToken($hash, $embed)) !== null) {
+            $m3u8 .= '?'.http_build_query([
+                'token' => $tok['token'],
+                'expires' => $tok['expires'],
+                'parent' => self::PARENT,
+            ]);
+        }
+        // On token failure we deliberately fall through to the bare URL: if getplay is merely down it
+        // answers 5xx and StreamController::manifest returns a clean 504 (no auto-suspend); if the token
+        // contract has drifted it answers 403 and the title is correctly flagged dead. Either is right.
+
+        return new RemoteStream(RemoteStream::KIND_HLS, $m3u8, $embed);
+    }
+
+    /**
+     * Mint a getplay-cdn playback token for a stream hash. POST /api/tokenplay is a JSON endpoint
+     * (body {"md5","parent"}) that returns {"token","expires"} with a ~10-min TTL. `parent` is the
+     * embedding host and binds the token, so it must equal the `parent` on the m3u8 URL. Returns null
+     * on any failure so the caller can fall back to the bare (un-tokened) URL.
+     *
+     * @return array{token:string,expires:int}|null
+     */
+    private function playToken(string $hash, string $embed): ?array
+    {
+        try {
+            $resp = $this->http()->withHeaders(['Referer' => $embed])
+                ->post(self::GETPLAY.'/api/tokenplay', ['md5' => $hash, 'parent' => self::PARENT]);
+        } catch (\Throwable) {
+            return null;
+        }
+        if (! $resp->ok()) {
+            return null;
+        }
+        $j = $resp->json();
+        if (! is_array($j) || empty($j['token']) || empty($j['expires'])) {
+            return null;
+        }
+
+        return ['token' => (string) $j['token'], 'expires' => (int) $j['expires']];
     }
 }
