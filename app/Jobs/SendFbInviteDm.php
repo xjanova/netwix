@@ -63,7 +63,11 @@ class SendFbInviteDm implements ShouldQueue
             }
 
             $message = $funnel->buildMessage($content, $eng->fb_user_id);
-            $result = $fb->privateReply($eng->comment_id, $message);
+            // 'public' = reply under the comment (works with our current perms); 'dm' = private
+            // reply (needs pages_messaging / App Review). Admin-selectable in FbInviteFunnel config.
+            $result = ($funnel->config()['reply_mode'] ?? 'public') === 'dm'
+                ? $fb->privateReply($eng->comment_id, $message)
+                : $fb->publicReply($eng->comment_id, $message);
 
             $eng->update($result['ok']
                 ? ['dm_status' => 'sent', 'dm_error' => null]

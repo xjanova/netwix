@@ -71,6 +71,33 @@ class FacebookMessenger
         }
     }
 
+    /**
+     * Publicly reply UNDER a comment (a normal page comment reply). Unlike a private reply this
+     * needs only `pages_manage_engagement` — which we already have — so it works with no App Review.
+     * The commenter (and everyone else on the post) sees the invite as a reply to them.
+     *
+     * @return array{ok: bool, id: ?string, error: ?string}
+     */
+    public function publicReply(string $commentId, string $message): array
+    {
+        if (! $this->connected()) {
+            return ['ok' => false, 'id' => null, 'error' => 'not_connected'];
+        }
+        try {
+            $resp = Http::asForm()->timeout(30)->post("{$this->base()}/{$commentId}/comments", [
+                'message' => $message,
+                'access_token' => $this->token(),
+            ]);
+            if ($resp->successful() && ! $resp->json('error')) {
+                return ['ok' => true, 'id' => $resp->json('id'), 'error' => null];
+            }
+
+            return ['ok' => false, 'id' => null, 'error' => (string) ($resp->json('error.message') ?: 'http_'.$resp->status())];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'id' => null, 'error' => mb_substr($e->getMessage(), 0, 120)];
+        }
+    }
+
     /** The feed STORY id (`{page}_{story}`) for a video/reel we posted — stored so comments map cheaply. */
     public function resolveStoryId(string $videoId): ?string
     {

@@ -51,6 +51,7 @@ class FbDmController extends Controller
     public function update(Request $request): RedirectResponse
     {
         $data = $request->validate([
+            'reply_mode' => ['required', 'in:public,dm'],
             'cooldown_days' => ['required', 'integer', 'between:0,365'],
             'daily_cap_per_user' => ['required', 'integer', 'between:0,1000'],
             'messages' => ['required', 'string', 'max:20000'],
@@ -65,6 +66,7 @@ class FbDmController extends Controller
 
         $this->funnel->saveConfig(array_replace($this->funnel->config(), [
             'enabled' => $request->boolean('enabled'),
+            'reply_mode' => $data['reply_mode'],
             'cooldown_days' => (int) $data['cooldown_days'],
             'daily_cap_per_user' => (int) $data['daily_cap_per_user'],
             'messages' => $messages ?: FbInviteFunnel::DEFAULTS['messages'],

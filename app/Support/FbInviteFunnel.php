@@ -20,10 +20,14 @@ use Illuminate\Support\Str;
 class FbInviteFunnel
 {
     public const DEFAULTS = [
-        'enabled' => false,          // master kill-switch (off until pages_messaging is approved)
+        'enabled' => false,          // master kill-switch (off until the webhook + reply mode are set)
+        // How we invite a commenter:
+        //   'public' → reply UNDER their comment (needs only pages_manage_engagement — works TODAY).
+        //   'dm'     → private message (needs pages_messaging → App Review; falls back to nothing until then).
+        'reply_mode' => 'public',
         'cooldown_days' => 7,        // don't re-invite the same user for the same title within N days
         'daily_cap_per_user' => 3,   // max invites to one user per day across all titles (0 = ∞)
-        'skip_reactions' => true,    // reactions can't be privately replied to; comments only for now
+        'skip_reactions' => true,    // reactions can't be replied to individually; comments only for now
         // {title} = the title, {web} = its watch page, {app} = the app-download page.
         'messages' => [
             'ดู {title} เต็มเรื่องได้เลยที่ 👉 {web}\nหรือโหลดแอป NetWix ดูสะดวกกว่า ไม่มีโฆษณาคั่น 📱 {app}',

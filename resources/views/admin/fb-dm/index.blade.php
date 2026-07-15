@@ -13,12 +13,12 @@
         <span class="rounded-full px-3 py-1 {{ $connected ? 'bg-emerald-400/15 text-emerald-200' : 'bg-rose-400/15 text-rose-200' }}">
             {{ $connected ? '● เชื่อมต่อเพจแล้ว' . ($pageName ? " ($pageName)" : '') : '● ยังไม่ได้เชื่อมต่อเพจ' }}
         </span>
-        <span class="text-cream/50">ระบบตอบผ่าน <b>Private Reply</b> (ตอบคอมเมนต์ 1 ครั้ง/คน)</span>
+        <span class="text-cream/50">ตอบคนที่คอมเมนต์คลิปเรา ชวนไปดูเรื่องนั้นบนเว็บ/แอป</span>
     </div>
     <div class="mt-3 rounded-lg border border-amber-400/25 bg-amber-400/5 px-4 py-3 text-[13px] leading-relaxed text-amber-100/90">
-        ⚠️ <b>ต้องขอสิทธิ์ <code>pages_messaging</code></b> จาก Facebook (App Review) ก่อนถึงจะส่ง DM ได้จริง —
-        จนกว่าจะอนุมัติ ระบบจะบันทึกคอมเมนต์ไว้และขึ้นสถานะ “failed/disabled” แต่ยังไม่ส่ง เปิดสวิตช์ทิ้งไว้ได้เลย
-        พออนุมัติแล้วจะเริ่มส่งอัตโนมัติ
+        <b>โหมด “ตอบใต้คอมเมนต์ (สาธารณะ)”</b> ใช้ได้เลยด้วยสิทธิ์ที่มีอยู่ (ไม่ต้องรีวิว) —
+        ส่วนโหมด <b>“ทัก DM ส่วนตัว”</b> ต้องขอสิทธิ์ <code>pages_messaging</code> (App Review) ก่อน มิฉะนั้นจะขึ้นสถานะ failed.
+        ทั้งสองโหมดต้องตั้ง <b>Webhook</b> (ด้านล่าง) ให้เพจส่งคอมเมนต์เข้ามาก่อน แล้วเปิดสวิตช์
     </div>
 </div>
 
@@ -55,6 +55,14 @@
     <label class="mb-4 flex items-center gap-3">
         <input type="checkbox" name="enabled" value="1" @checked($cfg['enabled'] ?? false) class="h-5 w-5 rounded border-white/20 bg-surface-2">
         <span class="text-sm font-semibold">เปิดใช้งานระบบ DM ชวนดูหนัง</span>
+    </label>
+
+    <label class="mb-4 block text-sm">
+        <span class="mb-1 block text-cream/60">วิธีตอบ</span>
+        <select name="reply_mode" class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-sm outline-none focus:border-brand">
+            <option value="public" @selected(($cfg['reply_mode'] ?? 'public') === 'public')>ตอบใต้คอมเมนต์ (สาธารณะ) — ใช้ได้เลย ไม่ต้องรีวิว</option>
+            <option value="dm" @selected(($cfg['reply_mode'] ?? 'public') === 'dm')>ทัก DM ส่วนตัว — ต้องมีสิทธิ์ pages_messaging (App Review)</option>
+        </select>
     </label>
 
     <div class="mb-4 grid gap-4 sm:grid-cols-2">
