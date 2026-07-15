@@ -38,9 +38,24 @@ class ReleaseController extends Controller
         return response()->json(['success' => true, 'data' => [
             'version' => $clean,
             'tag' => $tag,
-            'notes' => (string) ($rel['notes'] ?? ''),
+            'notes' => $this->cleanNotes((string) ($rel['notes'] ?? '')),
             'size' => (int) ($rel['size'] ?? 0),
             'url' => secure_url('/download/apk'),
         ]]);
+    }
+
+    /**
+     * The release body is GitHub's, and its auto-generated changelog embeds the
+     * repo URL ("**Full Changelog**: https://github.com/owner/repo/compare/..."),
+     * which the app shows verbatim in its "What's New" sheet. Strip that line and
+     * any github links so a customer never sees where the build actually lives.
+     * An emptied body falls back to the app's generic "fixes & improvements".
+     */
+    private function cleanNotes(string $notes): string
+    {
+        $notes = (string) preg_replace('/^\s*\*{0,2}Full Changelog\*{0,2}:.*$/mi', '', $notes);
+        $notes = (string) preg_replace('#https?://\S*github(usercontent)?\.com/\S*#i', '', $notes);
+
+        return trim((string) preg_replace("/\n{3,}/", "\n\n", $notes));
     }
 }
