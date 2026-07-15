@@ -253,6 +253,13 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('clip-campaigns/{clipCampaign}/toggle', [Admin\ClipCampaignController::class, 'toggle'])->name('clip-campaigns.toggle');
     Route::post('clip-campaigns/{clipCampaign}/run', [Admin\ClipCampaignController::class, 'runNow'])->name('clip-campaigns.run');
 
+    // Facebook page connect for the clip auto-post pipeline (OAuth → page token in settings)
+    Route::get('facebook/connect', [Admin\FacebookConnectController::class, 'redirect'])->name('facebook.connect');
+    Route::get('facebook/callback', [Admin\FacebookConnectController::class, 'callback'])->name('facebook.callback');
+    Route::get('facebook/pick', [Admin\FacebookConnectController::class, 'pick'])->name('facebook.pick');
+    Route::post('facebook/select', [Admin\FacebookConnectController::class, 'select'])->name('facebook.select');
+    Route::post('facebook/disconnect', [Admin\FacebookConnectController::class, 'disconnect'])->name('facebook.disconnect');
+
     // Auto-suspended (un-playable) titles for review — re-publish or delete.
     Route::get('suspended', [Admin\SuspendedController::class, 'index'])->name('suspended.index');
     Route::post('suspended/{content}/republish', [Admin\SuspendedController::class, 'republish'])->name('suspended.republish');

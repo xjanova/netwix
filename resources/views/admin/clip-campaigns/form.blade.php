@@ -18,7 +18,7 @@
 
 @section('content')
 <form method="POST" action="{{ $campaign->exists ? route('admin.clip-campaigns.update', $campaign) : route('admin.clip-campaigns.store') }}"
-      x-data="campaignForm({{ Illuminate\Support\Js::from($selSlots) }}, {{ Illuminate\Support\Js::from($campaign->content ? ['id' => $campaign->content->id, 'title' => $campaign->content->title] : null) }})"
+      x-data="campaignForm({{ Illuminate\Support\Js::from($selSlots) }}, {{ Illuminate\Support\Js::from($campaign->content ? ['id' => $campaign->content->id, 'title' => $campaign->content->title] : null) }}, {{ old('full_episode', $campaign->full_episode) ? 'true' : 'false' }})"
       class="max-w-3xl space-y-6">
     @csrf
     @if ($campaign->exists) @method('PUT') @endif
@@ -119,11 +119,37 @@
     {{-- ── Clip + targets ──────────────────────────────────────────────────── --}}
     <div class="nx-card space-y-4 p-5">
         <div class="text-sm font-semibold text-cream/80">คลิป & ปลายทาง</div>
-        <div class="grid gap-4 sm:grid-cols-2">
+
+        {{-- full-episode switch --}}
+        <label class="flex items-start gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm"
+               :class="fullEp ? 'border-brand/50 bg-brand/10' : ''">
+            <input type="checkbox" name="full_episode" value="1" x-model="fullEp"
+                   class="mt-0.5 h-4 w-4 rounded border-white/20 bg-white/5 text-brand-2">
+            <span>
+                โพสต์<b>ทั้งตอน</b> (เต็มความยาว ไม่ตัด)
+                <span class="block text-[11px] text-cream/40">ใช้เวลาประมวลผลนานกว่าปกติมาก และไฟล์ต้องไม่เกิน ~1GB (ตอนยาวมากอาจล้มเหลว) — ภาพคงสัดส่วนต้นฉบับ ไม่ครอป</span>
+            </span>
+        </label>
+
+        <div class="grid gap-4 sm:grid-cols-2" :class="fullEp ? 'pointer-events-none opacity-40' : ''">
             <div>
                 <label class="mb-1 block text-[12px] text-cream/50">ความยาวคลิป (วินาที)</label>
-                <input type="number" name="duration" min="5" max="180" value="{{ old('duration', $campaign->duration ?? 45) }}"
+                <input type="number" name="duration" min="5" max="600" value="{{ old('duration', $campaign->duration ?? 45) }}"
                        class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
+            </div>
+            <div>
+                <label class="mb-1 block text-[12px] text-cream/50">สุ่มความยาว สูงสุดไม่เกิน (วินาที) <span class="text-cream/30">(ไม่บังคับ)</span></label>
+                <input type="number" name="duration_max" min="5" max="600" value="{{ old('duration_max', $campaign->duration_max) }}"
+                       placeholder="เว้นว่าง = ใช้ความยาวคงที่"
+                       class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream placeholder:text-cream/30">
+                <p class="mt-1 text-[11px] text-cream/35">ใส่แล้วแต่ละโพสต์จะสุ่มความยาวระหว่าง “ความยาวคลิป” ถึงค่านี้</p>
+            </div>
+            <div>
+                <label class="mb-1 block text-[12px] text-cream/50">ตำแหน่งที่ตัด</label>
+                <select name="start_mode" class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
+                    <option value="middle" @selected(old('start_mode', $campaign->start_mode ?? 'middle') === 'middle')>กลางเรื่อง (เลี่ยงintro/เครดิต)</option>
+                    <option value="random" @selected(old('start_mode', $campaign->start_mode ?? 'middle') === 'random')>สุ่มตำแหน่ง (ไม่ซ้ำฉากเดิม)</option>
+                </select>
             </div>
             <div>
                 <label class="mb-1 block text-[12px] text-cream/50">สัดส่วน</label>
@@ -133,6 +159,16 @@
                     <option value="16:9" @selected($selAspect === '16:9')>16:9 แนวนอน</option>
                 </select>
             </div>
+        </div>
+
+        <div>
+            <label class="mb-1 block text-[12px] text-cream/50">เลือกตอน (สำหรับซีรีส์/เรื่องที่มีหลายตอน)</label>
+            <select name="episode_pick" class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
+                <option value="first" @selected(old('episode_pick', $campaign->episode_pick ?? 'first') === 'first')>ตอนแรกเสมอ</option>
+                <option value="random" @selected(old('episode_pick', $campaign->episode_pick ?? 'first') === 'random')>สุ่มตอน</option>
+                <option value="sequential" @selected(old('episode_pick', $campaign->episode_pick ?? 'first') === 'sequential')>เรียงตามลำดับ (โพสต์ถัดไป = ตอนถัดจากที่โพสต์ล่าสุด วนกลับตอน 1 เมื่อจบ)</option>
+            </select>
+            <p class="mt-1 text-[11px] text-cream/35">ใช้คู่กับ “เจาะจงเรื่องเดียว” ได้ เช่น ปักซีรีส์หนึ่งเรื่องแล้วให้โพสต์คลิปตอน 1, 2, 3, … ตามเวลาที่ตั้ง</p>
         </div>
         <div>
             <label class="mb-1.5 block text-[12px] text-cream/50">โพสต์ไปที่</label>
@@ -192,8 +228,9 @@
 </form>
 
 <script>
-function campaignForm(initialSlots, pinnedTitle) {
+function campaignForm(initialSlots, pinnedTitle, fullEpisode) {
     return {
+        fullEp: !!fullEpisode,
         slots: (initialSlots && initialSlots.length) ? [...initialSlots] : ['18:00'],
         addSlot() { this.slots.push('12:00'); },
         removeSlot(i) { this.slots.splice(i, 1); if (!this.slots.length) this.slots = ['18:00']; },

@@ -16,7 +16,7 @@ class Setting extends Model
     protected $fillable = ['key', 'value'];
 
     /** Keys whose values are encrypted at rest (never cached or stored in plaintext). */
-    public const SECRET_KEYS = ['google_client_secret', 'line_client_secret', 'app_github_token', 'turnstile_secret', 'bscscan_api_key'];
+    public const SECRET_KEYS = ['google_client_secret', 'line_client_secret', 'app_github_token', 'turnstile_secret', 'bscscan_api_key', 'fb_page_token'];
 
     private const CACHE_KEY = 'settings.map';
 

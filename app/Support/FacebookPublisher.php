@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\MarketingClip;
+use App\Models\Setting;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -25,12 +26,29 @@ use Throwable;
  */
 class FacebookPublisher
 {
-    /** True once a page id + token are present and auto-post is switched on. */
+    /**
+     * True once a page id + token are present. Two ways to connect:
+     *   1. Admin UI "เชื่อมต่อ Facebook" (OAuth) → credentials in the settings table
+     *      (token encrypted at rest). Connecting via the UI is an explicit act, so it
+     *      enables posting by itself.
+     *   2. Legacy .env FB_PAGE_ID/FB_PAGE_TOKEN — still honoured, but only with the
+     *      FB_AUTOPOST_ENABLED master flag, exactly as before.
+     */
     public function enabled(): bool
     {
+        if (filled(Setting::get('fb_page_id')) && filled(Setting::get('fb_page_token'))) {
+            return true;
+        }
+
         return (bool) config('services.facebook.enabled')
             && filled(config('services.facebook.page_id'))
             && filled(config('services.facebook.page_token'));
+    }
+
+    /** Display name of the connected page (only known for UI-connected pages). */
+    public function pageName(): ?string
+    {
+        return Setting::get('fb_page_name');
     }
 
     /**
@@ -145,11 +163,11 @@ class FacebookPublisher
 
     private function page(): string
     {
-        return (string) config('services.facebook.page_id');
+        return (string) (Setting::get('fb_page_id') ?: config('services.facebook.page_id'));
     }
 
     private function token(): string
     {
-        return (string) config('services.facebook.page_token');
+        return (string) (Setting::get('fb_page_token') ?: config('services.facebook.page_token'));
     }
 }

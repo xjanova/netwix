@@ -110,6 +110,11 @@ return [
         'page_id' => env('FB_PAGE_ID', ''),
         'page_token' => env('FB_PAGE_TOKEN', ''),
         'api_version' => env('FB_GRAPH_VERSION', 'v21.0'),
+        // The "NetwixAI" Facebook app — powers the admin "เชื่อมต่อ Facebook" OAuth flow
+        // (Admin\FacebookConnectController). The resulting PAGE token is stored encrypted
+        // in the settings table, so these two are the only FB values .env ever needs.
+        'app_id' => env('FB_APP_ID', ''),
+        'app_secret' => env('FB_APP_SECRET', ''),
     ],
 
 ];

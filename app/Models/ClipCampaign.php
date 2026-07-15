@@ -33,7 +33,7 @@ class ClipCampaign extends Model
     protected $fillable = [
         'name', 'slug', 'is_enabled',
         'content_type', 'genre_id', 'source', 'content_id', 'pick', 'include_adult', 'avoid_recent_days',
-        'duration', 'aspect',
+        'duration', 'start_mode', 'duration_max', 'full_episode', 'episode_pick', 'aspect',
         'targets',
         'days', 'slots',
         'last_run_at', 'meta',
@@ -44,7 +44,9 @@ class ClipCampaign extends Model
         return [
             'is_enabled' => 'boolean',
             'include_adult' => 'boolean',
+            'full_episode' => 'boolean',
             'duration' => 'integer',
+            'duration_max' => 'integer',
             'avoid_recent_days' => 'integer',
             'slots' => 'array',
             'last_run_at' => 'datetime',

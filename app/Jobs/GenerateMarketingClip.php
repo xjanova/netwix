@@ -34,7 +34,16 @@ class GenerateMarketingClip implements ShouldQueue
     public function __construct(
         public int $clipId,
         public ?string $batchId = null,
-    ) {}
+        public bool $heavy = false,
+    ) {
+        // Full-episode cuts (heavy=true, dispatched to the clips-heavy lane) download and
+        // re-encode the WHOLE file — hours-scale ceiling, and no automatic second attempt
+        // (retrying an hour-long encode unsupervised would hog the box).
+        if ($heavy) {
+            $this->timeout = 5400;
+            $this->tries = 1;
+        }
+    }
 
     public function handle(ClipMaker $maker, CaptionWriter $captions): void
     {

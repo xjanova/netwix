@@ -176,3 +176,11 @@ Schedule::command('netwix:clips:publish')
 // clip being cut. In dry-run (no FB token) the job still runs and records the simulated post.
 Schedule::command('queue:work --queue=clips-post --stop-when-empty --sleep=2 --max-time=55 --timeout=250 --memory=256 --tries=3')
     ->everyMinute()->withoutOverlapping()->runInBackground();
+
+// FULL-EPISODE campaign cuts (clip_campaigns.full_episode): downloading + re-encoding a whole
+// episode runs for tens of minutes, which would jam the 2-worker clips pool (310s timeout).
+// So: ONE dedicated worker, hours-scale --timeout, single attempt. withoutOverlapping(120)
+// guarantees a second encoder never stacks on the first — the 2026-07-06 box crash was
+// exactly stacked ffmpeg workers, and full episodes are the heaviest cut we have.
+Schedule::command('queue:work --queue=clips-heavy --stop-when-empty --sleep=2 --max-time=280 --timeout=5430 --memory=1024 --tries=1')
+    ->everyFiveMinutes()->withoutOverlapping(120)->runInBackground();

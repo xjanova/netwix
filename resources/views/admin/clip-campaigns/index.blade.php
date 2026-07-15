@@ -23,20 +23,34 @@
 
 {{-- ── Facebook connection status ─────────────────────────────────────────── --}}
 @unless ($fbConnected)
-    <div class="mb-5 flex items-start gap-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
-        <span class="text-lg leading-none">⚠️</span>
-        <div>
-            <div class="font-semibold">ยังไม่ได้เชื่อมต่อเพจ Facebook — ตอนนี้เป็น “โหมดทดสอบ”</div>
-            <div class="mt-0.5 text-[13px] text-amber-200/80">
-                ระบบจะตัดคลิป + เขียนแคปชัน + จับเวลาให้ครบทุกอย่าง แต่จะ <b>ยังไม่โพสต์จริง</b> จนกว่าจะใส่ Page ID + Token ใน <code class="rounded bg-black/30 px-1">.env</code>
-                (<code class="rounded bg-black/30 px-1">FB_PAGE_ID</code>, <code class="rounded bg-black/30 px-1">FB_PAGE_TOKEN</code>, <code class="rounded bg-black/30 px-1">FB_AUTOPOST_ENABLED=true</code>) —
-                คลิปที่ตัดไว้ดูได้ในหน้า “ตัดคลิป → เฟซบุ๊ก”
+    <div class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+        <div class="flex items-start gap-3">
+            <span class="text-lg leading-none">⚠️</span>
+            <div>
+                <div class="font-semibold">ยังไม่ได้เชื่อมต่อเพจ Facebook — ตอนนี้เป็น “โหมดทดสอบ”</div>
+                <div class="mt-0.5 text-[13px] text-amber-200/80">
+                    ระบบจะตัดคลิป + เขียนแคปชัน + จับเวลาให้ครบทุกอย่าง แต่จะ <b>ยังไม่โพสต์จริง</b> จนกว่าจะเชื่อมต่อเพจ —
+                    กดปุ่มแล้วล็อกอิน Facebook ด้วยบัญชีที่เป็นแอดมินเพจ (ครั้งเดียวจบ)
+                </div>
             </div>
         </div>
+        <a href="{{ route('admin.facebook.connect') }}"
+           class="flex items-center gap-2 rounded-lg bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1568d8]">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.09 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.7 4.53-4.7 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.96.93-1.96 1.89v2.26h3.33l-.53 3.49h-2.8V24C19.61 23.09 24 18.1 24 12.07z"/></svg>
+            เชื่อมต่อเพจ Facebook
+        </a>
     </div>
 @else
-    <div class="mb-5 flex items-center gap-2 rounded-xl border border-success/25 bg-success/10 px-4 py-2.5 text-[13px] text-success">
-        <span>✅</span> เชื่อมต่อเพจ Facebook แล้ว — แคมเปญที่เปิดไว้จะโพสต์จริงตามเวลาที่ตั้ง
+    <div class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-success/25 bg-success/10 px-4 py-2.5 text-[13px] text-success">
+        <div class="flex items-center gap-2">
+            <span>✅</span>
+            เชื่อมต่อเพจ{{ $fbPageName ? ' "'.$fbPageName.'"' : ' Facebook' }} แล้ว — แคมเปญที่เปิดไว้จะโพสต์จริงตามเวลาที่ตั้ง
+        </div>
+        <form method="POST" action="{{ route('admin.facebook.disconnect') }}"
+              onsubmit="return confirm('ตัดการเชื่อมต่อเพจ Facebook? แคมเปญจะหยุดโพสต์จริงจนกว่าจะเชื่อมต่อใหม่')">
+            @csrf
+            <button class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[12px] text-cream/60 hover:text-cream">ตัดการเชื่อมต่อ</button>
+        </form>
     </div>
 @endunless
 

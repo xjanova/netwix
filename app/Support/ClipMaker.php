@@ -27,8 +27,14 @@ use Throwable;
  */
 class ClipMaker
 {
-    /** Never buffer more than this from a direct (non-HLS) mp4 source — guards RAM. */
+    /** Never pull more than this from a direct (non-HLS) mp4 source for a SHORT clip. */
     private const MP4_MAX_BYTES = 350 * 1024 * 1024;
+
+    /** Source-download ceiling for a FULL-EPISODE cut (mp4 or summed HLS segments) — guards disk. */
+    private const FULL_SRC_MAX_BYTES = 3 * 1024 * 1024 * 1024;
+
+    /** Encoded output ceiling — Facebook's hosted file_url upload tops out around 1GB. */
+    private const OUT_MAX_BYTES = 980 * 1024 * 1024;
 
     public function __construct(private SourceRegistry $registry) {}
 
@@ -56,15 +62,17 @@ class ClipMaker
         }
 
         $start = max(0, (int) $clip->start);
-        $dur = max(5, min(180, (int) $clip->duration));
+        // duration <= 0 is the "ทั้งตอน" sentinel: no -t cut, every HLS segment, whole file.
+        $full = (int) $clip->duration <= 0;
+        $dur = $full ? 0 : max(5, min(600, (int) $clip->duration));
 
         // ---- 1. get the source window onto local disk --------------------------
-        [$srcPath, $seekOffset] = $this->fetchWindow($url, $start, $dur);
+        [$srcPath, $seekOffset] = $this->fetchWindow($url, $start, $dur, $full);
         if ($srcPath === null) {
             // transient CDN hiccup on a burst — re-resolve a fresh link + retry once
             usleep(700_000);
             $retry = $this->playableUrl($episode);
-            [$srcPath, $seekOffset] = $retry ? $this->fetchWindow($retry, $start, $dur) : [null, 0];
+            [$srcPath, $seekOffset] = $retry ? $this->fetchWindow($retry, $start, $dur, $full) : [null, 0];
             if ($srcPath === null) {
                 return $this->fail($clip, 'download_failed');
             }
@@ -73,16 +81,23 @@ class ClipMaker
         $out = $srcPath.'.mp4';
         try {
             // ---- 2. cut + re-encode to a FB-ready file -------------------------
-            if (! $this->encode($srcPath, $out, $seekOffset, $dur, (string) $clip->aspect)) {
+            if (! $this->encode($srcPath, $out, $seekOffset, $dur, (string) $clip->aspect, $full)) {
                 return $this->fail($clip, 'ffmpeg_failed');
             }
-            $bytes = @file_get_contents($out);
-            if ($bytes === false || strlen($bytes) < 2000) {
+            $size = is_file($out) ? (int) filesize($out) : 0;
+            if ($size < 2000) {
                 return $this->fail($clip, 'ffmpeg_failed');
+            }
+            if ($size > self::OUT_MAX_BYTES) {
+                return $this->fail($clip, 'too_large');   // FB can't fetch a hosted file this big
             }
 
+            // Stream the file into storage — a full episode is far too big to slurp into RAM.
             $path = 'media/clips/'.$clip->id.'.mp4';
-            Storage::disk('public')->put($path, $bytes);
+            $put = Storage::disk('public')->putFileAs('media/clips', new \Illuminate\Http\File($out), $clip->id.'.mp4');
+            if ($put === false) {
+                return $this->fail($clip, 'error');
+            }
 
             // ---- 3. a poster still (local mp4 input — always safe for ffmpeg) --
             $poster = $this->poster($out, $clip->id);
@@ -92,7 +107,7 @@ class ClipMaker
                 'error' => null,
                 'file_path' => $path,
                 'poster_path' => $poster,
-                'file_size' => strlen($bytes),
+                'file_size' => $size,
             ]);
 
             return 'ok';
@@ -116,11 +131,11 @@ class ClipMaker
      *
      * @return array{0: ?string, 1: float}
      */
-    private function fetchWindow(string $url, int $start, int $dur): array
+    private function fetchWindow(string $url, int $start, int $dur, bool $full = false): array
     {
         try {
             if (str_contains($url, '.m3u8')) {
-                return $this->fetchHlsWindow($url, $start, $dur);
+                return $this->fetchHlsWindow($url, $start, $dur, $full);
             }
 
             // Direct mp4/file: no cheap way to time-seek a remote file, and ffmpeg
@@ -128,15 +143,17 @@ class ClipMaker
             // ffmpeg seek locally. Fine for our own mirrored files; guarded for size.
             $head = Http::timeout(20)->withOptions(['stream' => true])->get($url);
             $len = (int) $head->header('Content-Length');
-            if ($len > self::MP4_MAX_BYTES) {
+            if ($len > ($full ? self::FULL_SRC_MAX_BYTES : self::MP4_MAX_BYTES)) {
                 return [null, 0.0];  // caller maps a null to download_failed; logged size guard
             }
-            $body = Http::timeout(180)->get($url)->body();
-            if (strlen($body) < 2000) {
+            $tmp = $this->tmp();
+            // sink() streams straight to disk — the file never sits in PHP memory.
+            $resp = Http::timeout($full ? 900 : 180)->sink($tmp)->get($url);
+            if (! $resp->successful() || ! is_file($tmp) || filesize($tmp) < 2000) {
+                @unlink($tmp);
+
                 return [null, 0.0];
             }
-            $tmp = $this->tmp();
-            file_put_contents($tmp, $body);
 
             return [$tmp, (float) $start];   // whole file downloaded → seek the real start
         } catch (Throwable $e) {
@@ -152,39 +169,45 @@ class ClipMaker
      *
      * @return array{0: ?string, 1: float}
      */
-    private function fetchHlsWindow(string $m3u8Url, int $start, int $dur): array
+    private function fetchHlsWindow(string $m3u8Url, int $start, int $dur, bool $full = false): array
     {
         $segments = $this->mediaSegments($m3u8Url);
         if (empty($segments)) {
             return [null, 0.0];
         }
 
-        // Walk cumulative time to find the run of segments overlapping [start, start+dur].
-        $tail = 1.5;                        // grab a hair extra so -t never runs short
-        $need = $start + $dur + $tail;
-        $cursor = 0.0;
-        $firstOffset = 0.0;
-        $picked = [];
-        foreach ($segments as $seg) {
-            $segStart = $cursor;
-            $segEnd = $cursor + $seg['dur'];
-            $cursor = $segEnd;
+        if ($full) {
+            // Whole episode: every segment, from the top.
+            $picked = array_column($segments, 'url');
+            $firstOffset = 0.0;
+        } else {
+            // Walk cumulative time to find the run of segments overlapping [start, start+dur].
+            $tail = 1.5;                        // grab a hair extra so -t never runs short
+            $need = $start + $dur + $tail;
+            $cursor = 0.0;
+            $firstOffset = 0.0;
+            $picked = [];
+            foreach ($segments as $seg) {
+                $segStart = $cursor;
+                $segEnd = $cursor + $seg['dur'];
+                $cursor = $segEnd;
 
-            if ($segEnd <= $start) {
-                continue;                   // entirely before the window
+                if ($segEnd <= $start) {
+                    continue;                   // entirely before the window
+                }
+                if (empty($picked)) {
+                    $firstOffset = max(0.0, $start - $segStart);   // where the clip starts inside seg #0
+                }
+                $picked[] = $seg['url'];
+                if ($segStart >= $need) {
+                    break;                      // covered the whole window
+                }
             }
             if (empty($picked)) {
-                $firstOffset = max(0.0, $start - $segStart);   // where the clip starts inside seg #0
+                // start past the end of the video — fall back to the first segments
+                $picked = array_slice(array_column($segments, 'url'), 0, 3);
+                $firstOffset = 0.0;
             }
-            $picked[] = $seg['url'];
-            if ($segStart >= $need) {
-                break;                      // covered the whole window
-            }
-        }
-        if (empty($picked)) {
-            // start past the end of the video — fall back to the first segments
-            $picked = array_slice(array_column($segments, 'url'), 0, 3);
-            $firstOffset = 0.0;
         }
 
         $tmp = $this->tmp();
@@ -193,11 +216,19 @@ class ClipMaker
             return [null, 0.0];
         }
         $got = 0;
+        $written = 0;
         foreach ($picked as $segUrl) {
             $data = $this->fetchSegment($segUrl);
             if ($data !== null) {
                 fwrite($fh, $data);
+                $written += strlen($data);
                 $got++;
+            }
+            if ($written > self::FULL_SRC_MAX_BYTES) {
+                fclose($fh);
+                @unlink($tmp);
+
+                return [null, 0.0];             // source bigger than the disk guard allows
             }
         }
         fclose($fh);
@@ -291,7 +322,7 @@ class ClipMaker
     // ---- encode -------------------------------------------------------------
 
     /** Cut [offset, offset+dur] from the local source and re-encode FB-ready. */
-    private function encode(string $src, string $out, float $offset, int $dur, string $aspect): bool
+    private function encode(string $src, string $out, float $offset, int $dur, string $aspect, bool $full = false): bool
     {
         @unlink($out);
         $bin = config('services.ffmpeg.bin', '/home/admin/bin/ffmpeg');
@@ -299,16 +330,22 @@ class ClipMaker
             $bin, '-y', '-nostdin', '-threads', '4',
             '-ss', number_format($offset, 3, '.', ''),
             '-i', $src,
-            '-t', (string) $dur,
-            '-vf', $this->videoFilter($aspect),
-            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
+        ];
+        if (! $full) {
+            array_push($args, '-t', (string) $dur);   // full episode = no cut, encode to the end
+        }
+        array_push($args,
+            '-vf', $this->videoFilter($aspect, $full),
+            '-c:v', 'libx264', '-preset', $full ? 'superfast' : 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
             '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
             '-movflags', '+faststart',
             '-avoid_negative_ts', 'make_zero',
             $out,
-        ];
+        );
         try {
-            Process::timeout(240)->run(Ffmpeg::cmd($args));
+            // A whole episode legitimately encodes for a long time (still nice/ionice'd + 4
+            // threads, so it only ever uses idle CPU — see the 2026-07-06 incident note).
+            Process::timeout($full ? 5100 : 240)->run(Ffmpeg::cmd($args));
         } catch (Throwable $e) {
             return false;
         }
@@ -321,15 +358,21 @@ class ClipMaker
      * letterbox), then an optional burned-in CTA. The CTA is only added when a usable
      * font is configured (services.ffmpeg.font) — otherwise drawtext would abort the
      * encode on a box with no fonts, so we degrade gracefully to no overlay.
+     *
+     * Full episodes are NOT cropped — cutting a whole episode to 9:16 would throw away
+     * most of the frame for 45 minutes. They keep the source aspect, just bounded to
+     * 1280 wide (never upscaled) to keep the output under Facebook's hosted-file limit.
      */
-    private function videoFilter(string $aspect): string
+    private function videoFilter(string $aspect, bool $full = false): string
     {
         [$w, $h] = match ($aspect) {
             '1:1' => [1080, 1080],
             '16:9' => [1280, 720],
             default => [720, 1280],   // 9:16 vertical (Reels/TikTok)
         };
-        $chain = "scale={$w}:{$h}:force_original_aspect_ratio=increase,crop={$w}:{$h}";
+        $chain = $full
+            ? "scale=w='min(1280,iw)':h=-2"
+            : "scale={$w}:{$h}:force_original_aspect_ratio=increase,crop={$w}:{$h}";
 
         $font = (string) config('services.ffmpeg.font', '');
         $cta = trim((string) config('services.ffmpeg.clip_cta', 'ดูเต็มเรื่องฟรี · แอป NetWix'));

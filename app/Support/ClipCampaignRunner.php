@@ -75,15 +75,18 @@ class ClipCampaignRunner
             return $post;
         }
 
-        $episode = Episode::where('content_id', $title->id)->orderBy('sort')->first();
-        $start = $this->pickStart($episode?->duration_minutes, (int) $campaign->duration);
+        $episode = $this->pickEpisode($campaign, $title);
+        $full = (bool) $campaign->full_episode;
+        // duration=0 is the "whole episode" sentinel ClipMaker understands (no -t, all segments).
+        $duration = $full ? 0 : $this->pickDuration($campaign);
+        $start = $full ? 0 : $this->pickStart($episode?->duration_minutes, $duration, (string) $campaign->start_mode);
 
         $clip = MarketingClip::create([
             'campaign_id' => $campaign->id,
             'content_id' => $title->id,
             'episode_id' => $episode?->id,
             'start' => $start,
-            'duration' => (int) $campaign->duration,
+            'duration' => $duration,
             'aspect' => $campaign->aspect,
             'status' => 'pending',
             'auto_post' => true,
@@ -102,7 +105,10 @@ class ClipCampaignRunner
 
         // Cut on the bounded CLI pool. On success the job auto-captions and dispatches the
         // Facebook post; on failure it flags this campaign-post (see GenerateMarketingClip).
-        GenerateMarketingClip::dispatch($clip->id)->onQueue('clips');
+        // A full-episode cut re-encodes the entire file — that MUST NOT enter the 2-worker
+        // clips pool (310s worker timeout + shared box), so it goes to the single-worker
+        // clips-heavy lane with an hours-scale timeout instead.
+        GenerateMarketingClip::dispatch($clip->id, heavy: $full)->onQueue($full ? 'clips-heavy' : 'clips');
 
         return $post;
     }
@@ -149,11 +155,64 @@ class ClipCampaignRunner
         };
     }
 
+    // ---- episode selection ----------------------------------------------------
+
     /**
-     * One clip per slot, cut from the watchable middle of the episode (skip the intro/credits
-     * ~8% margins). Falls back to a safe 2-minute mark when the length is unknown.
+     * Which EPISODE of the picked title to cut from, per the campaign's episode_pick:
+     * first (default, the old behaviour), random, or sequential — continue from the last
+     * episode this campaign posted for this title, wrapping back to episode 1 at the end.
      */
-    private function pickStart(?int $episodeMinutes, int $duration): int
+    private function pickEpisode(ClipCampaign $campaign, Content $title): ?Episode
+    {
+        $ordered = fn () => Episode::where('content_id', $title->id)->orderBy('sort')->orderBy('id');
+
+        return match ($campaign->episode_pick) {
+            'random' => Episode::where('content_id', $title->id)->inRandomOrder()->first(),
+            'sequential' => $this->nextEpisode($campaign, $title) ?? $ordered()->first(),
+            default => $ordered()->first(),
+        };
+    }
+
+    /**
+     * The episode AFTER the one this campaign last cut for this title (by sort order), or
+     * null when there is no history / the last one was the final episode (caller wraps).
+     * Derived from clip history instead of a stored cursor so it can never drift.
+     */
+    private function nextEpisode(ClipCampaign $campaign, Content $title): ?Episode
+    {
+        $lastEpisodeId = MarketingClip::where('campaign_id', $campaign->id)
+            ->where('content_id', $title->id)
+            ->whereNotNull('episode_id')
+            ->latest('id')->value('episode_id');
+        $last = $lastEpisodeId ? Episode::find($lastEpisodeId) : null;
+        if (! $last) {
+            return null;
+        }
+
+        return Episode::where('content_id', $title->id)
+            ->where(fn ($w) => $w
+                ->where('sort', '>', $last->sort)
+                ->orWhere(fn ($w2) => $w2->where('sort', $last->sort)->where('id', '>', $last->id)))
+            ->orderBy('sort')->orderBy('id')->first();
+    }
+
+    // ---- clip window ----------------------------------------------------------
+
+    /** Clip length in seconds — fixed, or randomised in [duration, duration_max] when a max is set. */
+    private function pickDuration(ClipCampaign $campaign): int
+    {
+        $min = max(5, (int) $campaign->duration);
+        $max = (int) ($campaign->duration_max ?? 0);
+
+        return $max > $min ? random_int($min, $max) : $min;
+    }
+
+    /**
+     * WHERE the clip starts. Both modes skip the intro/credits ~8% margins; "middle" is the
+     * deterministic centre (old behaviour), "random" rolls a fresh spot inside the watchable
+     * range every post. Falls back to a safe 2-minute mark when the length is unknown.
+     */
+    private function pickStart(?int $episodeMinutes, int $duration, string $mode): int
     {
         $total = $episodeMinutes ? $episodeMinutes * 60 : 0;
         if ($total < $duration + 60) {
@@ -161,8 +220,10 @@ class ClipCampaignRunner
         }
         $margin = (int) round($total * 0.08);
         $lo = $margin;
-        $hi = max($lo + $duration, $total - $margin - $duration);
+        $hi = max($lo, $total - $margin - $duration);
 
-        return (int) round(($lo + $hi) / 2);
+        return $mode === 'random'
+            ? random_int($lo, $hi)
+            : (int) round(($lo + $hi) / 2);
     }
 }

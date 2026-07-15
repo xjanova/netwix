@@ -40,6 +40,7 @@ class ClipCampaignController extends Controller
             'recentPosts' => $recentPosts,
             'killEnabled' => Setting::flag('clip_campaigns_enabled', false),
             'fbConnected' => $fb->enabled(),
+            'fbPageName' => $fb->pageName(),
         ]);
     }
 
@@ -49,6 +50,8 @@ class ClipCampaignController extends Controller
             'campaign' => new ClipCampaign([
                 'is_enabled' => false, 'pick' => 'trending', 'include_adult' => false,
                 'avoid_recent_days' => 14, 'duration' => 45, 'aspect' => '9:16',
+                'start_mode' => 'middle', 'duration_max' => null,
+                'full_episode' => false, 'episode_pick' => 'first',
                 'targets' => 'reels,feed', 'days' => '', 'slots' => ['18:00'],
             ]),
             'genres' => $this->genres(),
@@ -136,7 +139,10 @@ class ClipCampaignController extends Controller
             'content_id' => ['nullable', 'integer', 'exists:contents,id'],
             'pick' => ['required', Rule::in(['trending', 'random', 'newest'])],
             'avoid_recent_days' => ['required', 'integer', 'min:0', 'max:365'],
-            'duration' => ['required', 'integer', 'min:5', 'max:180'],
+            'duration' => ['required', 'integer', 'min:5', 'max:600'],
+            'duration_max' => ['nullable', 'integer', 'min:5', 'max:600', 'gte:duration'],
+            'start_mode' => ['required', Rule::in(['middle', 'random'])],
+            'episode_pick' => ['required', Rule::in(['first', 'random', 'sequential'])],
             'aspect' => ['required', Rule::in(['9:16', '1:1', '16:9'])],
             'targets' => ['required', 'array', 'min:1'],
             'targets.*' => [Rule::in(['reels', 'feed'])],
@@ -171,6 +177,10 @@ class ClipCampaignController extends Controller
             'include_adult' => $request->boolean('include_adult'),
             'avoid_recent_days' => (int) $request->input('avoid_recent_days'),
             'duration' => (int) $request->input('duration'),
+            'duration_max' => $request->filled('duration_max') ? (int) $request->input('duration_max') : null,
+            'start_mode' => $request->input('start_mode', 'middle'),
+            'full_episode' => $request->boolean('full_episode'),
+            'episode_pick' => $request->input('episode_pick', 'first'),
             'aspect' => $request->input('aspect'),
             'targets' => $targets->isEmpty() ? 'feed' : $targets->implode(','),
             'days' => $days->implode(','),
