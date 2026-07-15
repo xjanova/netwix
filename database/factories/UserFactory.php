@@ -30,6 +30,11 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
+            // Match the users.is_active DB default (true). The column default only fills the ROW; the
+            // in-memory model returned by create() would otherwise leave is_active null, and the
+            // suspend gate (EnsureProfileSelected: `! $user->is_active`) reads that in-memory value on
+            // an actingAs() user — null → treated as suspended → every authed test 302s to /login.
+            'is_active' => true,
         ];
     }
 
