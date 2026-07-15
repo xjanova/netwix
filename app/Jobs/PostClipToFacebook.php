@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\ClipCampaignPost;
 use App\Models\MarketingClip;
+use App\Support\FacebookMessenger;
 use App\Support\FacebookPublisher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -32,7 +33,7 @@ class PostClipToFacebook implements ShouldQueue
 
     public function __construct(public int $clipId) {}
 
-    public function handle(FacebookPublisher $fb): void
+    public function handle(FacebookPublisher $fb, FacebookMessenger $messenger): void
     {
         $clip = MarketingClip::find($this->clipId);
         if (! $clip) {
@@ -64,9 +65,13 @@ class PostClipToFacebook implements ShouldQueue
         }
 
         if (! empty($result['results'])) {
+            $videoId = (string) reset($result['results']);
             $clip->update([
                 'posted_at' => now(),
-                'remote_post_id' => (string) reset($result['results']),
+                'remote_post_id' => $videoId,
+                // Resolve the feed STORY id now so a later comment on this post maps to the title
+                // without a Graph lookup per comment (see FbInviteFunnel::contentForPost). Best-effort.
+                'remote_story_id' => $messenger->resolveStoryId($videoId),
                 'dry_run' => false,
             ]);
             $post?->update([

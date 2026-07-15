@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\App\ProfileController;
 use App\Http\Controllers\Api\App\ReleaseController;
 use App\Http\Controllers\Api\App\SourceController;
 use App\Http\Controllers\Api\App\WalletController;
+use App\Http\Controllers\Api\FacebookWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -24,6 +25,11 @@ use Illuminate\Support\Facades\Route;
 | progress, likes, comments, ratings) are added in a later phase.
 | Responses use the {success, data} envelope.
 */
+
+// Facebook Page webhook (comment→invite-DM funnel). CSRF-exempt (api routes are) + POST is
+// app-secret-signature verified inside the controller. GET is the one-time subscription handshake.
+Route::get('fb/webhook', [FacebookWebhookController::class, 'verify']);
+Route::post('fb/webhook', [FacebookWebhookController::class, 'receive'])->middleware('throttle:600,1');
 
 // Public + unauthenticated, so rate-limit it (the source endpoint hands out signed CDN links and
 // resolves upstream on a cache miss — cap enumeration/abuse per IP).

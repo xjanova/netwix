@@ -30,6 +30,7 @@
         ['route' => 'admin.analytics', 'label' => 'วิเคราะห์ข้อมูล'],
         ['route' => 'admin.seo', 'label' => 'SEO / ทราฟฟิก'],
         ['route' => 'admin.downloads.index', 'label' => 'ยอดดาวน์โหลดแอป'],
+        ['route' => 'admin.fb-dm.index', 'label' => 'DM ชวนดูหนัง (Facebook)'],
         ['route' => 'admin.debug.index', 'label' => 'Debug แอป'],
     ];
     $admin = auth()->user();

@@ -177,6 +177,11 @@ Schedule::command('netwix:clips:publish')
 Schedule::command('queue:work --queue=clips-post --stop-when-empty --sleep=2 --max-time=55 --timeout=250 --memory=256 --tries=3')
     ->everyMinute()->withoutOverlapping()->runInBackground();
 
+// Facebook comment→invite-DM funnel (SendFbInviteDm). A light Graph API call (private_replies) per
+// commenter — one modest worker is plenty and it self-gates on the kill-switch, so it's cheap when off.
+Schedule::command('queue:work --queue=fb-dm --stop-when-empty --sleep=3 --max-time=55 --timeout=50 --memory=256 --tries=2')
+    ->everyMinute()->withoutOverlapping()->runInBackground();
+
 // FULL-EPISODE campaign cuts (clip_campaigns.full_episode): downloading + re-encoding a whole
 // episode runs for tens of minutes, which would jam the 2-worker clips pool (310s timeout).
 // So: ONE dedicated worker, hours-scale --timeout, single attempt. withoutOverlapping(120)

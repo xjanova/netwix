@@ -364,6 +364,10 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     // App download counts ("ยอดดาวน์โหลดแอป") — read-only, written by AppDownload::record.
     Route::get('downloads', [Admin\DownloadController::class, 'index'])->name('downloads.index');
 
+    // Facebook comment→invite-DM funnel: kill-switch, invite messages, cooldown + webhook setup.
+    Route::get('fb-dm', [Admin\FbDmController::class, 'index'])->name('fb-dm.index');
+    Route::put('fb-dm', [Admin\FbDmController::class, 'update'])->name('fb-dm.update');
+
     Route::get('analytics', [Admin\AnalyticsController::class, 'index'])->name('analytics');
 
     Route::get('seo', [Admin\SeoController::class, 'index'])->name('seo');
