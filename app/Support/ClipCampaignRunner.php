@@ -374,9 +374,19 @@ class ClipCampaignRunner
     private function pickStart(?int $episodeMinutes, int $duration, string $mode): int
     {
         $total = $episodeMinutes ? $episodeMinutes * 60 : 0;
-        if ($total < $duration + 60) {
-            return 120;
+
+        // Short content (rongyok CN micro-dramas run 1-2 min): if the clip is as long as the whole
+        // episode, take it from the top instead of seeking past the end. ClipMaker's -t just
+        // encodes whatever is actually there.
+        if ($total > 0 && $total <= $duration) {
+            return 0;
         }
+        if ($total < $duration + 60) {
+            // Barely longer than the clip (or unknown length) — a tiny/centred offset, never 120s
+            // into a 90s episode.
+            return $total > 0 ? max(0, (int) round(($total - $duration) / 2)) : 120;
+        }
+
         $margin = (int) round($total * 0.08);
         $lo = $margin;
         $hi = max($lo, $total - $margin - $duration);

@@ -358,7 +358,13 @@ class ClipMaker
         // the clip, and concat refuses streams whose dimensions differ. Cropped modes are fixed;
         // a full episode keeps its source shape, so its size comes from the probe.
         [$w, $h] = $this->outputSize($aspect, $full, $probe);
-        $vf = $this->videoFilter($aspect, $full, $w, $h);
+
+        // Vertical (9:16) output from a LANDSCAPE source is filled with a blurred, zoomed copy of
+        // the frame top+bottom instead of cropping the movie — the whole scene stays visible
+        // (owner: "เสริมภาพให้เต็มบนล่าง ไม่ใช่การครอปหนัง"). A source that is already vertical
+        // (rongyok) fills 9:16 on its own, so it skips the blur (pure waste there).
+        $blurPad = $aspect === '9:16' && ! $full && $this->isLandscape($probe);
+        $clipGraph = $this->clipVideoGraph('[0:v:0]', $blurPad, $full, $w, $h);   // → [cv]
 
         $outro = app(ClipOutro::class);
         $card = ($w > 0 && $h > 0) ? $outro->card($full ? '16:9' : $aspect) : null;
@@ -383,11 +389,7 @@ class ClipMaker
             $out,
         ];
 
-        if ($card === null) {
-            array_push($args, '-vf', $vf, ...$codec);
-        } else {
-            array_push($args, ...$this->outroArgs($card, $outro->seconds(), $dur, $vf, $w, $h, $full, $probe), ...$codec);
-        }
+        array_push($args, ...$this->filterArgs($clipGraph, $card, $outro->seconds(), $dur, $w, $h, $full, $probe), ...$codec);
 
         try {
             // Long cuts legitimately encode for a long time (still nice/ionice'd + 4 threads, so
@@ -427,47 +429,100 @@ class ClipMaker
         return $full ? 5100 : min(5100, max(240, $dur * 12 + 60));
     }
 
+    /** True when the source frame is wider than the 9:16 target (i.e. needs top/bottom fill). */
+    private function isLandscape(array $probe): bool
+    {
+        // Unknown dimensions → assume it needs the pad (safe: a vertical source under blurred-pad
+        // still looks right, just costs a little more; a landscape source without it would crop).
+        if ($probe['width'] < 2 || $probe['height'] < 2) {
+            return true;
+        }
+
+        return ($probe['width'] / $probe['height']) > (9 / 16) + 0.02;
+    }
+
     /**
-     * Extra inputs + filtergraph that glue the branding card onto the end of the clip, inside
-     * the SAME encode pass. Concatenating afterwards would mean re-encoding the whole clip a
-     * second time — on a 5-minute cut that alone can outrun the worker.
+     * The sub-graph that turns the source video [in] into the final WxH clip frame [cv],
+     * ready to feed the encoder or the outro concat. Every branch ends in the SAME normalisation
+     * (fps/format/setsar) so concat never rejects a mismatched stream.
      *
-     * The card is scaled with plain numbers, NOT scale2ref: scale2ref walks both inputs in
-     * lockstep, so a 4-second card starves the reference passthrough after ~100 frames and the
-     * whole graph deadlocks ("buffers queued in out_0_0") until the process is killed.
+     *  - blurPad (9:16 from a landscape source): a blurred, zoomed copy fills the frame while the
+     *    whole scene sits letterboxed on top — no cropping. Uses split/overlay, which is why the
+     *    whole encode runs through filter_complex now, not a linear -vf.
+     *  - full episode: keep the source shape, just conformed to WxH.
+     *  - otherwise: cover-and-crop to fill (square / 16:9 / already-vertical 9:16).
+     */
+    private function clipVideoGraph(string $in, bool $blurPad, bool $full, int $w, int $h): string
+    {
+        $post = ',fps=30,format=yuv420p,setsar=1[cv]';
+
+        if ($full) {
+            return "{$in}scale={$w}:{$h}{$post}";
+        }
+        if ($blurPad) {
+            return "{$in}split=2[bgpre][fgpre];"
+                ."[bgpre]scale={$w}:{$h}:force_original_aspect_ratio=increase,crop={$w}:{$h},gblur=sigma=18[bgblur];"
+                ."[fgpre]scale={$w}:{$h}:force_original_aspect_ratio=decrease[fgfit];"
+                ."[bgblur][fgfit]overlay=(W-w)/2:(H-h)/2{$post}";
+        }
+
+        return "{$in}scale={$w}:{$h}:force_original_aspect_ratio=increase,crop={$w}:{$h}{$post}";
+    }
+
+    /**
+     * Assemble the `-filter_complex` (+ any extra inputs + `-map`s) for the encode. Always uses
+     * filter_complex — the blurred-pad graph and the outro concat both need labelled pads.
      *
-     * concat also demands identical audio params, and a silent source has no audio stream at
-     * all — so both legs are normalised and a missing track is replaced with matching silence.
+     * When an outro card is present it is concatenated onto the end IN THE SAME PASS (a second
+     * pass would re-encode the whole clip and can outrun the worker). The card is scaled with
+     * plain numbers, NOT scale2ref: scale2ref walks both inputs in lockstep, so a 4-second card
+     * starves the reference passthrough after ~100 frames and the graph deadlocks
+     * ("buffers queued in out_0_0"). concat also demands identical audio params, and a silent
+     * source has no audio stream at all — so both legs are normalised and a missing clip track
+     * is replaced with matching silence.
      *
      * @param  array{duration: float, hasAudio: bool, width: int, height: int}  $probe
      * @return array<int, string>
      */
-    private function outroArgs(string $card, int $outroSec, int $dur, string $vf, int $w, int $h, bool $full, array $probe): array
+    private function filterArgs(string $clipGraph, ?string $card, int $outroSec, int $dur, int $w, int $h, bool $full, array $probe): array
     {
-        $args = [
-            '-loop', '1', '-t', (string) $outroSec, '-i', $card,               // 1 = card
-            '-f', 'lavfi', '-t', (string) $outroSec, '-i', self::SILENCE,      // 2 = card audio
-        ];
+        $norm = 'aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo';
+        $inputs = [];
 
+        // The clip's own audio leg — real track, or silence matched to the clip's length.
         $clipAudio = '[0:a:0]';
         if (! $probe['hasAudio']) {
-            // Silent source: concat needs an audio leg exactly as long as this clip's video.
-            $silence = $full ? (int) ceil($probe['duration']) : $dur;
-            if ($silence <= 0) {
-                return ['-vf', $vf];   // unknown length — skip the card rather than risk a stall
-            }
-            $args = array_merge($args, ['-f', 'lavfi', '-t', (string) $silence, '-i', self::SILENCE]);
-            $clipAudio = '[3:a]';
+            $silence = $full ? max(1, (int) ceil($probe['duration'])) : $dur;
+            $inputs = array_merge($inputs, ['-f', 'lavfi', '-t', (string) $silence, '-i', self::SILENCE]);
+            $clipAudio = '['.(count($inputs) / 4).':a]';   // this lavfi input's index (each is 4 argv)
         }
 
-        $norm = 'aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo';
-        $graph = "[0:v:0]{$vf},fps=30,format=yuv420p,setsar=1[cv];"
-            ."[1:v]scale={$w}:{$h},fps=30,format=yuv420p,setsar=1[ov];"
+        if ($card === null) {
+            // No branding card: just the clip video + its (real or silent) audio.
+            $graph = $clipGraph.";{$clipAudio}{$norm}[a]";
+
+            return array_merge($inputs, ['-filter_complex', $graph, '-map', '[cv]', '-map', '[a]']);
+        }
+
+        // Card present → append it. Card inputs come AFTER the source (input 0), so index them
+        // by counting: source(0) then the card image + card silence, then any clip-silence lavfi.
+        $cardV = 1;
+        $cardA = 2;
+        $inputs = array_merge([
+            '-loop', '1', '-t', (string) $outroSec, '-i', $card,          // input 1 = card image
+            '-f', 'lavfi', '-t', (string) $outroSec, '-i', self::SILENCE, // input 2 = card audio
+        ], $inputs);
+        if (! $probe['hasAudio']) {
+            $clipAudio = '[3:a]';   // the clip-silence lavfi is now input 3 (after card image+audio)
+        }
+
+        $graph = $clipGraph.';'
+            ."[{$cardV}:v]scale={$w}:{$h},fps=30,format=yuv420p,setsar=1[ov];"
             ."{$clipAudio}{$norm}[ca];"
-            ."[2:a]{$norm}[oa];"
+            ."[{$cardA}:a]{$norm}[oa];"
             .'[cv][ca][ov][oa]concat=n=2:v=1:a=1[v][a]';
 
-        return array_merge($args, ['-filter_complex', $graph, '-map', '[v]', '-map', '[a]']);
+        return array_merge($inputs, ['-filter_complex', $graph, '-map', '[v]', '-map', '[a]']);
     }
 
     /**
@@ -531,28 +586,6 @@ class ClipMaker
             'width' => $width,
             'height' => $height,
         ];
-    }
-
-    /**
-     * Build the -vf chain: cover-and-crop to the target aspect (fills the frame, no letterbox).
-     *
-     * Full episodes are NOT cropped — cutting a whole episode to 9:16 would throw away most of
-     * the frame for 45 minutes. They keep the source aspect, just bounded to 1280 wide (never
-     * upscaled) to keep the output under Facebook's hosted-file limit.
-     *
-     * There is deliberately no drawtext CTA here any more: ffmpeg's drawtext cannot shape Thai
-     * (it misplaces vowels and tone marks), so it would burn broken text onto every clip the
-     * moment a font is configured. Branding is the ClipOutro card, which GD renders correctly.
-     */
-    private function videoFilter(string $aspect, bool $full = false, int $w = 0, int $h = 0): string
-    {
-        if ($full) {
-            return ($w > 0 && $h > 0) ? "scale={$w}:{$h}" : "scale=w='min(1280,iw)':h=-2";
-        }
-
-        [$tw, $th] = $this->outputSize($aspect, false, ['duration' => 0.0, 'hasAudio' => true, 'width' => 0, 'height' => 0]);
-
-        return "scale={$tw}:{$th}:force_original_aspect_ratio=increase,crop={$tw}:{$th}";
     }
 
     /** Grab a still from the finished LOCAL mp4 for the admin thumbnail. */

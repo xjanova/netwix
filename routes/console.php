@@ -184,3 +184,8 @@ Schedule::command('queue:work --queue=clips-post --stop-when-empty --sleep=2 --m
 // exactly stacked ffmpeg workers, and full episodes are the heaviest cut we have.
 Schedule::command('queue:work --queue=clips-heavy --stop-when-empty --sleep=2 --max-time=280 --timeout=5430 --memory=1024 --tries=1')
     ->everyFiveMinutes()->withoutOverlapping(120)->runInBackground();
+
+// Retention: marketing-clip mp4/poster files are only needed for ~2 weeks (review + FB fetch).
+// Purge files older than 15 days nightly but KEEP the rows as history (caption, posted_at, FB id).
+Schedule::command('netwix:clips:purge-files --days=15')
+    ->dailyAt('04:20')->withoutOverlapping()->runInBackground();

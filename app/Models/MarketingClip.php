@@ -16,7 +16,7 @@ class MarketingClip extends Model
 {
     protected $fillable = [
         'campaign_id', 'content_id', 'episode_id', 'start', 'start_mode', 'duration', 'aspect',
-        'status', 'error', 'file_path', 'poster_path', 'file_size',
+        'status', 'error', 'file_path', 'poster_path', 'file_size', 'files_purged_at',
         'caption', 'platform', 'auto_post', 'post_targets', 'scheduled_at', 'posted_at',
         'remote_post_id', 'dry_run', 'batch_id', 'meta',
     ];
@@ -30,6 +30,7 @@ class MarketingClip extends Model
             'dry_run' => 'boolean',
             'scheduled_at' => 'datetime',
             'posted_at' => 'datetime',
+            'files_purged_at' => 'datetime',
             'meta' => 'array',
         ];
     }
