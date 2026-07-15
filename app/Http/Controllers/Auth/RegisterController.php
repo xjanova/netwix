@@ -60,7 +60,7 @@ class RegisterController extends Controller
         $membership = app(Membership::class);
         $membership->ensureCode($user);
         $membership->addCoins($user, (int) $membership->config()['signup_bonus_coins'], 'signup');
-        $membership->grantSignupPro($user);   // free Pro window for new members (admin-configured, default 1 year)
+        $membership->grantSignupPro($user);   // free Pro window for new members (admin-configured, default 1 month)
         if (filled($data['ref'] ?? null)) {
             $membership->redeem($user, $data['ref']);
         }

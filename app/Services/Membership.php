@@ -33,7 +33,7 @@ class Membership
         'signup_bonus_coins' => 10,     // granted once on registration
         'pro' => [
             'price_thb' => 129,
-            'free_days' => 365,     // free Pro window granted to a brand-new member on signup (0 = off)
+            'free_days' => 30,      // free Pro window granted to a brand-new member on signup — 1 month (0 = off)
             'removes_ads' => true,
             'unlocks_all' => true,
         ],
