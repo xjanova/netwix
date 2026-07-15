@@ -110,17 +110,23 @@ class ClipCampaignRunner
         $full = (bool) $campaign->full_episode;
         // duration=0 is the "whole episode" sentinel ClipMaker understands (no -t, all segments).
         $duration = $full ? 0 : $this->pickDuration($campaign);
-        $ending = ! $full && $campaign->start_mode === 'ending';
-        // In "ending" mode the real window can only be worked out from the media itself, so the
-        // cutter resolves it (see the start_mode migration); the row just carries the intent.
-        $start = ($full || $ending) ? 0 : $this->pickStart($episode?->duration_minutes, $duration, (string) $campaign->start_mode);
+
+        // "ending" and "random" can only land on the RIGHT spot if the real media length is known,
+        // and duration_minutes is usually absent for these sources (goseries4k/rongyok store none)
+        // — so the runner defers to ClipMaker, which resolves the offset from the actual playlist/
+        // probe. Only "middle" (a deterministic centre that's fine even on a rough length) is
+        // computed here. Deferred modes carry start=0 + the mode; the cutter fills in the real start.
+        $mode = (string) $campaign->start_mode;
+        $deferred = ! $full && in_array($mode, ['ending', 'random'], true);
+        $start = ($full || $deferred) ? 0 : $this->pickStart($episode?->duration_minutes, $duration, $mode);
+        $clipMode = $full ? 'absolute' : ($deferred ? $mode : 'absolute');
 
         $clip = MarketingClip::create([
             'campaign_id' => $campaign->id,
             'content_id' => $title->id,
             'episode_id' => $episode?->id,
             'start' => $start,
-            'start_mode' => $ending ? 'ending' : 'absolute',
+            'start_mode' => $clipMode,
             'duration' => $duration,
             'aspect' => $campaign->aspect,
             'status' => 'pending',

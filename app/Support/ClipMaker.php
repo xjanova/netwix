@@ -71,20 +71,23 @@ class ClipMaker
         $full = (int) $clip->duration <= 0;
         $dur = $full ? 0 : max(5, min(600, (int) $clip->duration));
 
-        // "ending" clips take the LAST $dur seconds. The window is resolved from the real
-        // media (playlist sum / probe), and stops short of the end credits when the title has
-        // them marked — so the clip ends on the cliffhanger instead of a credits roll, which
-        // is the entire point of teasing the end of an episode.
-        $fromEnd = ! $full && $clip->start_mode === 'ending';
-        $trimEnd = $fromEnd ? max(0, (int) ($episode->content?->outro_seconds ?? 0)) : 0;
+        // "ending"/"random" clips can only land on the right spot once the REAL media length is
+        // known — and duration_minutes is usually absent for these sources — so the position is
+        // resolved here from the actual playlist sum / probe, not guessed by the scheduler:
+        //   ending — take the LAST $dur seconds, stopping short of the end credits (outro_seconds)
+        //            so the clip ends on the cliffhanger, not a credits roll.
+        //   random — a fresh random offset inside the watchable middle (skip 8% intro/credits),
+        //            so re-clips of one episode never repeat and never sit on the credits.
+        $mode = ! $full ? (string) $clip->start_mode : 'absolute';
+        $trimEnd = $mode === 'ending' ? max(0, (int) ($episode->content?->outro_seconds ?? 0)) : 0;
 
         // ---- 1. get the source window onto local disk --------------------------
-        [$srcPath, $seekOffset] = $this->fetchWindow($url, $start, $dur, $full, $fromEnd, $trimEnd);
+        [$srcPath, $seekOffset] = $this->fetchWindow($url, $start, $dur, $full, $mode, $trimEnd);
         if ($srcPath === null) {
             // transient CDN hiccup on a burst — re-resolve a fresh link + retry once
             usleep(700_000);
             $retry = $this->playableUrl($episode);
-            [$srcPath, $seekOffset] = $retry ? $this->fetchWindow($retry, $start, $dur, $full, $fromEnd, $trimEnd) : [null, 0];
+            [$srcPath, $seekOffset] = $retry ? $this->fetchWindow($retry, $start, $dur, $full, $mode, $trimEnd) : [null, 0];
             if ($srcPath === null) {
                 return $this->fail($clip, 'download_failed');
             }
@@ -143,11 +146,11 @@ class ClipMaker
      *
      * @return array{0: ?string, 1: float}
      */
-    private function fetchWindow(string $url, int $start, int $dur, bool $full = false, bool $fromEnd = false, int $trimEnd = 0): array
+    private function fetchWindow(string $url, int $start, int $dur, bool $full = false, string $mode = 'absolute', int $trimEnd = 0): array
     {
         try {
             if (str_contains($url, '.m3u8')) {
-                return $this->fetchHlsWindow($url, $start, $dur, $full, $fromEnd, $trimEnd);
+                return $this->fetchHlsWindow($url, $start, $dur, $full, $mode, $trimEnd);
             }
 
             // Direct mp4/file: no cheap way to time-seek a remote file, and ffmpeg
@@ -168,9 +171,9 @@ class ClipMaker
             }
 
             // Whole file on disk → its real length is only knowable by probing it.
-            if ($fromEnd) {
+            if ($mode === 'ending' || $mode === 'random') {
                 $total = $this->probe($tmp)['duration'];
-                $start = $total > 0 ? max(0, (int) round($total - $trimEnd - $dur)) : 0;
+                $start = $this->resolveStart($mode, (int) round($total), $dur, $trimEnd, $start);
             }
 
             return [$tmp, (float) $start];   // whole file downloaded → seek the real start
@@ -187,7 +190,7 @@ class ClipMaker
      *
      * @return array{0: ?string, 1: float}
      */
-    private function fetchHlsWindow(string $m3u8Url, int $start, int $dur, bool $full = false, bool $fromEnd = false, int $trimEnd = 0): array
+    private function fetchHlsWindow(string $m3u8Url, int $start, int $dur, bool $full = false, string $mode = 'absolute', int $trimEnd = 0): array
     {
         $segments = $this->mediaSegments($m3u8Url);
         if (empty($segments)) {
@@ -195,11 +198,12 @@ class ClipMaker
         }
 
         // The playlist knows the exact length (sum of #EXTINF) — no probing needed, and it is
-        // authoritative where contents.duration_minutes is rounded or missing. A short episode
-        // (total <= dur) collapses to start=0, i.e. the whole episode, which is what we want.
-        if ($fromEnd) {
-            $total = array_sum(array_column($segments, 'dur'));
-            $start = max(0, (int) round($total - $trimEnd - $dur));
+        // authoritative where contents.duration_minutes is rounded or missing. Both deferred
+        // modes resolve their real start from it. A short episode (total <= dur) collapses to
+        // start=0, i.e. the whole episode, which is what we want.
+        if ($mode === 'ending' || $mode === 'random') {
+            $total = (int) round(array_sum(array_column($segments, 'dur')));
+            $start = $this->resolveStart($mode, $total, $dur, $trimEnd, $start);
         }
 
         if ($full) {
@@ -550,6 +554,35 @@ class ClipMaker
         $h = (int) (round($probe['height'] * $w / $probe['width'] / 2) * 2);   // even, like ffmpeg's -2
 
         return [$w, max(2, $h)];
+    }
+
+    /**
+     * Resolve the real cut offset from the media's true length, for the modes the scheduler
+     * defers because it doesn't know that length up front:
+     *   ending — the last $dur seconds, minus the end credits ($trimEnd) so it stops on the hook.
+     *   random — a random offset inside the watchable middle (skip 8% intro/credits margins), so
+     *            re-clips of one episode never repeat and never land on the useless credits roll.
+     * A short episode (total <= dur) collapses to 0 (take it from the top); an unknown length
+     * (total <= 0) keeps the caller's $fallback.
+     */
+    private function resolveStart(string $mode, int $total, int $dur, int $trimEnd, int $fallback): int
+    {
+        if ($total <= 0) {
+            return $fallback;
+        }
+        if ($total <= $dur) {
+            return 0;
+        }
+        if ($mode === 'ending') {
+            return max(0, $total - $trimEnd - $dur);
+        }
+
+        // random: a fresh offset in the watchable range [margin, total - margin - dur]
+        $margin = (int) round($total * 0.08);
+        $lo = $margin;
+        $hi = max($lo, $total - $margin - $dur);
+
+        return $hi > $lo ? random_int($lo, $hi) : $lo;
     }
 
     /**
