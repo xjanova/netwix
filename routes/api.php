@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\App\FeedbackController;
 use App\Http\Controllers\Api\App\LibraryController;
 use App\Http\Controllers\Api\App\MembershipController;
 use App\Http\Controllers\Api\App\MissionController;
+use App\Http\Controllers\Api\App\ProfileController;
 use App\Http\Controllers\Api\App\SourceController;
 use App\Http\Controllers\Api\App\WalletController;
 use Illuminate\Support\Facades\Route;
@@ -65,6 +66,15 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
     Route::middleware('auth.apptoken')->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
+
+        // Profiles + kids mode. Selecting binds the profile to THIS device's
+        // token (the web uses the session), so the adult gate can't be bypassed
+        // by a client that just stops saying it's a kids profile.
+        Route::get('profiles', [ProfileController::class, 'index']);
+        Route::post('profiles', [ProfileController::class, 'store']);
+        Route::post('profiles/{profile}/select', [ProfileController::class, 'select']);
+        Route::post('profiles/{profile}', [ProfileController::class, 'update']);
+        Route::delete('profiles/{profile}', [ProfileController::class, 'destroy']);
 
         // Member library
         Route::get('my-list', [LibraryController::class, 'myList']);

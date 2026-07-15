@@ -23,12 +23,14 @@ class OptionalAppToken
     public function handle(Request $request, Closure $next): Response
     {
         $plain = $request->bearerToken();
-        $user = $plain ? AppToken::resolveUser($plain) : null;
+        $token = $plain ? AppToken::resolve($plain) : null;
 
-        if ($user) {
+        if ($token && $token->user) {
+            $user = $token->user;
             Auth::setUser($user);
             $request->setUserResolver(fn () => $user);
-            $request->attributes->set('profile', $user->defaultProfile());
+            $request->attributes->set('profile', $token->activeProfile());
+            $request->attributes->set('app_token', $token);
         }
 
         return $next($request);

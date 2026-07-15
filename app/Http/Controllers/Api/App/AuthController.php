@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\App;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppToken;
+use App\Models\Profile;
 use App\Models\User;
 use App\Services\Membership;
 use Illuminate\Http\JsonResponse;
@@ -83,7 +84,13 @@ class AuthController extends Controller
     /** Current user + default profile. */
     public function me(Request $request): JsonResponse
     {
-        return response()->json(['success' => true, 'data' => $this->userPayload($request->user())]);
+        // Report the profile this DEVICE is watching as (bound to its token by
+        // AuthenticateAppToken), not just the account default — otherwise the app
+        // would show "Kid" as active while /me insisted it was the owner.
+        return response()->json([
+            'success' => true,
+            'data' => $this->userPayload($request->user(), $request->attributes->get('profile')),
+        ]);
     }
 
     /** Revoke the presented token. */
@@ -108,9 +115,10 @@ class AuthController extends Controller
 
     // ---------------------------------------------------------------- helpers
 
-    private function userPayload(User $user): array
+    private function userPayload(User $user, ?Profile $active = null): array
     {
-        $profile = $user->defaultProfile();
+        // Fresh exchange has no bound profile yet → the account default.
+        $profile = $active ?? $user->defaultProfile();
         $membership = app(Membership::class)->state($user);
 
         return [
@@ -129,6 +137,9 @@ class AuthController extends Controller
                 'id' => $profile->id,
                 'name' => $profile->name,
                 'avatar_color' => $profile->avatar_color,
+                'avatar_url' => $profile->avatar_url,
+                'initial' => $profile->initial,
+                'is_kids' => (bool) $profile->is_kids,
             ],
         ];
     }

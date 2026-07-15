@@ -18,18 +18,22 @@ class AuthenticateAppToken
     public function handle(Request $request, Closure $next): Response
     {
         $plain = $request->bearerToken();
-        $user = $plain ? AppToken::resolveUser($plain) : null;
+        $token = $plain ? AppToken::resolve($plain) : null;
 
-        if (! $user) {
+        if (! $token || ! $token->user) {
             return response()->json(['success' => false, 'error' => 'unauthenticated'], 401);
         }
 
+        $user = $token->user;
         Auth::setUser($user);
         $request->setUserResolver(fn () => $user);
 
-        // Bind the profile so MaturityScope applies on the app's member routes too
-        // (a kids profile must not reach adult titles via route-model binding).
-        $request->attributes->set('profile', $user->defaultProfile());
+        // Bind the profile this DEVICE is watching as, so MaturityScope applies on
+        // the app's member routes too — a kids profile must not reach adult titles,
+        // including via route-model binding. Server-side by design: the choice
+        // lives on the token, not in a header the client could simply omit.
+        $request->attributes->set('profile', $token->activeProfile());
+        $request->attributes->set('app_token', $token);
 
         return $next($request);
     }
