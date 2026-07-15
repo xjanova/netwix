@@ -18,6 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'profile.optional' => \App\Http\Middleware\OptionalProfile::class,
             'admin' => \App\Http\Middleware\EnsureAdmin::class,
             'auth.apptoken' => \App\Http\Middleware\AuthenticateAppToken::class,
+            'auth.apptoken.optional' => \App\Http\Middleware\OptionalAppToken::class,
             'turnstile' => \App\Http\Middleware\VerifyTurnstile::class,
             'turnstile.search' => \App\Http\Middleware\TurnstileSearchGate::class,
         ]);
