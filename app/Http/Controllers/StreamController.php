@@ -55,9 +55,30 @@ class StreamController extends Controller
             // A dead/slow upstream (e.g. a rotated tiktokcdn link) must not bubble up as an uncaught
             // ConnectionException — that spammed the ERROR log. Fail fast on connect, return a clean 504.
             try {
-                $body = Http::withHeaders($this->headers($stream->referer))->connectTimeout(8)->timeout(30)->get($stream->url)->body();
+                $resp = Http::withHeaders($this->headers($stream->referer))->connectTimeout(8)->timeout(30)->get($stream->url);
             } catch (\Throwable $e) {
                 abort(504, 'upstream manifest unavailable');
+            }
+            $body = $resp->body();
+
+            // Resolving can "succeed" yet hand back a dead link: some sources (getplay-cdn's token
+            // gate, an expired signed URL) answer the manifest fetch with a short "Access Denied"
+            // (HTTP 403) instead of a playlist. Rewriting that produces a 200 with junk segment URLs
+            // and the player just freezes — and, because resolve() didn't fail, PlaybackHealth never
+            // hears about it. So when the body isn't a real playlist (every valid HLS manifest starts
+            // with #EXTM3U), treat it as a playback failure and hand the viewer a clean 404.
+            //
+            // BUT only when the upstream itself said the link is bad (a definitive 2xx-junk or 4xx).
+            // A 5xx is the CDN having a transient moment (e.g. getplay 502/504) — that must NOT count
+            // toward auto-suspend, or a brief upstream outage would mass-suspend the whole catalogue.
+            if (! str_contains($body, '#EXTM3U')) {
+                if ($resp->serverError()) {
+                    abort(504, 'upstream manifest unavailable');   // transient — no failure recorded
+                }
+                if ($episode->content) {
+                    PlaybackHealth::recordFailure($episode->content, PlaybackHealth::viewer(), 'dead_manifest');
+                }
+                abort(404);   // thrown inside Cache::remember → the junk is never cached
             }
             $base = $this->baseUrl($stream->url);
 
