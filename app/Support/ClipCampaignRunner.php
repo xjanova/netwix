@@ -9,6 +9,7 @@ use App\Models\Content;
 use App\Models\Episode;
 use App\Models\Genre;
 use App\Models\MarketingClip;
+use App\Models\Setting;
 use Illuminate\Support\Carbon;
 use Throwable;
 
@@ -33,15 +34,33 @@ class ClipCampaignRunner
     /** How many different titles one slot may try before it finally gives up (skip-on-failure). */
     private const MAX_ATTEMPTS = 6;
 
+    /** Default floor between any two auto-posts (anti-spam / anti-stacked-ffmpeg). Minutes. */
+    private const DEFAULT_GAP_MIN = 25;
+
     /**
      * Fire every campaign whose slot is due at $now. Returns [campaignId => slot] for logging.
+     *
+     * Two guards keep the page from looking like a spam bot and keep stacked ffmpeg off this
+     * oversubscribed shared box (see the 2026-07-06 522-crash incident):
+     *   - a GLOBAL minimum gap between any two auto-posts (Setting clip_min_gap_minutes) — even
+     *     if two campaigns are misconfigured to the same time, only one burst goes out;
+     *   - at most ONE cut dispatched per tick (`break`), so two due slots never encode at once.
+     * Neither fights a sane schedule (staggered daytime slots stay well outside the gap); they
+     * are the safety net against a bad campaign edit.
      *
      * @return array<int, string>
      */
     public function runDue(Carbon $now): array
     {
+        $gap = max(0, (int) (Setting::get('clip_min_gap_minutes') ?? self::DEFAULT_GAP_MIN));
+        if ($gap > 0 && ClipCampaignPost::whereIn('status', ['cutting', 'posted'])
+            ->where('created_at', '>=', $now->copy()->subMinutes($gap))->exists()) {
+            return [];   // a clip went out very recently — hold the line, don't burst-post
+        }
+
         $fired = [];
-        foreach (ClipCampaign::where('is_enabled', true)->get() as $campaign) {
+        // Random order so that, on the rare tick where two slots collide, it's fair which wins.
+        foreach (ClipCampaign::where('is_enabled', true)->inRandomOrder()->get() as $campaign) {
             $slot = $campaign->dueSlot($now);
             if ($slot === null) {
                 continue;
@@ -49,6 +68,7 @@ class ClipCampaignRunner
             $post = $this->fire($campaign, $slot, $now->toDateString());
             if ($post && $post->status === 'cutting') {
                 $fired[$campaign->id] = $slot;
+                break;   // one auto-post per tick — never encode two clips simultaneously
             }
         }
 
