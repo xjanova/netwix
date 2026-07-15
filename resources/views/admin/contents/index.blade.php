@@ -104,7 +104,7 @@
                         <td class="px-4 py-3 text-cream/70">{{ $c->episodes_count }}</td>
                         <td class="px-4 py-3">
                             <div class="flex flex-col gap-0.5 text-xs text-cream/55">
-                                <span>👁 {{ number_format($c->views) }}</span>
+                                <span>👁 {{ number_format($c->views) }} <span class="text-cream/35">(เว็บ {{ number_format($c->views_web) }} · แอป {{ number_format($c->views_app) }})</span></span>
                                 <span>♥ {{ $c->liked_by_count }} · 💬 {{ $c->comments_count }} · ⭐ {{ $c->ratings_avg_stars ? round($c->ratings_avg_stars, 1) : '–' }}</span>
                             </div>
                         </td>

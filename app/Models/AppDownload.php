@@ -35,6 +35,16 @@ class AppDownload extends Model
     public static function record(Request $request, string $version): void
     {
         try {
+            // The mobile app's OTA self-update pulls the APK from this SAME route, so an update must
+            // NOT inflate the website-download count. Skip when the in-app updater marks the request
+            // (?src=update) or when it arrives via Android's DownloadManager — which is what the
+            // ota_update package uses, while modern browsers download with their own UA, so it's a safe
+            // tell for already-installed builds shipped before the ?src=update marker existed.
+            $ua = strtolower((string) $request->userAgent());
+            if ($request->query('src') === 'update' || str_contains($ua, 'androiddownloadmanager')) {
+                return;
+            }
+
             $key = 'apkdl:'.sha1((string) $request->ip()).':'.$version;
             if (! Cache::add($key, 1, now()->addMinutes(self::DEDUP_MINUTES))) {
                 return;
@@ -43,7 +53,7 @@ class AppDownload extends Model
             static::create([
                 'version' => $version,
                 'is_member' => $request->user() !== null,
-                'platform' => str_contains(strtolower((string) $request->userAgent()), 'android') ? 'android' : 'other',
+                'platform' => str_contains($ua, 'android') ? 'android' : 'other',
                 'created_at' => now(),
             ]);
         } catch (Throwable $e) {

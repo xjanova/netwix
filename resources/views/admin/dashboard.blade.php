@@ -199,7 +199,7 @@
                     <div class="truncate text-sm font-semibold">{{ $c->title }}</div>
                     <div class="text-xs text-cream/45">{{ $c->primaryGenre()?->name }} · {{ ['series' => 'ซีรี่ส์', 'movie' => 'ภาพยนตร์', 'vertical' => 'แนวตั้ง'][$c->type] ?? $c->type }}</div>
                 </div>
-                <div class="w-24 text-right"><div class="text-[13.5px] font-semibold">{{ number_format($c->views) }}</div><div class="text-[11px] text-cream/40">ผู้ชม</div></div>
+                <div class="w-28 text-right"><div class="text-[13.5px] font-semibold">{{ number_format($c->views) }}</div><div class="text-[11px] text-cream/40">เว็บ {{ number_format($c->views_web) }} · แอป {{ number_format($c->views_app) }}</div></div>
                 <div class="w-14 text-right"><div class="text-[13.5px] font-semibold text-gold">★ {{ $c->rating }}</div><div class="text-[11px] text-cream/40">คะแนน</div></div>
             </a>
         @empty

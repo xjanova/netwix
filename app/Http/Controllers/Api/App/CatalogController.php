@@ -136,9 +136,11 @@ class CatalogController extends Controller
      */
     public function view(Content $content, Request $request): JsonResponse
     {
+        // views = the all-time total; views_app = the app slice of the app/web split.
         $key = 'view:'.$content->id.':'.sha1((string) $request->ip());
         if (Cache::add($key, 1, now()->addHours(6))) {
             $content->increment('views');
+            $content->increment('views_app');
         }
 
         return $this->ok(['ok' => true]);

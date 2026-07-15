@@ -44,9 +44,11 @@ class WatchController extends Controller
         }
 
         // Count the watch (deduped per viewer + title for 6h; same key as the app).
+        // views = the all-time total; views_web = the web slice of the app/web split.
         $vkey = 'view:'.$content->id.':'.sha1((string) $request->ip());
         if (Cache::add($vkey, 1, now()->addHours(6))) {
             $content->increment('views');
+            $content->increment('views_web');
         }
 
         $content->load(['episodes' => fn ($q) => $q->orderBy('season_id')->orderBy('number')]);

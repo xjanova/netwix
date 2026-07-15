@@ -33,8 +33,16 @@ class DashboardController extends Controller
             ['label' => 'รายได้ (ประมาณ/เดือน)', 'value' => '฿'.number_format($revenue), 'delta' => 'จากแพ็กเกจสมาชิก', 'positive' => true, 'glow' => '#b026ff'],
         ];
 
+        // Platform split of watches (web vs app). views_web/views_app accumulate from the day the
+        // split shipped, so together they're ≤ the all-time `views` grand total (older views are
+        // un-attributed) — the dashboard shows them side by side so the owner sees where people watch.
+        $viewsWeb = (int) Content::sum('views_web');
+        $viewsApp = (int) Content::sum('views_app');
+
         $miniMetrics = [
             ['label' => 'กำลังดูอยู่', 'value' => number_format(WatchProgress::whereBetween('percent', [1, 94])->count())],
+            ['label' => 'วิวจากเว็บ', 'value' => number_format($viewsWeb)],
+            ['label' => 'วิวจากแอป', 'value' => number_format($viewsApp)],
             ['label' => 'สมัครใหม่วันนี้', 'value' => number_format(User::whereDate('created_at', today())->count())],
             ['label' => 'ตอนทั้งหมด', 'value' => number_format(DB::table('episodes')->count())],
             ['label' => 'ดูจบเฉลี่ย', 'value' => (WatchProgress::count() ? round(WatchProgress::avg('percent')) : 0).'%'],
