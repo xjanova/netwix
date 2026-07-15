@@ -94,6 +94,10 @@ class FacebookConnectController extends Controller
                 'fb_exchange_token' => $shortToken,
             ])['access_token'] ?? $shortToken;
 
+            // Keep the long-lived USER token too (encrypted): it lets us refresh page
+            // tokens, inspect /me/permissions, or revoke the grant without the browser.
+            Setting::write('fb_user_token', (string) $longToken);
+
             $pages = collect($this->graph('/me/accounts', [
                 'fields' => 'id,name,access_token',
                 'limit' => 100,
