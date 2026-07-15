@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\App\AdController;
 use App\Http\Controllers\Api\App\AffiliateController;
 use App\Http\Controllers\Api\App\AuthController;
 use App\Http\Controllers\Api\App\CatalogController;
@@ -34,6 +35,10 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
         Route::get('titles/{slug}', [CatalogController::class, 'show']);
         Route::get('genres', [CatalogController::class, 'genres']);
         Route::get('search', [CatalogController::class, 'search']);
+
+        // Pre-roll ad for a title — same campaigns as the web player. Optional
+        // auth so hide_for_pro can be honoured for a signed-in Pro member.
+        Route::get('content/{content:id}/ad', [AdController::class, 'preroll']);
     });
 
     Route::get('episodes/{episode}/source', [SourceController::class, 'source']);
