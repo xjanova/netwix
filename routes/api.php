@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\App\LibraryController;
 use App\Http\Controllers\Api\App\MembershipController;
 use App\Http\Controllers\Api\App\MissionController;
 use App\Http\Controllers\Api\App\ProfileController;
+use App\Http\Controllers\Api\App\ReleaseController;
 use App\Http\Controllers\Api\App\SourceController;
 use App\Http\Controllers\Api\App\WalletController;
 use Illuminate\Support\Facades\Route;
@@ -53,6 +54,11 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
 
     // Public: admin-defined membership rules (free episodes, coin costs, Pro, referral rewards).
     Route::get('membership/config', [MembershipController::class, 'config']);
+
+    // Public: latest-version manifest for the in-app updater. The download URL it
+    // returns points at our own /download/apk (see AppDownloadController) — GitHub
+    // is resolved server-side and never reaches the client.
+    Route::get('version', [ReleaseController::class, 'version']);
 
     // Diagnostics sink — public (must accept guest + failed-sign-in reports),
     // extra-throttled on top of the group limit.
