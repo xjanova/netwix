@@ -189,3 +189,11 @@ Schedule::command('queue:work --queue=clips-heavy --stop-when-empty --sleep=2 --
 // Purge files older than 15 days nightly but KEEP the rows as history (caption, posted_at, FB id).
 Schedule::command('netwix:clips:purge-files --days=15')
     ->dailyAt('04:20')->withoutOverlapping()->runInBackground();
+
+// Declutter: delete clip rows that never produced a usable clip (failed cuts, dead jobs). A
+// campaign that hits a dead/rotated source fails a slot then self-recovers on another title, so
+// these failed rows are pure noise in the admin history. Keep only the last day's failures visible
+// (in case a recent one is worth a manual retry); a stuck pending/processing row is only swept once
+// clearly dead (>6h). See [App\Console\Commands\PurgeFailedClips].
+Schedule::command('netwix:clips:purge-failed --days=1')
+    ->dailyAt('04:25')->withoutOverlapping()->runInBackground();
