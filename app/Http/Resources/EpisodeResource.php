@@ -26,6 +26,27 @@ class EpisodeResource extends JsonResource
             'is_mirrored' => (bool) $this->is_mirrored,
             'is_unavailable' => (bool) $this->is_unavailable,
             'sort' => (int) $this->sort,
+
+            // Effective playback markers (0 = unset), already merged with the
+            // title's defaults so the client never re-implements the rule.
+            'intro_end_seconds' => $this->marker('intro_end_seconds'),
+            'outro_seconds' => $this->marker('outro_seconds'),
         ];
+    }
+
+    /**
+     * A NULL marker on an episode means "inherit the title's value" — the same
+     * rule the web player applies. The caller sets the `content` relation, so
+     * this resolves without a query; an unset relation just falls back to 0.
+     */
+    private function marker(string $key): int
+    {
+        if ($this->resource->{$key} !== null) {
+            return (int) $this->resource->{$key};
+        }
+
+        $content = $this->resource->relationLoaded('content') ? $this->resource->content : null;
+
+        return (int) ($content?->{$key} ?? 0);
     }
 }

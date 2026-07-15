@@ -154,8 +154,13 @@ class ClipCampaignRunner
             return [$title, $title ? $this->pickEpisode($campaign, $title) : null];
         }
 
-        $posted = MarketingClip::where('campaign_id', $campaign->id)
-            ->whereNotNull('episode_id')->pluck('episode_id')->all();
+        // Deliberately GLOBAL, not per-campaign: what must not repeat is what the PAGE shows.
+        // The series and cartoon campaigns fish from overlapping pools (most anime here is
+        // type=series), so a per-campaign memory would let both tease the same episode hours
+        // apart. Failed cuts are not counted — a source that broke once may work next time.
+        $posted = MarketingClip::whereNotNull('episode_id')
+            ->where('status', '!=', 'failed')
+            ->pluck('episode_id')->all();
 
         foreach ($this->titleCandidates($campaign) as $title) {
             $episode = Episode::where('content_id', $title->id)
@@ -205,6 +210,31 @@ class ClipCampaignRunner
         };
     }
 
+    /**
+     * Restrict (or exclude) a title query by one of the catalogue's content types.
+     *
+     * "anime" is NOT a `type` in this catalogue — it's a genre umbrella (อนิเมะ/การ์ตูน),
+     * exactly how BrowseController + HeroBillboard scope the /anime hub. Filtering by
+     * type='anime' would silently match zero titles, so it maps to those genres instead.
+     */
+    private function applyTypeScope($q, string $type, bool $exclude): void
+    {
+        if ($type === '') {
+            return;
+        }
+
+        if ($type === 'anime') {
+            $ids = Genre::whereIn('name', ['อนิเมะ', 'การ์ตูน'])->pluck('id')->all();
+            $exclude
+                ? $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', $ids))
+                : $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $ids));
+
+            return;
+        }
+
+        $exclude ? $q->where('type', '!=', $type) : $q->where('type', $type);
+    }
+
     /** Every title matching this campaign's filters + repeat guard (unordered). */
     private function titleQuery(ClipCampaign $campaign)
     {
@@ -218,15 +248,8 @@ class ClipCampaignRunner
                 fn ($w) => $w->whereNull('maturity')->orWhereNotIn('maturity', Maturity::ADULT)
             ));
 
-        // "anime" is NOT a `type` in this catalogue — it's a genre umbrella (อนิเมะ/การ์ตูน),
-        // exactly how BrowseController + HeroBillboard scope the /anime hub. Filtering by
-        // type='anime' would silently match zero titles, so map it to those genres instead.
-        if ($campaign->content_type === 'anime') {
-            $animeIds = Genre::whereIn('name', ['อนิเมะ', 'การ์ตูน'])->pluck('id')->all();
-            $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $animeIds));
-        } elseif ($campaign->content_type) {
-            $q->where('type', $campaign->content_type);
-        }
+        $this->applyTypeScope($q, (string) $campaign->content_type, false);
+        $this->applyTypeScope($q, (string) $campaign->exclude_type, true);
 
         $recent = $campaign->recentlyPostedContentIds();
         if ($recent) {

@@ -7,6 +7,7 @@ use App\Http\Resources\ContentResource;
 use App\Http\Resources\EpisodeResource;
 use App\Models\Content;
 use App\Models\Genre;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -22,6 +23,19 @@ class CatalogController extends Controller
         return response()->json(['success' => true, 'data' => $data], $status);
     }
 
+    /**
+     * Base query for everything the app lists, mirroring the web's split exactly:
+     * a GUEST gets scopePublicListing() — the hard gate the crawlable pages use, so
+     * adult (18+/20+) titles are never served to someone without an account — while a
+     * signed-in MEMBER gets the full catalogue like BrowseController, with MaturityScope
+     * hiding adult from kids profiles. The auth.apptoken.optional middleware is what
+     * makes the viewer resolvable on these otherwise-public routes.
+     */
+    private function viewable(): Builder
+    {
+        return request()->user() ? Content::published() : Content::publicListing();
+    }
+
     /** GET /api/app/home — hero + rails (public). Mirrors the web BrowseController:
      * anime/cartoon is kept out of the hero and the genre rails (it has its own
      * rail + Anime category) so it doesn't bleed into everything. */
@@ -30,20 +44,20 @@ class CatalogController extends Controller
         $animeIds = $this->animeGenreIds();
         $notAnime = fn ($q) => $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', $animeIds));
 
-        $hero = Content::published()->where('is_featured', true)->where($notAnime)
+        $hero = $this->viewable()->where('is_featured', true)->where($notAnime)
             ->with('genres')->withCount('episodes')->inRandomOrder()->first()
-            ?? Content::published()->where($notAnime)->with('genres')->withCount('episodes')->latest()->first();
+            ?? $this->viewable()->where($notAnime)->with('genres')->withCount('episodes')->latest()->first();
 
         $rails = [];
 
-        $originals = Content::published()->where('is_original', true)->where($notAnime)
+        $originals = $this->viewable()->where('is_original', true)->where($notAnime)
             ->with('genres')->withCount('episodes')->latest()->take(14)->get();
         if ($originals->isNotEmpty()) {
             $rails[] = ['key' => 'originals', 'title' => 'NETWIX Originals', 'ranked' => false,
                 'items' => ContentResource::collection($originals)];
         }
 
-        $trending = Content::published()->where($notAnime)->with('genres')->withCount('episodes')
+        $trending = $this->viewable()->where($notAnime)->with('genres')->withCount('episodes')
             ->orderByDesc('views')->take(10)->get();
         if ($trending->isNotEmpty()) {
             $rails[] = ['key' => 'trending', 'title' => 'มาแรงตอนนี้', 'ranked' => true,
@@ -52,7 +66,7 @@ class CatalogController extends Controller
 
         // Dedicated anime/cartoon rail (its own bucket, like the web /anime page).
         if ($animeIds !== []) {
-            $anime = Content::published()
+            $anime = $this->viewable()
                 ->whereHas('genres', fn ($q) => $q->whereIn('genres.id', $animeIds))
                 ->with('genres')->withCount('episodes')->orderByDesc('views')->take(14)->get();
             if ($anime->isNotEmpty()) {
@@ -63,7 +77,7 @@ class CatalogController extends Controller
 
         // Per-genre rails — anime genres excluded (umbrella + bleed-through).
         foreach (Genre::orderBy('sort')->whereNotIn('id', $animeIds ?: [0])->get() as $genre) {
-            $items = Content::published()->where($notAnime)
+            $items = $this->viewable()->where($notAnime)
                 ->whereHas('genres', fn ($q) => $q->whereKey($genre->id))
                 ->with('genres')->withCount('episodes')->latest()->take(14)->get();
             if ($items->count() >= 3) {
@@ -93,7 +107,7 @@ class CatalogController extends Controller
         $per = (int) min(48, max(6, (int) $request->query('per', 24)));
         $animeIds = $this->animeGenreIds();
 
-        $q = Content::published()->with('genres')->withCount('episodes')->latest();
+        $q = $this->viewable()->with('genres')->withCount('episodes')->latest();
         if (in_array($type, ['series', 'movie', 'vertical'], true)) {
             $q->where('type', $type);
         }
@@ -154,16 +168,23 @@ class CatalogController extends Controller
     /** GET /api/app/titles/{slug} — detail + episodes + related. */
     public function show(string $slug): JsonResponse
     {
-        $content = Content::published()->where('slug', $slug)
+        $content = $this->viewable()->where('slug', $slug)
             ->with(['genres', 'seasons.episodes', 'episodes'])->withCount('episodes')->first();
 
         if (! $content) {
             return response()->json(['success' => false, 'error' => ['code' => 'not_found', 'message' => 'ไม่พบเนื้อหา']], 404);
         }
 
-        $related = Content::published()->whereKeyNot($content->id)
+        $related = $this->viewable()->whereKeyNot($content->id)
             ->where('type', $content->type)->with('genres')->withCount('episodes')
             ->inRandomOrder()->take(6)->get();
+
+        // Point every episode back at the title already in memory so EpisodeResource
+        // can inherit its playback markers without an N+1.
+        $content->episodes->each(fn ($e) => $e->setRelation('content', $content));
+        $content->seasons->each(
+            fn ($s) => $s->episodes->each(fn ($e) => $e->setRelation('content', $content))
+        );
 
         return $this->ok([
             'content' => new ContentResource($content),
@@ -185,7 +206,7 @@ class CatalogController extends Controller
         }
 
         $per = 40;
-        $p = Content::published()
+        $p = $this->viewable()
             ->where(fn ($q) => $q->where('title', 'like', "%{$term}%")->orWhere('synopsis', 'like', "%{$term}%"))
             ->with('genres')->withCount('episodes')->orderByDesc('views')->paginate($per);
 

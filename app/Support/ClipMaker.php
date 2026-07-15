@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Http\Controllers\StreamController;
 use App\Models\Episode;
 use App\Models\MarketingClip;
 use App\Services\Import\SourceRegistry;
@@ -556,7 +557,11 @@ class ClipMaker
             return $episode->video_url;
         }
         if (in_array($episode->source, ['wowdrama', 'anime108'], true)) {
-            return route('stream.manifest', $episode);
+            // These sources only play through our own rewriting proxy, and that route rejects
+            // any request without a minted token (403) — which is exactly why clips for them
+            // used to die on download_failed. We are server-side and hold app.key, so mint one
+            // the same way the player's resolver does. ~80k episodes ride on this.
+            return route('stream.manifest', ['episode' => $episode, 't' => StreamController::token($episode)]);
         }
         $source = $this->registry->get((string) $episode->source);
         $seriesKey = $episode->content?->source_key;

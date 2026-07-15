@@ -32,7 +32,7 @@ class ClipCampaign extends Model
 
     protected $fillable = [
         'name', 'slug', 'is_enabled',
-        'content_type', 'genre_id', 'source', 'content_id', 'pick', 'include_adult', 'avoid_recent_days',
+        'content_type', 'exclude_type', 'genre_id', 'source', 'content_id', 'pick', 'include_adult', 'avoid_recent_days',
         'duration', 'start_mode', 'duration_max', 'full_episode', 'episode_pick', 'aspect',
         'targets',
         'days', 'slots',

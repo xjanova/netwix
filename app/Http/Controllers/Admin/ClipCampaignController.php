@@ -140,6 +140,7 @@ class ClipCampaignController extends Controller
         $request->validate([
             'name' => ['required', 'string', 'max:80'],
             'content_type' => ['nullable', Rule::in(['movie', 'series', 'anime', 'vertical'])],
+            'exclude_type' => ['nullable', Rule::in(['movie', 'series', 'anime', 'vertical']), 'different:content_type'],
             'genre_id' => ['nullable', 'integer', 'exists:genres,id'],
             'source' => ['nullable', 'string', 'max:32'],
             'content_id' => ['nullable', 'integer', 'exists:contents,id'],
@@ -176,6 +177,7 @@ class ClipCampaignController extends Controller
             'name' => trim((string) $request->input('name')),
             'is_enabled' => $request->boolean('is_enabled'),
             'content_type' => $request->input('content_type') ?: null,
+            'exclude_type' => $request->input('exclude_type') ?: null,
             'genre_id' => $request->input('genre_id') ?: null,
             'source' => $request->input('source') ?: null,
             'content_id' => $request->input('content_id') ?: null,

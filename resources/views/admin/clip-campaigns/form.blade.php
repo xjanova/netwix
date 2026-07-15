@@ -53,6 +53,19 @@
                 </select>
             </div>
             <div>
+                <label class="mb-1 block text-[12px] text-cream/50">ไม่เอาประเภท <span class="text-cream/30">(ไม่บังคับ)</span></label>
+                @php $selExclude = old('exclude_type', $campaign->exclude_type); @endphp
+                <select name="exclude_type" class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
+                    <option value="" @selected(! $selExclude)>ไม่ตัดออก</option>
+                    <option value="movie" @selected($selExclude === 'movie')>ไม่เอาหนัง</option>
+                    <option value="series" @selected($selExclude === 'series')>ไม่เอาซีรีส์</option>
+                    <option value="anime" @selected($selExclude === 'anime')>ไม่เอาอนิเมะ/การ์ตูน</option>
+                    <option value="vertical" @selected($selExclude === 'vertical')>ไม่เอาแนวตั้ง</option>
+                </select>
+                @error('exclude_type')<p class="mt-1 text-[12px] text-[#ff6b81]">{{ $message }}</p>@enderror
+                <p class="mt-1 text-[11px] text-cream/35">การ์ตูนส่วนใหญ่ถูกเก็บเป็น “ซีรีส์” ด้วย — ถ้าทำแคมเปญซีรีส์แยกจากการ์ตูน ให้เลือก “ไม่เอาอนิเมะ/การ์ตูน”</p>
+            </div>
+            <div>
                 <label class="mb-1 block text-[12px] text-cream/50">หมวดหมู่</label>
                 <select name="genre_id" class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
                     <option value="">ทุกหมวด</option>
@@ -169,11 +182,11 @@
                 <option value="first" @selected(old('episode_pick', $campaign->episode_pick ?? 'first') === 'first')>ตอนแรกเสมอ</option>
                 <option value="random" @selected(old('episode_pick', $campaign->episode_pick ?? 'first') === 'random')>สุ่มตอน</option>
                 <option value="sequential" @selected(old('episode_pick', $campaign->episode_pick ?? 'first') === 'sequential')>เรียงตามลำดับ (โพสต์ถัดไป = ตอนถัดจากที่โพสต์ล่าสุด วนกลับตอน 1 เมื่อจบ)</option>
-                <option value="unposted" @selected(old('episode_pick', $campaign->episode_pick ?? 'first') === 'unposted')>ไม่ซ้ำเด็ดขาด (ไล่เฉพาะตอนที่แคมเปญนี้ยังไม่เคยโพสต์)</option>
+                <option value="unposted" @selected(old('episode_pick', $campaign->episode_pick ?? 'first') === 'unposted')>ไม่ซ้ำเด็ดขาด (เฉพาะตอนที่ยังไม่เคยถูกโพสต์เลย)</option>
             </select>
             <p class="mt-1 text-[11px] text-cream/35">
                 ใช้คู่กับ “เจาะจงเรื่องเดียว” ได้ เช่น ปักซีรีส์หนึ่งเรื่องแล้วให้โพสต์คลิปตอน 1, 2, 3, … ตามเวลาที่ตั้ง<br>
-                <b>ไม่ซ้ำเด็ดขาด</b> = ดูจากประวัติการโพสต์จริง ถ้าเรื่องไหนโพสต์ครบทุกตอนแล้วจะข้ามไปเรื่องอื่นให้เอง (เหมาะกับสุ่มเรื่องรายชั่วโมง)
+                <b>ไม่ซ้ำเด็ดขาด</b> = ดูจากประวัติการโพสต์จริง<b>ของทุกแคมเปญรวมกัน</b> ตอนที่เคยโพสต์แล้วจะไม่ถูกหยิบอีกเลย ถ้าเรื่องไหนโพสต์ครบทุกตอนแล้วจะข้ามไปเรื่องอื่นให้เอง (เหมาะกับสุ่มเรื่องรายชั่วโมง)
             </p>
         </div>
         <div>

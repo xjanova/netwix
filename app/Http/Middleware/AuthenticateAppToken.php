@@ -27,6 +27,10 @@ class AuthenticateAppToken
         Auth::setUser($user);
         $request->setUserResolver(fn () => $user);
 
+        // Bind the profile so MaturityScope applies on the app's member routes too
+        // (a kids profile must not reach adult titles via route-model binding).
+        $request->attributes->set('profile', $user->defaultProfile());
+
         return $next($request);
     }
 }

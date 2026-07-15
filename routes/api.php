@@ -25,11 +25,17 @@ use Illuminate\Support\Facades\Route;
 // Public + unauthenticated, so rate-limit it (the source endpoint hands out signed CDN links and
 // resolves upstream on a cache miss — cap enumeration/abuse per IP).
 Route::prefix('app')->middleware('throttle:90,1')->group(function () {
-    Route::get('home', [CatalogController::class, 'home']);
-    Route::get('titles', [CatalogController::class, 'titles']);
-    Route::get('titles/{slug}', [CatalogController::class, 'show']);
-    Route::get('genres', [CatalogController::class, 'genres']);
-    Route::get('search', [CatalogController::class, 'search']);
+    // Catalogue reads are browsable by guests, but the viewer still has to be
+    // resolvable: a guest is held to the public listing (never adult), a member
+    // sees the full catalogue. Without this the app served 18+ titles to anyone.
+    Route::middleware('auth.apptoken.optional')->group(function () {
+        Route::get('home', [CatalogController::class, 'home']);
+        Route::get('titles', [CatalogController::class, 'titles']);
+        Route::get('titles/{slug}', [CatalogController::class, 'show']);
+        Route::get('genres', [CatalogController::class, 'genres']);
+        Route::get('search', [CatalogController::class, 'search']);
+    });
+
     Route::get('episodes/{episode}/source', [SourceController::class, 'source']);
 
     // Public reads: comments list + rating summary (guests can see them).
