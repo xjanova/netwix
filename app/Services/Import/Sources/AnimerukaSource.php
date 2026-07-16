@@ -3,6 +3,7 @@
 namespace App\Services\Import\Sources;
 
 use App\Services\Import\Contracts\MediaSource;
+use App\Services\Import\Contracts\ProvidesGenres;
 use App\Services\Import\Contracts\ProvidesPoster;
 use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Services\Import\RemoteSeries;
@@ -34,9 +35,24 @@ use Illuminate\Support\Facades\Http;
  *      segments disguised as .webp but real MPEG-TS — [App\Support\HlsManifest] unwraps the envelope
  *      and [App\Support\HlsSegment] is a no-op on the already-clean TS. See the recon note in BrainX.
  */
-class AnimerukaSource implements MediaSource, ProvidesPoster, ProvidesSynopsis
+class AnimerukaSource implements MediaSource, ProvidesGenres, ProvidesPoster, ProvidesSynopsis
 {
     public const BASE = 'https://animeruka.com';
+
+    /** animeruka Dooplay genre slugs (English) → NetWix genre names (mirrors the anime108 map). */
+    private const GENRE_MAP = [
+        'action' => 'แอ็กชัน', 'martial-arts' => 'แอ็กชัน', 'super-power' => 'แอ็กชัน', 'samurai' => 'แอ็กชัน',
+        'shounen' => 'แอ็กชัน', 'military' => 'แอ็กชัน', 'sports' => 'แอ็กชัน',
+        'adventure' => 'ผจญภัย', 'isekai' => 'ผจญภัย',
+        'comedy' => 'ตลก', 'parody' => 'ตลก', 'school' => 'ตลก',
+        'drama' => 'ดราม่า', 'slice-of-life' => 'ดราม่า', 'seinen' => 'ดราม่า', 'josei' => 'ดราม่า',
+        'fantasy' => 'แฟนตาซี & ไซไฟ', 'sci-fi' => 'แฟนตาซี & ไซไฟ', 'magic' => 'แฟนตาซี & ไซไฟ',
+        'supernatural' => 'แฟนตาซี & ไซไฟ', 'mecha' => 'แฟนตาซี & ไซไฟ', 'space' => 'แฟนตาซี & ไซไฟ',
+        'romance' => 'โรแมนติก', 'harem' => 'โรแมนติก', 'shoujo' => 'โรแมนติก', 'ecchi' => 'โรแมนติก',
+        'horror' => 'สยองขวัญ', 'demons' => 'สยองขวัญ', 'vampire' => 'สยองขวัญ', 'thriller' => 'สยองขวัญ',
+        'mystery' => 'อาชญากรรม', 'detective' => 'อาชญากรรม', 'psychological' => 'อาชญากรรม',
+        'suspense' => 'อาชญากรรม', 'police' => 'อาชญากรรม',
+    ];
 
     /** animemami is the only proxyable server; its maimeorder manifest + segments are gated on this Referer. */
     private const PLAYER_HOST = 'animemami.xyz';
@@ -280,6 +296,27 @@ class AnimerukaSource implements MediaSource, ProvidesPoster, ProvidesSynopsis
         $html = $this->fetchPage(self::BASE.'/'.trim($series->sourceKey, '/').'/');
 
         return $html !== null ? PosterScraper::fromHtml($html) : null;
+    }
+
+    /**
+     * Scrape the title page's own genre tags (`<a href="…/genre/{slug}/" rel="tag">`) — the per-title
+     * genres the Dooplay archive doesn't expose — and map them to NetWix genre names. rel="tag" isolates
+     * the title's genres from the site-wide genre nav.
+     */
+    public function fetchGenres(RemoteSeries $series): array
+    {
+        $html = $this->fetchPage(self::BASE.'/'.trim($series->sourceKey, '/').'/');
+        if ($html === null || ! preg_match_all('~/genre/([a-z0-9-]+)/[\'"][^>]*\brel=[\'"]?tag~i', $html, $m)) {
+            return [];
+        }
+        $names = [];
+        foreach (array_unique($m[1]) as $slug) {
+            if (isset(self::GENRE_MAP[strtolower($slug)])) {
+                $names[] = self::GENRE_MAP[strtolower($slug)];
+            }
+        }
+
+        return array_values(array_unique($names));
     }
 
     // --------------------------------------------------------- resolve
