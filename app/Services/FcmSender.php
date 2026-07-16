@@ -58,11 +58,15 @@ class FcmSender
                 ],
                 // No channel_id: an unknown channel would silence the banner on
                 // Android 8+; omitting it lets the FCM SDK use its fallback channel.
-                'android' => [
-                    'priority' => 'high',
-                    'notification' => array_filter(['image' => $n->image_url]),
-                ],
+                'android' => ['priority' => 'high'],
             ];
+
+            // Only attach android.notification when there is something in it —
+            // an empty PHP array JSON-encodes as [] (array, not object) and FCM
+            // rejects the whole message with INVALID_ARGUMENT.
+            if ($n->image_url) {
+                $message['android']['notification'] = ['image' => $n->image_url];
+            }
 
             $res = Http::withToken($token)
                 ->timeout(10)
