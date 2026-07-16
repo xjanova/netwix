@@ -3,9 +3,11 @@
 namespace App\Services\Import\Sources;
 
 use App\Services\Import\Contracts\MediaSource;
+use App\Services\Import\Contracts\ProvidesPoster;
 use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\PosterScraper;
 use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
@@ -32,7 +34,7 @@ use Illuminate\Support\Facades\Http;
  *      segments disguised as .webp but real MPEG-TS — [App\Support\HlsManifest] unwraps the envelope
  *      and [App\Support\HlsSegment] is a no-op on the already-clean TS. See the recon note in BrainX.
  */
-class AnimerukaSource implements MediaSource, ProvidesSynopsis
+class AnimerukaSource implements MediaSource, ProvidesPoster, ProvidesSynopsis
 {
     public const BASE = 'https://animeruka.com';
 
@@ -270,6 +272,14 @@ class AnimerukaSource implements MediaSource, ProvidesSynopsis
         $html = $this->fetchPage(self::BASE.'/'.trim($series->sourceKey, '/').'/');
 
         return $html !== null ? SynopsisScraper::fromHtml($html) : null;
+    }
+
+    /** Re-fetch a fresh poster from the title page's og:image (heals a dead hotlink). */
+    public function fetchPoster(RemoteSeries $series): ?string
+    {
+        $html = $this->fetchPage(self::BASE.'/'.trim($series->sourceKey, '/').'/');
+
+        return $html !== null ? PosterScraper::fromHtml($html) : null;
     }
 
     // --------------------------------------------------------- resolve

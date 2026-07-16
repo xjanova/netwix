@@ -3,9 +3,11 @@
 namespace App\Services\Import\Sources;
 
 use App\Services\Import\Contracts\MediaSource;
+use App\Services\Import\Contracts\ProvidesPoster;
 use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\PosterScraper;
 use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
@@ -32,7 +34,7 @@ use Illuminate\Support\Facades\Http;
  * Old titles decay: torbo007 purges streams for long-idle series, so resolveByRef verifies the manifest
  * is live and returns null (→ "preparing" + backup fallback) when it's gone.
  */
-class Goseries4kSource implements MediaSource, ProvidesSynopsis
+class Goseries4kSource implements MediaSource, ProvidesPoster, ProvidesSynopsis
 {
     public const BASE = 'https://goseries4k.com';
 
@@ -295,6 +297,14 @@ class Goseries4kSource implements MediaSource, ProvidesSynopsis
         $html = $this->fetchPost($series->sourceKey);
 
         return $html !== null ? SynopsisScraper::fromHtml($html) : null;
+    }
+
+    /** Re-fetch a fresh poster from the series-landing page's og:image (heals a dead hotlink). */
+    public function fetchPoster(RemoteSeries $series): ?string
+    {
+        $html = $this->fetchPost($series->sourceKey);
+
+        return $html !== null ? PosterScraper::fromHtml($html) : null;
     }
 
     // --------------------------------------------------------- resolve

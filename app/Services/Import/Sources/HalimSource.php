@@ -4,9 +4,11 @@ namespace App\Services\Import\Sources;
 
 use App\Services\Import\Contracts\BackupPoolSource;
 use App\Services\Import\Contracts\MediaSource;
+use App\Services\Import\Contracts\ProvidesPoster;
 use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\PosterScraper;
 use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
@@ -23,7 +25,7 @@ use Illuminate\Support\Facades\Http;
  *
  * Streams are HLS, played through NetWix's server-side proxy ([StreamController]).
  */
-class HalimSource implements BackupPoolSource, MediaSource, ProvidesSynopsis
+class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, ProvidesSynopsis
 {
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
@@ -380,6 +382,34 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesSynopsis
         }
 
         return SynopsisScraper::fromHtml($html);
+    }
+
+    /**
+     * Re-fetch a fresh poster: first from the WP media endpoint by the stored featured_media id (the
+     * same source the catalogue used), else the title page's og:image. Used to heal a dead hotlink.
+     */
+    public function fetchPoster(RemoteSeries $series): ?string
+    {
+        $mediaId = (int) ($series->extra['media_id'] ?? 0);
+        if ($mediaId > 0) {
+            $posters = $this->fetchPosters([$mediaId]);
+            if (! empty($posters[$mediaId])) {
+                return $posters[$mediaId];
+            }
+        }
+
+        $slug = trim((string) ($series->extra['slug'] ?? $series->sourceKey), '/');
+        if ($slug === '') {
+            return null;
+        }
+        try {
+            $html = $this->http()->withHeaders(['Referer' => $this->config->base.'/'])
+                ->get($this->config->base.'/'.$slug.'/')->body();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return PosterScraper::fromHtml($html);
     }
 
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream

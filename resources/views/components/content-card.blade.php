@@ -97,18 +97,19 @@
             $hoverClip = $preview ?: ((! $hasRealPreview && ! $content->poster_url) ? $logoClip : null);
         @endphp
         <div class="relative aspect-[9/16] overflow-hidden rounded-xl ring-1 ring-white/5 transition duration-200 group-hover:ring-2 group-hover:ring-white/25"
-             style="background:{{ $content->poster_url ? '#0e0a17' : $content->gradient }}">
+             style="background:{{ $content->gradient }}">
+            {{-- Branded fallback cover — ALWAYS the base layer, so a title with no poster OR one whose
+                 hotlinked poster is dead/blocked (onerror drops the <img>) still shows our cover, never
+                 a blank box. A working poster paints over it; it fades out while the clip plays. --}}
+            <div class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center transition-opacity duration-300"
+                 :class="hv ? 'opacity-0' : 'opacity-100'">
+                <img src="{{ asset('assets/netwix-icon.png') }}" alt="" class="h-9 w-9 opacity-40">
+                <span class="line-clamp-2 text-[13px] font-semibold text-cream/80">{{ $content->title }}</span>
+            </div>
             @if ($content->poster_url)
                 <img src="{{ $content->poster_url }}" alt="{{ $content->title }}" loading="lazy"
-                     referrerpolicy="no-referrer" onerror="this.style.display='none'"
+                     referrerpolicy="no-referrer" onerror="this.remove()"
                      class="absolute inset-0 h-full w-full object-cover object-top">
-            @else
-                {{-- no cover art → branded placeholder (fades out while the clip plays) --}}
-                <div class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center transition-opacity duration-300"
-                     :class="hv ? 'opacity-0' : 'opacity-100'">
-                    <img src="{{ asset('assets/netwix-icon.png') }}" alt="" class="h-9 w-9 opacity-40">
-                    <span class="line-clamp-2 text-[13px] font-semibold text-cream/80">{{ $content->title }}</span>
-                </div>
             @endif
 
             {{-- silent auto-preview: the ep1 clip plays over the cover (or logo)

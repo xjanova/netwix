@@ -6,16 +6,17 @@
 <a href="{{ route('title.show', $content) }}" title="{{ $content->title }}"
    class="group block w-[142px] shrink-0 sm:w-[160px] md:w-[178px]">
     <div class="relative aspect-[9/16] overflow-hidden rounded-xl ring-1 ring-white/5 transition duration-200 group-hover:ring-2 group-hover:ring-white/25"
-         style="background:{{ $content->poster_url ? '#0e0a17' : $content->gradient }}">
+         style="background:{{ $content->gradient }}">
+        {{-- Branded fallback cover as the base layer — shown when there's no poster OR a hotlinked one
+             is dead/blocked (onerror drops the <img>), so a card is never a blank box. --}}
+        <div class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center">
+            <img src="{{ asset('assets/netwix-icon.png') }}" alt="" class="h-9 w-9 opacity-40">
+            <span class="line-clamp-2 text-[13px] font-semibold text-cream/80">{{ $content->title }}</span>
+        </div>
         @if ($content->poster_url)
             <img src="{{ $content->poster_url }}" alt="{{ $content->title }} โปสเตอร์" loading="lazy"
-                 referrerpolicy="no-referrer" onerror="this.style.display='none'"
+                 referrerpolicy="no-referrer" onerror="this.remove()"
                  class="absolute inset-0 h-full w-full object-cover object-top">
-        @else
-            <div class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center">
-                <img src="{{ asset('assets/netwix-icon.png') }}" alt="" class="h-9 w-9 opacity-40">
-                <span class="line-clamp-2 text-[13px] font-semibold text-cream/80">{{ $content->title }}</span>
-            </div>
         @endif
 
         <div class="absolute left-2 top-2 z-10 flex flex-col items-start gap-1">

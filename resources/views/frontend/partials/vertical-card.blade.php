@@ -8,14 +8,15 @@
      class="group block w-[132px] shrink-0 cursor-pointer sm:w-[150px] md:w-[168px]">
     <div class="relative aspect-[9/16] overflow-hidden rounded-xl ring-1 ring-white/5 transition group-hover:ring-2 group-hover:ring-white/25"
          style="background:{{ $content->gradient }}">
+        {{-- Branded fallback cover base layer — shown when there's no poster OR a hotlink is
+             dead/blocked (onerror drops the <img>), so the card never renders a blank box. --}}
+        <div class="absolute inset-0 flex items-center justify-center">
+            <img src="{{ asset('assets/netwix-icon.png') }}" alt="" class="h-12 w-12 opacity-30">
+        </div>
         @if ($content->poster_url)
             <img src="{{ $content->poster_url }}" alt="{{ $content->title }}" loading="lazy"
-                 referrerpolicy="no-referrer" onerror="this.style.display='none'"
+                 referrerpolicy="no-referrer" onerror="this.remove()"
                  class="absolute inset-0 h-full w-full object-cover object-top">
-        @else
-            <div class="absolute inset-0 flex items-center justify-center">
-                <img src="{{ asset('assets/netwix-icon.png') }}" alt="" class="h-12 w-12 opacity-30">
-            </div>
         @endif
         @if ($content->preview_url)
             <video x-ref="clip" aria-hidden="true" data-src="{{ $content->preview_url }}"
