@@ -80,10 +80,11 @@ class FacebookPublisher
         }
 
         $caption = (string) ($clip->caption ?? '');
+        $targets = array_unique($targets);
         $results = [];
         $errors = [];
 
-        foreach (array_unique($targets) as $target) {
+        foreach ($targets as $target) {
             try {
                 $id = $target === 'reels'
                     ? $this->postReel($filePath, $caption)
@@ -95,6 +96,21 @@ class FacebookPublisher
                 }
             } catch (Throwable $e) {
                 $errors[] = $target.':'.mb_substr($e->getMessage(), 0, 80);
+            }
+        }
+
+        // Reels is the fussy surface: it enforces duration/resolution limits the feed doesn't, so a
+        // clip can be perfectly postable and still be refused as a Reel. Rather than leave it
+        // unposted — the one outcome nobody wants from a clip we already cut — put it on the feed.
+        // Only when feed wasn't asked for anyway (else it already ran above, success or not).
+        if (in_array('reels', $targets, true) && ! isset($results['reels']) && ! in_array('feed', $targets, true)) {
+            try {
+                if ($id = $this->postFeedVideo($fileUrl, $caption)) {
+                    $results['feed'] = $id;
+                    $errors[] = 'reels_failed_posted_to_feed';
+                }
+            } catch (Throwable $e) {
+                $errors[] = 'feed_fallback:'.mb_substr($e->getMessage(), 0, 60);
             }
         }
 

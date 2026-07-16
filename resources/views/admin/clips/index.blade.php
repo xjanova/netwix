@@ -232,6 +232,10 @@ function clipCutter() {
             if (exact) return exact;
             // Campaign failures arrive as raw Graph text ("facebook post failed: reels:HTTP 422",
             // "cut_failed:download_failed") — translate the ones we actually see.
+            // The fallback note must be tested FIRST: it rides along with the reels error it
+            // recovered from, so a looser reels test would report a failure we already fixed.
+            if (/reels_failed_posted_to_feed/.test(r)) return 'Reels ไม่รับคลิปนี้ — โพสต์ลงฟีดแทนให้แล้ว';
+            if (/feed_fallback:/.test(r)) return 'Reels ไม่ผ่าน และลงฟีดสำรองก็ไม่ผ่าน: ' + r.replace(/.*feed_fallback:/, '');
             if (/reels:HTTP 422|FileUrlProcessingError|robots/i.test(r)) return 'อัปโหลด Reels ไม่ผ่าน (แก้แล้ว — กดโพสต์ใหม่ได้)';
             if (/cut_failed/i.test(r)) return 'ตัดคลิปไม่สำเร็จ — กด “↻ ตัดใหม่”';
             if (/reels:/i.test(r)) return 'Reels ไม่ผ่าน: ' + r.replace(/.*reels:/i, '');
