@@ -152,8 +152,10 @@ class ClipController extends Controller
                 'repost_count' => (int) ($c->meta['repost_count'] ?? 0),
                 // A manual attempt's verdict wins — it's the newer, more specific one; otherwise
                 // fall back to the campaign's failure so an auto-post that died is still visible.
+                // NB: ->get(), not [$id] — Collection::offsetGet throws on a missing key, and most
+                // clips have no failed campaign row.
                 'post_error' => $c->meta['last_post_error']
-                    ?? ($c->posted_at ? null : $campaignErrors[$c->id]?->error),
+                    ?? ($c->posted_at ? null : $campaignErrors->get($c->id)?->error),
                 'post_partial' => (bool) ($c->meta['last_post_partial'] ?? false),
             ]);
 
