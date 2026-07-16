@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Episode;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
+use App\Support\HlsManifest;
 use App\Support\HlsSegment;
 use App\Support\PlaybackHealth;
 use Illuminate\Http\Request;
@@ -59,7 +60,9 @@ class StreamController extends Controller
             } catch (\Throwable $e) {
                 abort(504, 'upstream manifest unavailable');
             }
-            $body = $resp->body();
+            // Some players wrap the playlist (animeruka/animemami serves it as JSON-base64 in a .txt) —
+            // normalise that to a raw #EXTM3U body before the checks + rewrite below.
+            $body = HlsManifest::unwrap($resp->body());
 
             // Resolving can "succeed" yet hand back a dead link: some sources (getplay-cdn's token
             // gate, an expired signed URL) answer the manifest fetch with a short "Access Denied"

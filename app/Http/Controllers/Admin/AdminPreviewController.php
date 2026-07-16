@@ -8,6 +8,7 @@ use App\Models\SourceTitle;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
+use App\Support\HlsManifest;
 use App\Support\HlsSegment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -105,6 +106,8 @@ class AdminPreviewController extends Controller
         } catch (\Throwable $e) {
             abort(504, 'upstream manifest unavailable');
         }
+        // Unwrap a JSON-base64-wrapped playlist (animeruka/animemami) so QA preview plays it too.
+        $body = HlsManifest::unwrap($body);
         $base = $this->baseUrl($url);
 
         $out = collect(preg_split('/\r?\n/', $body))->map(function (string $line) use ($base, $ref) {
