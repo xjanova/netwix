@@ -106,7 +106,6 @@ class BrowseController extends Controller
         ];
 
         $rowSeed = random_int(1, 999999);
-        $baseCount = count($rows);
         foreach (Genre::orderBy('sort')->get() as $genre) {
             if (in_array($genre->id, $animeIds, true)) {
                 continue; // skip the umbrella genres — group by the real sub-genres instead
@@ -119,13 +118,17 @@ class BrowseController extends Controller
             }
         }
 
-        if (count($rows) === $baseCount) { // no sub-genre rows filled → one catch-all row
-            $rows[] = [
-                'title' => 'อนิเมะทั้งหมด',
-                'items' => Content::published()->where($isAnime)->with(['genres', 'previewEpisode'])
-                    ->inRandomOrder()->take(24)->get(),
-            ];
-        }
+        // Always end with a lazy "อนิเมะทั้งหมด" rail. The per-genre rows above only fill when anime carry
+        // real sub-genres, but anifume/animeruka expose only the umbrella genre — so without this the page
+        // is near-empty once anime108 (the only sub-genred anime source) is hidden (owner: อนิเมะเหลือน้อย
+        // /หมวดหาย). This slides through EVERY anime (lazy page 2+) and its "ดูทั้งหมด" opens the full grid.
+        $umbrella = Genre::whereIn('id', $animeIds)->orderBy('sort')->first();
+        $rows[] = [
+            'title' => 'อนิเมะทั้งหมด', 'en' => 'All Anime',
+            'items' => $this->rowQuery(null, null, 'anime', $rowSeed)->take(18)->get(),
+            'link' => $umbrella ? route('browse.genre', ['genre' => $umbrella, 'scope' => 'anime']) : null,
+            'lazy' => ['scope' => 'anime', 'seed' => $rowSeed],
+        ];
 
         return view('frontend.browse', [
             'heroSlides' => HeroBillboard::slides('anime'),   // rotates within อนิเมะ only
