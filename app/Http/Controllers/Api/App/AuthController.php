@@ -73,6 +73,13 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'error' => 'invalid_code'], 422);
         }
 
+        // The app shows a consent checkbox before opening the sign-in flow, so a
+        // completed exchange doubles as the consent event for accounts that
+        // pre-date the checkbox (or came in via social sign-up).
+        if ($user->terms_accepted_at === null) {
+            $user->forceFill(['terms_accepted_at' => now()])->save();
+        }
+
         $token = AppToken::issue($user, (string) $request->input('device', 'mobile'));
 
         return response()->json([

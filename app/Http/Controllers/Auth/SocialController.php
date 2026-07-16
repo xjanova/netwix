@@ -102,6 +102,9 @@ class SocialController extends Controller
 
         if (! $user->exists) {
             $user->password = null; // social accounts have no local password
+            // Social sign-up pages state that continuing = accepting the terms
+            // (register view + app consent checkbox), so record it here.
+            $user->terms_accepted_at = now();
         }
         $user->save();
 

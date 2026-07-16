@@ -35,6 +35,7 @@ class RegisterController extends Controller
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'confirmed', Password::min(8)],
             'ref' => ['nullable', 'string', 'max:16'],
+            'accept_terms' => ['accepted'],
         ], [
             'name.required' => 'กรุณากรอกชื่อ',
             'email.required' => 'กรุณากรอกอีเมล',
@@ -42,6 +43,7 @@ class RegisterController extends Controller
             'password.required' => 'กรุณากรอกรหัสผ่าน',
             'password.confirmed' => 'การยืนยันรหัสผ่านไม่ตรงกัน',
             'password.min' => 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร',
+            'accept_terms.accepted' => 'กรุณายอมรับข้อตกลงการใช้งานและนโยบายความเป็นส่วนตัวก่อนสมัคร',
         ]);
 
         $user = User::create([
@@ -49,6 +51,8 @@ class RegisterController extends Controller
             'email' => $data['email'],
             'password' => Hash::make($data['password']),
         ]);
+        // The checkbox above is the consent event — record when it happened.
+        $user->forceFill(['terms_accepted_at' => now()])->save();
 
         // Give every new account a starter profile.
         $user->profiles()->create([

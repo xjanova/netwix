@@ -28,7 +28,16 @@
 
             @include('partials.turnstile')
 
-            <button type="submit" class="btn-brand mt-5 w-full py-3.5 text-base">สร้างบัญชี</button>
+            <label class="mt-4 flex items-start gap-2.5 text-[13px] leading-relaxed text-cream/70">
+                <input type="checkbox" name="accept_terms" value="1" required @checked(old('accept_terms')) class="mt-0.5 h-4 w-4 shrink-0 accent-brand">
+                <span>ฉันได้อ่านและยอมรับ
+                    <a href="{{ route('terms') }}" target="_blank" class="font-semibold text-cream underline">ข้อตกลงการใช้งาน</a>
+                    และ
+                    <a href="{{ route('privacy') }}" target="_blank" class="font-semibold text-cream underline">นโยบายความเป็นส่วนตัว</a>
+                </span>
+            </label>
+
+            <button type="submit" class="btn-brand mt-4 w-full py-3.5 text-base">สร้างบัญชี</button>
         @else
             <p class="mb-1 mt-3 text-center text-[15px] text-cream/70">สมัครและเข้าสู่ระบบด้วยบัญชีโซเชียล</p>
             @if ($errors->any())
@@ -37,6 +46,13 @@
         @endif
 
         @include('auth.partials.social')
+
+        <p class="mt-4 text-center text-[12px] leading-relaxed text-cream/45">
+            การสมัครด้วยบัญชีโซเชียลถือว่าคุณยอมรับ
+            <a href="{{ route('terms') }}" target="_blank" class="underline">ข้อตกลงการใช้งาน</a>
+            และ
+            <a href="{{ route('privacy') }}" target="_blank" class="underline">นโยบายความเป็นส่วนตัว</a>
+        </p>
 
         @unless ($emailReg ?? true)
             @unless (filled(config('services.google.client_id')) || filled(config('services.line.client_id')))

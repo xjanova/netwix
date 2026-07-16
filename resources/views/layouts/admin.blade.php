@@ -20,6 +20,8 @@
         ['route' => 'admin.clip-campaigns.index', 'label' => 'แคมเปญคลิปอัตโนมัติ'],
         ['route' => 'admin.genres.index', 'label' => 'หมวดหมู่'],
         ['route' => 'admin.announcements.index', 'label' => 'ข่าวสารหน้าแรก'],
+        ['route' => 'admin.app-notifications.index', 'label' => 'แจ้งเตือนในแอป'],
+        ['route' => 'admin.app-banners.index', 'label' => 'แบนเนอร์ในแอป'],
         ['route' => 'admin.comments.index', 'label' => 'ความคิดเห็น'],
         ['route' => 'admin.users.index', 'label' => 'สมาชิก'],
         ['route' => 'admin.settings.index', 'label' => 'ตั้งค่า / เชื่อมต่อ'],
@@ -30,6 +32,8 @@
         ['route' => 'admin.analytics', 'label' => 'วิเคราะห์ข้อมูล'],
         ['route' => 'admin.seo', 'label' => 'SEO / ทราฟฟิก'],
         ['route' => 'admin.downloads.index', 'label' => 'ยอดดาวน์โหลดแอป'],
+        ['route' => 'admin.app-stats.index', 'label' => 'สถิติแอป (อุปกรณ์)'],
+        ['route' => 'admin.legal.index', 'label' => 'นโยบาย / ข้อตกลง'],
         ['route' => 'admin.fb-dm.index', 'label' => 'DM ชวนดูหนัง (Facebook)'],
         ['route' => 'admin.debug.index', 'label' => 'Debug แอป'],
     ];

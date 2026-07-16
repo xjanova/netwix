@@ -325,6 +325,27 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::put('genres/{genre}', [Admin\GenreController::class, 'update'])->name('genres.update');
     Route::delete('genres/{genre}', [Admin\GenreController::class, 'destroy'])->name('genres.destroy');
 
+    // Mobile-app broadcast notifications ("แจ้งเตือนในแอป") — the app inbox reads these.
+    Route::get('app-notifications', [Admin\AppNotificationController::class, 'index'])->name('app-notifications.index');
+    Route::post('app-notifications', [Admin\AppNotificationController::class, 'store'])->name('app-notifications.store');
+    Route::put('app-notifications-fcm', [Admin\AppNotificationController::class, 'saveFcm'])->name('app-notifications.fcm');
+    Route::put('app-notifications/{notification}', [Admin\AppNotificationController::class, 'update'])->name('app-notifications.update');
+    Route::delete('app-notifications/{notification}', [Admin\AppNotificationController::class, 'destroy'])->name('app-notifications.destroy');
+
+    // Mobile-app home-screen promo banners ("แบนเนอร์ในแอป").
+    Route::get('app-banners', [Admin\AppBannerController::class, 'index'])->name('app-banners.index');
+    Route::post('app-banners', [Admin\AppBannerController::class, 'store'])->name('app-banners.store');
+    Route::put('app-banners/{banner}', [Admin\AppBannerController::class, 'update'])->name('app-banners.update');
+    Route::post('app-banners/{banner}/toggle', [Admin\AppBannerController::class, 'toggle'])->name('app-banners.toggle');
+    Route::delete('app-banners/{banner}', [Admin\AppBannerController::class, 'destroy'])->name('app-banners.destroy');
+
+    // Device statistics collected by the app's telemetry ping (read-only).
+    Route::get('app-stats', [Admin\AppStatsController::class, 'index'])->name('app-stats.index');
+
+    // Legal pages editor (terms + privacy shown on web AND inside the app).
+    Route::get('legal', [Admin\LegalController::class, 'index'])->name('legal.index');
+    Route::put('legal', [Admin\LegalController::class, 'update'])->name('legal.update');
+
     Route::get('announcements', [Admin\AnnouncementController::class, 'index'])->name('announcements.index');
     Route::post('announcements', [Admin\AnnouncementController::class, 'store'])->name('announcements.store');
     Route::put('announcements/{announcement}', [Admin\AnnouncementController::class, 'update'])->name('announcements.update');

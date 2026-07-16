@@ -1,17 +1,21 @@
 <?php
 
+use App\Http\Controllers\Api\App\AccountController;
 use App\Http\Controllers\Api\App\AdController;
 use App\Http\Controllers\Api\App\AffiliateController;
 use App\Http\Controllers\Api\App\AuthController;
+use App\Http\Controllers\Api\App\BannerController;
 use App\Http\Controllers\Api\App\CatalogController;
 use App\Http\Controllers\Api\App\DebugController;
 use App\Http\Controllers\Api\App\FeedbackController;
 use App\Http\Controllers\Api\App\LibraryController;
 use App\Http\Controllers\Api\App\MembershipController;
 use App\Http\Controllers\Api\App\MissionController;
+use App\Http\Controllers\Api\App\NotificationController;
 use App\Http\Controllers\Api\App\ProfileController;
 use App\Http\Controllers\Api\App\ReleaseController;
 use App\Http\Controllers\Api\App\SourceController;
+use App\Http\Controllers\Api\App\TelemetryController;
 use App\Http\Controllers\Api\App\WalletController;
 use App\Http\Controllers\Api\FacebookWebhookController;
 use Illuminate\Support\Facades\Route;
@@ -47,6 +51,16 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
         // Pre-roll ad for a title — same campaigns as the web player. Optional
         // auth so hide_for_pro can be honoured for a signed-in Pro member.
         Route::get('content/{content:id}/ad', [AdController::class, 'preroll']);
+
+        // Home-screen promo banners — optional auth so hide_for_pro works.
+        Route::get('banners', [BannerController::class, 'index']);
+
+        // In-app notification inbox (admin broadcasts). Public: guests see news too.
+        Route::get('notifications', [NotificationController::class, 'index']);
+
+        // Device statistics, reported once per launch (disclosed in the privacy
+        // policy). Optional auth links the install to the account when signed in.
+        Route::post('telemetry', [TelemetryController::class, 'store'])->middleware('throttle:10,1');
     });
 
     Route::get('episodes/{episode}/source', [SourceController::class, 'source']);
@@ -78,6 +92,9 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
     Route::middleware('auth.apptoken')->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
+
+        // Danger zone: self-service account deletion (requires confirm=DELETE).
+        Route::delete('account', [AccountController::class, 'destroy'])->middleware('throttle:5,1');
 
         // Profiles + kids mode. Selecting binds the profile to THIS device's
         // token (the web uses the session), so the adult gate can't be bypassed

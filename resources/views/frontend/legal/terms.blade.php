@@ -10,6 +10,9 @@
         <p class="mt-2 text-sm text-cream/45">ปรับปรุงล่าสุด: {{ $updated }}</p>
 
         <div class="nx-legal mt-8">
+            @if ($custom ?? null)
+                {!! $custom !!}
+            @else
             <p>
                 ข้อตกลงและเงื่อนไขการใช้งานนี้ (“ข้อตกลง”) เป็นสัญญาระหว่างคุณกับ NetWix (“เรา”)
                 โปรดอ่านโดยละเอียด การสมัครสมาชิกหรือใช้บริการ netwix.online ถือว่าคุณยอมรับข้อตกลงนี้ทั้งหมด
@@ -93,6 +96,7 @@
                 <a href="mailto:{{ config('services.support.email') }}">{{ config('services.support.email') }}</a>
                 หรือผ่าน<a href="{{ route('help') }}">ศูนย์ช่วยเหลือ</a>
             </p>
+            @endif
         </div>
     </div>
 
