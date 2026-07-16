@@ -6,6 +6,7 @@
         ['label' => 'อนิเมะ', 'en' => 'Anime', 'route' => 'browse.anime'],
         ['label' => 'ซีรีส์แนวตั้ง', 'en' => 'Shorts', 'route' => 'browse.vertical'],
         ['label' => 'รายการของฉัน', 'en' => 'My List', 'route' => 'browse.mylist'],
+        ['label' => '📱 ดาวน์โหลดแอป', 'en' => 'Get the app', 'route' => 'download'],
     ];
 @endphp
 <nav
@@ -82,6 +83,7 @@
                     <a href="{{ route('account') }}" class="block px-3.5 py-2.5 text-[13px] text-cream/60 border-t border-white/10 hover:text-cream">บัญชี / ชวนเพื่อนรับ Pro</a>
                     <a href="{{ route('account.settings') }}" class="block px-3.5 py-2.5 text-[13px] text-cream/60 hover:text-cream">จัดการโปรไฟล์ / ข้อมูลส่วนตัว</a>
                     <a href="{{ route('missions.index') }}" class="block px-3.5 py-2.5 text-[13px] text-cream/60 hover:text-cream">🪙 ภารกิจ รับเหรียญ</a>
+                    <a href="{{ route('download') }}" class="block px-3.5 py-2.5 text-[13px] text-cream/60 hover:text-cream">📱 ดาวน์โหลดแอป Android</a>
                     <a href="{{ route('profiles.index') }}" class="block px-3.5 py-2.5 text-[13px] text-cream/60 border-t border-white/10 hover:text-cream">จัดการโปรไฟล์</a>
                     @if (auth()->user()->isAdmin())
                         <a href="{{ route('admin.dashboard') }}" class="block px-3.5 py-2.5 text-[13px] text-cream/60 border-t border-white/10 hover:text-cream">แผงผู้ดูแล</a>
