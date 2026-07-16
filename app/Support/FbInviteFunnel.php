@@ -60,17 +60,29 @@ class FbInviteFunnel
      * Which title a webhook post_id is about. Fast path = the story id we stored at post time;
      * fallback resolves the post's underlying video id via the Graph API and matches that. Null
      * when the post isn't one of ours (someone commented on a non-clip post).
+     *
+     * remote_story_id/remote_post_id hold only the NEWEST post, so a re-posted clip's earlier
+     * posts are matched via the id history PostClipToFacebook archives in meta. Without that,
+     * a comment on the older post would resolve to nothing and never get its invite.
      */
     public function contentForPost(string $postId, FacebookMessenger $fb): ?Content
     {
-        $clip = MarketingClip::where('remote_story_id', $postId)->first();
+        $clip = MarketingClip::where('remote_story_id', $postId)
+            ->orWhereJsonContains('meta->story_ids', $postId)
+            ->first();
 
         if (! $clip) {
             // Older post with no stored story id → ask Graph for its video id, match remote_post_id.
             $videoId = $fb->resolvePostVideoId($postId);
             if ($videoId) {
-                $clip = MarketingClip::where('remote_post_id', $videoId)->first();
-                $clip?->update(['remote_story_id' => $postId]);   // memoise for next time
+                $clip = MarketingClip::where('remote_post_id', $videoId)
+                    ->orWhereJsonContains('meta->post_ids', $videoId)
+                    ->first();
+                // Memoise — but only onto a clip whose live post this actually is. Writing an old
+                // post's story id over a re-posted clip's current one would break the fast path.
+                if ($clip && $clip->remote_post_id === $videoId) {
+                    $clip->update(['remote_story_id' => $postId]);
+                }
             }
         }
 

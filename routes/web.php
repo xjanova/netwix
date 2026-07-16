@@ -238,6 +238,8 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::put('clips/{clip}', [Admin\ClipController::class, 'update'])->name('clips.update');
     Route::post('clips/{clip}/caption', [Admin\ClipController::class, 'caption'])->name('clips.caption');
     Route::post('clips/{clip}/retry', [Admin\ClipController::class, 'retry'])->name('clips.retry');
+    // Manual publish/re-publish of a finished clip (the only way a hand-cut clip reaches the page).
+    Route::post('clips/{clip}/repost', [Admin\ClipController::class, 'repost'])->name('clips.repost');
     Route::delete('clips/{clip}', [Admin\ClipController::class, 'destroy'])->name('clips.destroy');
 
     // Clip marketing CAMPAIGNS (Phase 3) — each campaign auto-picks a title on its schedule,

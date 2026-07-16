@@ -4,10 +4,12 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateMarketingClip;
+use App\Jobs\PostClipToFacebook;
 use App\Models\Content;
 use App\Models\Episode;
 use App\Models\MarketingClip;
 use App\Support\CaptionWriter;
+use App\Support\FacebookPublisher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -131,6 +133,12 @@ class ClipController extends Controller
                 'caption' => $c->caption,
                 'scheduled_at' => $c->scheduled_at?->toDateTimeString(),
                 'posted_at' => $c->posted_at?->toDateTimeString(),
+                // Repost UI: purged clips keep status=ready but lose their file, and a repost's
+                // only visible outcome is posted_at moving — so both must reach the gallery.
+                'purged' => (bool) $c->files_purged_at,
+                'repost_count' => (int) ($c->meta['repost_count'] ?? 0),
+                'post_error' => $c->meta['last_post_error'] ?? null,
+                'post_partial' => (bool) ($c->meta['last_post_partial'] ?? false),
             ]);
 
         return response()->json(['clips' => $clips]);
@@ -184,6 +192,77 @@ class ClipController extends Controller
         GenerateMarketingClip::dispatch($clip->id, $batch)->onQueue('clips');
 
         return response()->json(['batch' => $batch]);
+    }
+
+    /**
+     * Publish a finished clip to the Facebook page on the admin's explicit say-so — the first
+     * time, or again ("รีโพส"). Campaign clips auto-post themselves; a hand-cut clip has no
+     * campaign, so without this button it could never reach the page at all.
+     *
+     * Refuses rather than degrades: an unconnected page would make the publisher fall back to a
+     * silent dry-run, and a purged clip would fail deep in the queue as `no_file_url`. Both are
+     * knowable here, so the admin is told now instead of watching a button do nothing.
+     */
+    public function repost(Request $request, MarketingClip $clip, FacebookPublisher $fb): JsonResponse
+    {
+        $data = $request->validate(['known_posted_at' => ['nullable', 'string']]);
+
+        // The gallery stops polling once nothing is cutting, so its rows can be arbitrarily stale —
+        // a campaign may have published this very clip since the page loaded. The admin would then
+        // be confirming "โพสต์" against a clip that is already live, and get a silent duplicate.
+        // So: only act if the admin's screen agrees with the DB, else make them look again.
+        $posted = $clip->posted_at?->toDateTimeString();
+        if ($posted !== ($data['known_posted_at'] ?? null)) {
+            return response()->json([
+                'stale' => true,
+                'error' => $posted
+                    ? "คลิปนี้ถูกโพสต์ไปแล้วเมื่อ {$posted} — หน้าจอยังไม่อัปเดต\nรีเฟรชแล้วกด “รีโพส” อีกครั้งถ้าต้องการโพสต์ซ้ำจริงๆ"
+                    : 'สถานะคลิปเปลี่ยนไปแล้ว — รีเฟรชหน้าก่อนแล้วลองใหม่',
+            ], 409);
+        }
+
+        if (! $fb->enabled()) {
+            return response()->json([
+                'error' => 'ยังไม่ได้เชื่อมต่อ Facebook — ไปเชื่อมต่อเพจที่หน้าตั้งค่าก่อน',
+            ], 422);
+        }
+        if (! $clip->is_ready) {
+            return response()->json([
+                'error' => $clip->files_purged_at
+                    ? 'ไฟล์คลิปถูกลบไปแล้ว (ระบบเก็บไฟล์ 15 วัน) — กด “↻ ตัดใหม่” ให้สร้างไฟล์ก่อน แล้วค่อยโพสต์'
+                    : 'คลิปนี้ยังไม่พร้อมโพสต์',
+            ], 422);
+        }
+
+        // Belt-and-braces against a burst of presses. Today the `clips-post` worker is single and
+        // withoutOverlapping, so the job's own guard already serialises them; this holds even if
+        // that ever goes concurrent. It expires on its own — so the message says "just sent one",
+        // not "still posting", which it cannot know.
+        if (! Cache::lock("clips:repost:{$clip->id}", 180)->get()) {
+            return response()->json(['error' => 'เพิ่งสั่งโพสต์คลิปนี้ไปเมื่อครู่ — รอสักครู่แล้วลองใหม่'], 429);
+        }
+
+        $meta = $clip->meta ?? [];
+        // Stale verdict from a previous attempt → the page would call THIS run failed on sight.
+        unset($meta['last_post_error'], $meta['last_post_partial']);
+
+        // A 9:16 cut exists to be a Reel; anything else belongs in the feed. Only fills a blank —
+        // campaign clips carry their campaign's targets, and the admin's own edit is kept.
+        $clip->update([
+            'meta' => $meta,
+            'post_targets' => blank($clip->post_targets)
+                ? ($clip->aspect === '9:16' ? 'reels' : 'feed')
+                : $clip->post_targets,
+        ]);
+
+        PostClipToFacebook::dispatch($clip->id, now()->toIso8601String())->onQueue('clips-post');
+
+        return response()->json([
+            'ok' => true,
+            'repost' => (bool) $clip->posted_at,
+            'targets' => $clip->post_targets,
+            'page' => $fb->pageName(),
+        ]);
     }
 
     public function destroy(MarketingClip $clip): JsonResponse

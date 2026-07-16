@@ -161,10 +161,29 @@
                                         <span x-show="!c._cap">✨ AI เขียนให้</span><span x-show="c._cap" x-cloak>⏳…</span>
                                     </button>
                                     <button @click="saveCaption(c)" class="rounded-md bg-white/10 px-2.5 py-1 hover:bg-white/15">บันทึก</button>
-                                    <a :href="c.file_url" download class="rounded-md bg-white/10 px-2.5 py-1 hover:bg-white/15">⬇ โหลด</a>
+                                    {{-- Publish / re-publish. Hidden once the mp4 is purged (15 วัน) — there'd be
+                                         nothing for Facebook to fetch; the hint below says so instead. --}}
+                                    <template x-if="c.file_url">
+                                        <button @click="repost(c)" :disabled="c._posting"
+                                                class="rounded-md bg-[#4ade80]/15 px-2.5 py-1 text-[#4ade80] hover:bg-[#4ade80]/25 disabled:opacity-40">
+                                            <span x-show="!c._posting" x-text="c.posted_at ? '↗ รีโพส' : '↗ โพสต์'"></span>
+                                            <span x-show="c._posting" x-cloak>⏳ กำลังโพสต์…</span>
+                                        </button>
+                                    </template>
+                                    <template x-if="c.file_url">
+                                        <a :href="c.file_url" download class="rounded-md bg-white/10 px-2.5 py-1 hover:bg-white/15">⬇ โหลด</a>
+                                    </template>
                                     <button @click="retry(c)" class="rounded-md bg-white/10 px-2.5 py-1 hover:bg-white/15">↻ ตัดใหม่</button>
                                     <button @click="del(c)" class="ml-auto text-[#ff6b81]/70 hover:text-[#ff6b81]">ลบ</button>
                                 </div>
+                                <div x-show="c.purged && !c.file_url" x-cloak class="text-[11px] text-cream/40">
+                                    ไฟล์ถูกลบแล้ว (เก็บ 15 วัน) — กด “↻ ตัดใหม่” ถ้าจะโพสต์อีก
+                                </div>
+                                <div x-show="c.repost_count" x-cloak class="text-[11px] text-cream/40"
+                                     x-text="'รีโพสไปแล้ว ' + c.repost_count + ' ครั้ง'"></div>
+                                <div x-show="c.post_error" x-cloak class="text-[11px]"
+                                     :class="c.post_partial ? 'text-[#fbbf24]' : 'text-[#ff6b81]'"
+                                     x-text="(c.post_partial ? '⚠ โพสต์ขึ้นบางช่องทาง: ' : '✗ โพสต์ไม่สำเร็จ: ') + postErrText(c.post_error)"></div>
                             </div>
                         </template>
                         <template x-if="c.status === 'failed'">
@@ -204,6 +223,10 @@ function clipCutter() {
         reasonText(r) {
             return { no_source: 'ไม่พบแหล่งวิดีโอ', download_failed: 'ดาวน์โหลดไม่ได้', too_large: 'ไฟล์ใหญ่เกิน',
                      ffmpeg_failed: 'ตัด/แปลงไม่ได้', error: 'ผิดพลาด' }[r] || (r || 'ผิดพลาด');
+        },
+        postErrText(r) {
+            return { fb_not_connected: 'เพจหลุดการเชื่อมต่อ', clip_not_ready: 'คลิปไม่พร้อม',
+                     no_file_url: 'ไม่พบไฟล์คลิป', post_failed: 'เพจปฏิเสธ' }[r] || (r || 'ผิดพลาด');
         },
 
         async searchTitle() {
@@ -245,11 +268,17 @@ function clipCutter() {
         async refresh() {
             try {
                 const res = await this.req('{{ route('admin.clips.list') }}', {});
-                // Preserve any caption the admin is typing right now — a poll must never
-                // clobber an in-progress edit with the (stale) server value.
-                const localCaps = {};
-                this.clips.forEach(c => { localCaps[c.id] = c.caption; });
-                this.clips = (res.clips || []).map(c => ({ ...c, caption: localCaps[c.id] ?? c.caption }));
+                // Carry local-only state across the poll: the caption being typed right now (a poll
+                // must never clobber an in-progress edit with the stale server value), and the
+                // in-flight flags — a rebuilt row would otherwise re-enable a busy button.
+                const local = {};
+                this.clips.forEach(c => { local[c.id] = { caption: c.caption, _cap: c._cap, _posting: c._posting }; });
+                this.clips = (res.clips || []).map(c => ({
+                    ...c,
+                    caption: local[c.id]?.caption ?? c.caption,
+                    _cap: local[c.id]?._cap ?? false,
+                    _posting: local[c.id]?._posting ?? false,
+                }));
             } catch (e) {}
         },
 
@@ -278,10 +307,15 @@ function clipCutter() {
         async saveCaption(c) {
             try { await this.send('{{ url('admin/clips') }}/' + c.id, 'PUT', { caption: c.caption || '' }); } catch (e) {}
         },
+        // Flags are re-found by id, never held on `c`: a poll landing mid-request rebuilds the row
+        // objects, and clearing the flag on the detached one would leave the button spinning forever.
         async writeCaption(c) {
-            c._cap = true;
-            try { const res = await this.post('{{ url('admin/clips') }}/' + c.id + '/caption', {}); if (res.caption) c.caption = res.caption; }
-            catch (e) {} finally { c._cap = false; }
+            this.flag(c.id, '_cap', true);
+            try {
+                const res = await this.post('{{ url('admin/clips') }}/' + c.id + '/caption', {});
+                if (res.caption) this.flag(c.id, 'caption', res.caption);
+            }
+            catch (e) {} finally { this.flag(c.id, '_cap', false); }
         },
         async retry(c) {
             try { const res = await this.post('{{ url('admin/clips') }}/' + c.id + '/retry', {}); this.batch = res.batch; }
@@ -289,6 +323,49 @@ function clipCutter() {
             c.status = 'pending';
             await this.refresh();
             if (!this.watching) this.watch();
+        },
+        // Publish / re-publish to the page. Posting is public and can't be undone from here, so it
+        // always asks first — and says out loud when it's the second time.
+        async repost(c) {
+            if (c._posting) return;
+            let msg = c.posted_at
+                ? 'คลิปนี้โพสต์ไปแล้วเมื่อ ' + c.posted_at + '\n\nโพสต์ซ้ำขึ้นเพจอีกครั้ง?'
+                : 'โพสต์คลิปนี้ขึ้นเพจ Facebook?';
+            if (!(c.caption || '').trim()) msg += '\n\n⚠ ยังไม่มีแคปชัน — โพสต์จะไม่มีข้อความ';
+            if (!confirm(msg)) return;
+
+            const before = c.posted_at;
+            this.flag(c.id, '_posting', true);
+            let res;
+            try { res = await this.post('{{ url('admin/clips') }}/' + c.id + '/repost', { known_posted_at: before || null }); }
+            catch (e) { this.flag(c.id, '_posting', false); alert('สั่งโพสต์ไม่สำเร็จ ลองใหม่อีกครั้ง'); return; }
+            if (!res || res.error) {
+                this.flag(c.id, '_posting', false);
+                alert(res?.error || 'สั่งโพสต์ไม่สำเร็จ');
+                if (res?.stale) await this.refresh();   // re-label the button to the truth it just told us
+                return;
+            }
+            await this.awaitPost(c.id, before);
+            this.flag(c.id, '_posting', false);
+        },
+        flag(id, k, v) { const c = this.clips.find(x => x.id === id); if (c) c[k] = v; },
+        /**
+         * A repost leaves status at "ready", so the batch watcher can't see it — the only tells are
+         * posted_at moving or an error landing. The wait covers the worst realistic case: the
+         * clips-post worker runs on a one-minute tick, and a Reel is a 3-phase upload. Giving up
+         * only stops watching — the job itself runs on, and the next refresh shows the result.
+         */
+        async awaitPost(id, before) {
+            for (let i = 0; i < 80; i++) {          // ~4 นาที
+                await sleep(3000);
+                await this.refresh();
+                const c = this.clips.find(x => x.id === id);
+                if (!c) return;
+                // posted_at first: a partial success (Reel ok, feed rejected) sets BOTH, and it did
+                // go live — the error line on the card says the rest without crying failure.
+                if (c.posted_at !== before) return;
+                if (c.post_error) { alert('โพสต์ไม่สำเร็จ: ' + this.postErrText(c.post_error)); return; }
+            }
         },
         async del(c) {
             if (!confirm('ลบคลิปนี้?')) return;
