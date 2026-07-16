@@ -114,6 +114,7 @@
                @timeupdate="resume(); marks()"
                @ended="onEnded()"
                @waiting="stall()" @stalled="stall()"
+               @seeked="_lastT = $refs.video.currentTime; _stuck = 0"
                @playing="resume(); maybeCapture()" @canplay="resume()" @loadeddata="resume()" x-on:error="resume()"
                @volumechange="if (! $refs.video.muted) forcedMute = false"
                class="h-full w-full bg-black object-contain"></video>
@@ -352,11 +353,18 @@
             // the same source and seek back. Budget of 3 per stuck stretch; refills once frames advance.
             watchdog() {
                 const v = this.$refs.video;
-                if (!v || v.paused || v.ended || !v.duration) { this._stuck = 0; return; }
+                // Paused/ended/mid-seek → not a stall; re-baseline so the next check measures from here.
+                if (!v || v.paused || v.ended || !v.duration || v.seeking) { this._stuck = 0; if (v) this._lastT = v.currentTime; return; }
                 if (v.currentTime > this._lastT + 0.25) {          // advancing → healthy
                     this._lastT = v.currentTime; this._stuck = 0; this._reloads = 0; return;
                 }
-                this._stuck++;                                     // not moving while it should be
+                // currentTime jumped BACKWARD → the viewer seeked back (owner: เลื่อนตำแหน่งไปๆมาๆ). That's
+                // not a stall, so re-baseline instead of counting it stuck (which used to fire a needless
+                // hardReload → re-mute). A genuine stall keeps currentTime ~equal to _lastT, not below it.
+                if (v.currentTime < this._lastT - 0.25) {
+                    this._lastT = v.currentTime; this._stuck = 0; return;
+                }
+                this._stuck++;                                     // truly not moving while it should be
                 if (this._stuck >= 2 && this._reloads < 3) {       // ~12s genuinely stuck
                     this._stuck = 0; this._reloads++;
                     this.hardReload();
@@ -366,15 +374,18 @@
                 const v = this.$refs.video;
                 if (!v || !this._url) return;
                 const t = v.currentTime || 0;
+                const wasMuted = v.muted;                          // keep the viewer's sound choice across the reload
                 this.stall();                                      // show the connecting loader
                 window.nxAttachVideo(v, this._url, this.reportUrl);
                 const seekBack = () => {
                     v.removeEventListener('loadedmetadata', seekBack);
+                    try { v.muted = wasMuted; } catch (e) {}
                     try { if (t > 1 && isFinite(v.duration)) v.currentTime = Math.max(0, t - 1); } catch (e) {}
-                    this.tryPlay(v);
+                    this.tryPlay(v, false);                        // preserve their sound — never fall back to muted here
                 };
                 v.addEventListener('loadedmetadata', seekBack);
-                this.tryPlay(v);
+                try { v.muted = wasMuted; } catch (e) {}
+                this.tryPlay(v, false);
             },
 
             async load() {
@@ -431,9 +442,12 @@
             // sits black ("player พยายามเล่นแต่ไม่มีภาพ"). So: if the sound autoplay is refused, retry
             // MUTED (always allowed) so the picture actually appears; the native controls let the user
             // unmute. Mirrors the vertical player, which already does this and thus plays fine on iPad.
-            tryPlay(v) {
+            // allowMutedFallback: only the FIRST autoplay (iPad blocks sound-autoplay) may drop to muted.
+            // A mid-playback reload (hardReload) passes false so a stall never steals the viewer's sound.
+            tryPlay(v, allowMutedFallback = true) {
                 const p = v.play?.();
                 if (p && p.catch) p.catch(() => {
+                    if (! allowMutedFallback) { v.play?.().catch(() => {}); return; }
                     // Sound-autoplay refused → play muted so a picture appears, and raise the pill so the
                     // silent start isn't a mystery. If even muted play is refused we leave the pill off.
                     v.muted = true;
