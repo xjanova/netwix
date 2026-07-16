@@ -370,6 +370,60 @@ window.syncer = () => ({
     @endforeach
 </div>
 
+{{-- Per-source visibility — flip a whole source off when it goes down (owner: บางทีแหล่งล่มทั้งหมด
+     จะได้ปิด/เปิดเองจากแอดมิน). Hiding unpublishes ALL its titles at once + stops future imports from
+     publishing; showing republishes them. --}}
+<div class="mb-5 nx-card p-4" x-data="sourceVis()">
+    <div class="mb-1 flex flex-wrap items-center gap-2">
+        <span class="font-semibold text-cream/80">👁 การแสดงผลแหล่ง</span>
+        <span class="text-xs text-cream/40">ปิดเมื่อแหล่งล่มทั้งหมด — ซ่อนหนังทุกเรื่องของแหล่งนั้นทันที แล้วเปิดคืนได้เมื่อกลับมาปกติ</span>
+    </div>
+    <div x-show="msg" x-cloak x-transition class="my-2 rounded-lg bg-success/10 px-3 py-2 text-sm text-success" x-text="msg"></div>
+    <div class="mt-2 flex flex-wrap gap-2">
+        @foreach ($sources as $s)
+            <div class="flex items-center gap-2.5 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2 text-sm"
+                 :class="hiddenMap['{{ $s['id'] }}'] ? 'opacity-70' : ''">
+                <span class="font-medium">{{ $s['name'] }}</span>
+                <span class="text-xs text-cream/40"><span x-text="(pub['{{ $s['id'] }}'] ?? {{ $s['published'] }}).toLocaleString()"></span> เผยแพร่</span>
+                <button type="button" @click="toggle('{{ $s['id'] }}')" :disabled="busy['{{ $s['id'] }}']"
+                        :class="hiddenMap['{{ $s['id'] }}'] ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30' : 'bg-success/20 text-success hover:bg-success/30'"
+                        class="rounded-full px-3 py-1 text-xs font-semibold transition disabled:opacity-50">
+                    <span x-show="busy['{{ $s['id'] }}']" x-cloak>…</span>
+                    <span x-show="!busy['{{ $s['id'] }}']" x-text="hiddenMap['{{ $s['id'] }}'] ? '🚫 ซ่อนอยู่ — กดเพื่อแสดง' : '👁 แสดงอยู่ — กดเพื่อซ่อน'"></span>
+                </button>
+            </div>
+        @endforeach
+    </div>
+</div>
+@push('scripts')
+<script>
+    function sourceVis() {
+        return {
+            hiddenMap: @js($sources->pluck('hidden', 'id')),
+            pub: {},
+            busy: {},
+            msg: '',
+            urlFor(id) { return '{{ route('admin.import.source-visibility', ['source' => '__SRC__']) }}'.replace('__SRC__', id); },
+            async toggle(id) {
+                if (this.busy[id]) return;
+                this.busy[id] = true;
+                try {
+                    const r = await window.nxPost(this.urlFor(id), {});
+                    if (r && r.ok) {
+                        this.hiddenMap[id] = r.hidden;
+                        this.pub[id] = r.published;
+                        this.msg = r.message;
+                        setTimeout(() => { this.msg = ''; }, 6000);
+                    }
+                } catch (e) { /* leave state as-is on error */ } finally {
+                    this.busy[id] = false;
+                }
+            },
+        };
+    }
+</script>
+@endpush
+
 {{-- NetWix resolves signed CDN links itself at watch time, so importing needs no home downloader.
      Hive Download is now optional (only for pre-downloading preview files). --}}
 <div class="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-success/25 bg-success/[0.06] px-4 py-3 text-sm">

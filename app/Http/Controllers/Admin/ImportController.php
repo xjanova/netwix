@@ -40,11 +40,14 @@ class ImportController extends Controller
             ->paginate(24)
             ->withQueryString();
 
+        $hiddenSources = $this->hiddenSources();
         $sources = collect($this->registry->all())->map(fn ($s, $id) => [
             'id' => $id,
             'name' => $s->displayName(),
             'synced' => SourceTitle::where('source', $id)->count(),
             'imported' => SourceTitle::where('source', $id)->imported()->count(),
+            'hidden' => in_array($id, $hiddenSources, true),
+            'published' => Content::withoutGlobalScopes()->where('source', $id)->where('is_published', true)->count(),
         ])->values();
 
         return view('admin.import.index', [
@@ -125,6 +128,59 @@ class ImportController extends Controller
         $onCount = collect($map)->where('enabled', true)->count();
 
         return back()->with('status', "บันทึกตารางเวลานำเข้าแยกตามแหล่งแล้ว — เปิดใช้งาน {$onCount} แหล่ง");
+    }
+
+    /**
+     * Toggle a whole SOURCE's visibility (owner: บางทีแหล่งล่มทั้งหมด อยากปิด/เปิดเองจากแอดมิน). Hiding
+     * adds it to the `hidden_sources` setting (so future imports stay unpublished too) AND unpublishes
+     * every one of its titles at once; showing removes it and republishes them. Returns the new state
+     * for a live UI update — no page reload.
+     */
+    public function toggleVisibility(Request $request, string $source): JsonResponse
+    {
+        abort_unless($this->registry->has($source), 404);
+
+        $nowHidden = ! in_array($source, $this->hiddenSources(), true);   // flip current state
+        $affected = $this->setSourceHidden($source, $nowHidden);
+        $published = Content::withoutGlobalScopes()->where('source', $source)->where('is_published', true)->count();
+
+        return response()->json([
+            'ok' => true,
+            'hidden' => $nowHidden,
+            'published' => $published,
+            'message' => $nowHidden
+                ? "ซ่อนแหล่งนี้แล้ว — หยุดเผยแพร่ {$affected} เรื่อง"
+                : "เปิดแสดงแหล่งนี้แล้ว — เผยแพร่ {$affected} เรื่อง",
+        ]);
+    }
+
+    /** @return string[] the sources currently flagged hidden (force-unpublished). */
+    private function hiddenSources(): array
+    {
+        return collect(explode(',', (string) Setting::get('hidden_sources', '')))
+            ->map(fn ($s) => trim($s))->filter()->values()->all();
+    }
+
+    /**
+     * Apply a source's hidden state: update the `hidden_sources` setting AND (un)publish all its
+     * titles. Hiding unpublishes everything; showing republishes titles that actually have episodes.
+     * Returns the number of titles whose publish flag changed.
+     */
+    private function setSourceHidden(string $source, bool $hidden): int
+    {
+        $list = collect($this->hiddenSources());
+        $list = $hidden ? $list->push($source)->unique() : $list->reject(fn ($s) => $s === $source);
+        Setting::write('hidden_sources', $list->unique()->values()->implode(','));
+
+        $affected = $hidden
+            ? Content::withoutGlobalScopes()->where('source', $source)->where('is_published', true)
+                ->update(['is_published' => false])
+            : Content::withoutGlobalScopes()->where('source', $source)->where('is_published', false)
+                ->whereHas('episodes')->update(['is_published' => true]);
+
+        \App\Support\HeroBillboard::forget();   // let the change reflect in the cached hero pools
+
+        return $affected;
     }
 
     /** Normalise "7:5" style input to zero-padded HH:MM; anything invalid → 05:00. */
