@@ -225,8 +225,18 @@ function clipCutter() {
                      ffmpeg_failed: 'ตัด/แปลงไม่ได้', error: 'ผิดพลาด' }[r] || (r || 'ผิดพลาด');
         },
         postErrText(r) {
-            return { fb_not_connected: 'เพจหลุดการเชื่อมต่อ', clip_not_ready: 'คลิปไม่พร้อม',
-                     no_file_url: 'ไม่พบไฟล์คลิป', post_failed: 'เพจปฏิเสธ' }[r] || (r || 'ผิดพลาด');
+            if (!r) return 'ผิดพลาด';
+            const exact = { fb_not_connected: 'เพจหลุดการเชื่อมต่อ', clip_not_ready: 'คลิปไม่พร้อม',
+                            no_file_url: 'ไม่พบไฟล์คลิป', no_local_file: 'ไม่พบไฟล์คลิปบนเซิร์ฟเวอร์',
+                            post_failed: 'เพจปฏิเสธ' }[r];
+            if (exact) return exact;
+            // Campaign failures arrive as raw Graph text ("facebook post failed: reels:HTTP 422",
+            // "cut_failed:download_failed") — translate the ones we actually see.
+            if (/reels:HTTP 422|FileUrlProcessingError|robots/i.test(r)) return 'อัปโหลด Reels ไม่ผ่าน (แก้แล้ว — กดโพสต์ใหม่ได้)';
+            if (/cut_failed/i.test(r)) return 'ตัดคลิปไม่สำเร็จ — กด “↻ ตัดใหม่”';
+            if (/reels:/i.test(r)) return 'Reels ไม่ผ่าน: ' + r.replace(/.*reels:/i, '');
+            if (/feed:/i.test(r)) return 'ฟีดไม่ผ่าน: ' + r.replace(/.*feed:/i, '');
+            return r;
         },
 
         async searchTitle() {

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateMarketingClip;
 use App\Jobs\PostClipToFacebook;
+use App\Models\ClipCampaignPost;
 use App\Models\Content;
 use App\Models\Episode;
 use App\Models\MarketingClip;
@@ -118,7 +119,19 @@ class ClipController extends Controller
     public function list(Request $request): JsonResponse
     {
         $clips = MarketingClip::with('content:id,title,slug', 'episode:id,number')
-            ->latest()->take(40)->get()
+            ->latest()->take(40)->get();
+
+        // A campaign's post failure lives on its ClipCampaignPost row, which this page never read —
+        // so a clip whose auto-post died sat here looking like a healthy "พร้อม" clip forever, with
+        // nothing telling the admin it needs a re-post. Oldest-first so keyBy keeps the NEWEST row.
+        $campaignErrors = ClipCampaignPost::whereIn('marketing_clip_id', $clips->pluck('id'))
+            ->where('status', 'failed')
+            ->whereNotNull('error')
+            ->oldest('id')
+            ->get(['marketing_clip_id', 'error'])
+            ->keyBy('marketing_clip_id');
+
+        $clips = $clips
             ->map(fn (MarketingClip $c) => [
                 'id' => $c->id,
                 'title' => $c->content?->title ?? '—',
@@ -137,7 +150,10 @@ class ClipController extends Controller
                 // only visible outcome is posted_at moving — so both must reach the gallery.
                 'purged' => (bool) $c->files_purged_at,
                 'repost_count' => (int) ($c->meta['repost_count'] ?? 0),
-                'post_error' => $c->meta['last_post_error'] ?? null,
+                // A manual attempt's verdict wins — it's the newer, more specific one; otherwise
+                // fall back to the campaign's failure so an auto-post that died is still visible.
+                'post_error' => $c->meta['last_post_error']
+                    ?? ($c->posted_at ? null : $campaignErrors[$c->id]?->error),
                 'post_partial' => (bool) ($c->meta['last_post_partial'] ?? false),
             ]);
 

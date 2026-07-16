@@ -6,6 +6,7 @@ use App\Models\MarketingClip;
 use App\Models\Setting;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Throwable;
 
@@ -20,9 +21,11 @@ use Throwable;
  *     today; drop `FB_PAGE_ID` + `FB_PAGE_TOKEN` into .env later and real posting turns on
  *     with zero code change. (Same "works with zero credentials" philosophy as CaptionWriter.)
  *
- * Uploads are HOSTED: we hand Facebook the clip's public URL (netwix.online/storage/…) and
- * FB fetches it. No binary streaming from PHP, so this is light on CPU/RAM — unlike ffmpeg,
- * it is safe to run on a shared worker.
+ * Upload style differs per surface, for a reason — see postReel():
+ *   - feed  → HOSTED: hand FB the clip's public URL and it fetches the file itself.
+ *   - reels → BYTES: FB's Reels fetcher honours robots.txt, which the edge uses to block Meta,
+ *             so a hosted Reel upload can never work here. We POST the file instead.
+ * Neither path runs ffmpeg, so both stay safe on a shared worker.
  */
 class FacebookPublisher
 {
@@ -70,6 +73,12 @@ class FacebookPublisher
             return ['dry_run' => false, 'results' => [], 'error' => 'no_file_url'];
         }
 
+        // Reels needs the bytes off disk (see postReel); feed just needs the public URL.
+        $filePath = $clip->file_path ? Storage::disk('public')->path($clip->file_path) : null;
+        if (in_array('reels', $targets, true) && (! $filePath || ! is_readable($filePath))) {
+            return ['dry_run' => false, 'results' => [], 'error' => 'no_local_file'];
+        }
+
         $caption = (string) ($clip->caption ?? '');
         $results = [];
         $errors = [];
@@ -77,7 +86,7 @@ class FacebookPublisher
         foreach (array_unique($targets) as $target) {
             try {
                 $id = $target === 'reels'
-                    ? $this->postReel($fileUrl, $caption)
+                    ? $this->postReel($filePath, $caption)
                     : $this->postFeedVideo($fileUrl, $caption);
                 if ($id) {
                     $results[$target] = $id;
@@ -112,10 +121,18 @@ class FacebookPublisher
     }
 
     /**
-     * Reels use the 3-phase resumable API (start → hosted upload → finish=PUBLISHED).
-     * The upload phase is "hosted": we pass the public file_url in a header and FB pulls it.
+     * Reels use the 3-phase resumable API (start → upload → finish=PUBLISHED).
+     *
+     * The upload sends the BYTES, unlike the feed video (which hands FB a file_url to fetch).
+     * That asymmetry is deliberate and hard-won: Reels' fetcher obeys robots.txt, and
+     * Cloudflare's managed robots.txt serves `User-agent: meta-externalagent / Disallow: /`
+     * at the edge — so every hosted-upload Reel died on
+     *   422 FileUrlProcessingError "got status code: 403 Restricted by robots.txt"
+     * even though the mp4 itself serves 200 to everyone. Allowing that agent through would
+     * also invite Meta to crawl the whole site for AI training, so we post the bytes instead.
+     * ~10MB over HTTP on the light `clips-post` lane — I/O-bound, no ffmpeg, no re-read.
      */
-    private function postReel(string $fileUrl, string $caption): ?string
+    private function postReel(string $filePath, string $caption): ?string
     {
         $start = Http::asForm()->timeout(60)->post("{$this->base()}/{$this->page()}/video_reels", [
             'upload_phase' => 'start',
@@ -129,10 +146,18 @@ class FacebookPublisher
             throw new RuntimeException('reel_start_no_url');
         }
 
-        $upload = Http::timeout(180)->withHeaders([
-            'Authorization' => 'OAuth '.$this->token(),
-            'file_url' => $fileUrl,
-        ])->post($uploadUrl);
+        $size = @filesize($filePath);
+        if ($size === false || $size <= 0) {
+            throw new RuntimeException('reel_file_unreadable');
+        }
+
+        $upload = Http::withBody(file_get_contents($filePath), 'application/octet-stream')
+            ->timeout(300)
+            ->withHeaders([
+                'Authorization' => 'OAuth '.$this->token(),
+                'offset' => '0',
+                'file_size' => (string) $size,
+            ])->post($uploadUrl);
         $this->assertOk($upload);
 
         $finish = Http::asForm()->timeout(60)->post("{$this->base()}/{$this->page()}/video_reels", [
