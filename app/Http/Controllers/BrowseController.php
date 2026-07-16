@@ -88,7 +88,11 @@ class BrowseController extends Controller
                 'myListIds' => $this->myListIds($profile),
             ]);
         }
-        $isAnime = fn ($q) => $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $animeIds));
+        // /anime is for full anime (series + movies). Vertical shorts have their own /vertical page,
+        // so keep them out here even when one is mis-tagged with the อนิเมะ/การ์ตูน genre — otherwise a
+        // high-view mis-tagged short dominates "อนิเมะมาแรง" (views-first) and buries real anime.
+        $isAnime = fn ($q) => $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $animeIds))
+            ->where('type', '!=', 'vertical');
 
         $rows = [];
         // Continue watching first (anime only).
@@ -179,7 +183,8 @@ class BrowseController extends Controller
             $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', $ids));
         } elseif ($scope === 'anime') {
             $ids = $this->animeGenreIds();
-            $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $ids));
+            // anime rails are series/movies only — vertical shorts live on /vertical (see anime()).
+            $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $ids))->where('type', '!=', 'vertical');
         }
         if ($genreId) {
             $q->whereHas('genres', fn ($g) => $g->where('genres.id', $genreId));
@@ -237,7 +242,7 @@ class BrowseController extends Controller
             $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', $a));
         } elseif ($scope === 'anime') {
             $a = $this->animeGenreIds();
-            $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $a));
+            $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $a))->where('type', '!=', 'vertical');
         }
 
         // preserve the last_watched order (whereIn loses it)

@@ -130,6 +130,7 @@ class HeroBillboard
             return $ids === []
                 ? collect()
                 : $base()->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $ids))
+                    ->where('type', '!=', 'vertical')   // anime billboard = series/movies only, no shorts
                     ->inRandomOrder()->take(self::POOL)->get();
         }
 
