@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 
 class Content extends Model
@@ -122,6 +123,34 @@ class Content extends Model
     public function scopeType(Builder $q, string $type): Builder
     {
         return $q->where('type', $type);
+    }
+
+    /** Genre ids of the anime/cartoon umbrella (อนิเมะ/การ์ตูน), cached — it barely changes. */
+    public static function animeGenreIds(): array
+    {
+        return Cache::remember('anime-genre-ids', 3600,
+            fn () => Genre::whereIn('name', ['อนิเมะ', 'การ์ตูน'])->pluck('id')->all());
+    }
+
+    /**
+     * Constrain a listing to ONE main category — the exact split the category pages use — so a
+     * "ดูทั้งหมด" drill-down from /anime (or /movies /series /vertical) stays inside that world instead
+     * of bleeding across every category. $scope: 'anime' (has an อนิเมะ/การ์ตูน genre, no vertical
+     * shorts) | 'notanime' (has none). $type: 'movie'|'series'|'vertical'. Both optional.
+     */
+    public function scopeInCategory(Builder $q, ?string $scope = null, ?string $type = null): Builder
+    {
+        if (in_array($type, ['movie', 'series', 'vertical'], true)) {
+            $q->where('type', $type);
+        }
+        if ($scope === 'anime') {
+            $ids = self::animeGenreIds();
+            $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $ids))->where('type', '!=', 'vertical');
+        } elseif ($scope === 'notanime') {
+            $q->whereDoesntHave('genres', fn ($g) => $g->whereIn('genres.id', self::animeGenreIds()));
+        }
+
+        return $q;
     }
 
     /**

@@ -28,7 +28,7 @@
                 @php $rowEn = $row['en'] ?? $row['genre']?->name_en; @endphp
                 @if ($rowEn)<span class="text-[14px] font-normal text-cream/40">{{ $rowEn }}</span>@endif
                 @if ($row['genre'])
-                    <a href="{{ route('browse.genre', $row['genre']) }}" class="ml-1 whitespace-nowrap rounded-full bg-white/10 px-2.5 py-0.5 text-[12px] font-semibold text-cream/85 transition hover:bg-brand hover:text-white">ดูทั้งหมด ›</a>
+                    <a href="{{ route('browse.genre', ['genre' => $row['genre'], 'type' => 'vertical']) }}" class="ml-1 whitespace-nowrap rounded-full bg-white/10 px-2.5 py-0.5 text-[12px] font-semibold text-cream/85 transition hover:bg-brand hover:text-white">ดูทั้งหมด ›</a>
                 @endif
             </h2>
             <div class="group/row relative" @mousemove="edgeMove($event)" @mouseleave="edgeLeave()">

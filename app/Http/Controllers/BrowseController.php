@@ -60,7 +60,7 @@ class BrowseController extends Controller
             $items = $this->rowQuery(null, $genre->id, 'notanime', $rowSeed)->take(18)->get();
             if ($items->count() >= 3) {
                 $rows[] = ['title' => $genre->name, 'en' => $genre->name_en, 'items' => $items,
-                    'link' => route('browse.genre', $genre),
+                    'link' => route('browse.genre', ['genre' => $genre, 'scope' => 'notanime']),
                     'lazy' => ['genre' => $genre->id, 'scope' => 'notanime', 'seed' => $rowSeed]];
             }
         }
@@ -114,7 +114,7 @@ class BrowseController extends Controller
             $items = $this->rowQuery(null, $genre->id, 'anime', $rowSeed)->take(18)->get();
             if ($items->count() >= 3) {
                 $rows[] = ['title' => $genre->name, 'en' => $genre->name_en, 'items' => $items,
-                    'link' => route('browse.genre', $genre),
+                    'link' => route('browse.genre', ['genre' => $genre, 'scope' => 'anime']),
                     'lazy' => ['genre' => $genre->id, 'scope' => 'anime', 'seed' => $rowSeed]];
             }
         }
@@ -285,7 +285,7 @@ class BrowseController extends Controller
             $items = $this->rowQuery($type, $genre->id, 'notanime', $rowSeed)->take(18)->get();
             if ($items->isNotEmpty()) {
                 $rows[] = ['title' => $genre->name, 'en' => $genre->name_en, 'items' => $items,
-                    'link' => route('browse.genre', $genre),
+                    'link' => route('browse.genre', ['genre' => $genre, 'type' => $type, 'scope' => 'notanime']),
                     'lazy' => ['type' => $type, 'genre' => $genre->id, 'scope' => 'notanime', 'seed' => $rowSeed]];
             }
         }
@@ -300,15 +300,20 @@ class BrowseController extends Controller
         ]);
     }
 
-    /** "ดูทั้งหมด" — one genre with a ranking banner, continue-watching row and a sortable grid. */
+    /** "ดูทั้งหมด" — one genre with a ranking banner, continue-watching row and a sortable grid.
+     *  scope/type keep the drill-down inside the main category it was opened from (owner: เลือกแนวใน
+     *  หมวดอนิเมะต้องได้อนิเมะแนวนั้น ไม่ใช่ข้ามหมวด) — see [Content::scopeInCategory]. */
     public function genre(Request $request, Genre $genre): View
     {
         $profile = $this->profile($request);
         $sort = $request->query('sort', 'random');
         $dir = $request->query('dir') === 'asc' ? 'asc' : 'desc';
+        $scope = in_array($request->query('scope'), ['anime', 'notanime'], true) ? $request->query('scope') : null;
+        $type = in_array($request->query('type'), ['movie', 'series', 'vertical'], true) ? $request->query('type') : null;
 
         $inGenre = fn () => Content::published()
             ->whereHas('genres', fn ($q) => $q->where('genres.id', $genre->id))
+            ->inCategory($scope, $type)
             ->with(['genres', 'previewEpisode']);
 
         // Top 3 (ranking banner) + continue-watching within this genre.
@@ -340,13 +345,28 @@ class BrowseController extends Controller
             'genre' => $genre,
             'heading' => $genre->name,
             'headingEn' => $genre->name_en,
+            'scopeLabel' => $this->scopeLabel($scope, $type),
             'top' => $top,
             'continue' => $continue,
-            'items' => $q->paginate(60)->withQueryString(),
+            'items' => $q->paginate(100)->withQueryString(),
             'sort' => $sort,
             'dir' => $dir,
+            'scope' => $scope,
+            'type' => $type,
             'myListIds' => $this->myListIds($profile),
         ]);
+    }
+
+    /** Human label for the main-category context a genre page was opened in (null = all categories). */
+    private function scopeLabel(?string $scope, ?string $type): ?string
+    {
+        return match (true) {
+            $scope === 'anime' => 'อนิเมะ / การ์ตูน',
+            $type === 'vertical' => 'วิดีโอสั้นแนวตั้ง',
+            $type === 'movie' => 'ภาพยนตร์',
+            $type === 'series' => 'ซีรี่ส์',
+            default => null,
+        };
     }
 
     public function vertical(Request $request): View

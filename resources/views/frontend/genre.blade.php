@@ -20,9 +20,10 @@
 
     <h1 class="flex flex-wrap items-center gap-3 text-2xl font-bold sm:text-3xl">
         <span class="nx-gradient h-7 w-1.5 shrink-0 rounded-full" aria-hidden="true"></span>
+        @if (! empty($scopeLabel))<span class="text-lg font-normal text-cream/50">{{ $scopeLabel }} ·</span>@endif
         <span>{{ $heading }}</span>
         @if ($headingEn)<span class="text-lg font-normal text-cream/45">{{ $headingEn }}</span>@endif
-        <span class="text-base font-normal text-cream/40">{{ $items->total() }} เรื่อง</span>
+        <span class="text-base font-normal text-cream/40">{{ number_format($items->total()) }} เรื่อง</span>
     </h1>
 </div>
 
@@ -51,13 +52,13 @@
     <div class="mb-5 flex items-center gap-2 overflow-x-auto pb-1">
         <span class="shrink-0 pr-1 text-sm text-cream/40">เรียง:</span>
         @foreach ($sortOpts as $key => $o)
-            <a href="{{ route('browse.genre', ['genre' => $genre, 'sort' => $key, 'dir' => $dir]) }}"
+            <a href="{{ route('browse.genre', array_filter(['genre' => $genre, 'scope' => $scope ?? null, 'type' => $type ?? null, 'sort' => $key, 'dir' => $dir])) }}"
                class="shrink-0 whitespace-nowrap rounded-full px-4 py-1.5 text-sm transition {{ $sort === $key ? 'nx-gradient font-semibold' : 'bg-white/5 text-cream/60 hover:text-cream' }}">
                 {{ $o['th'] }} <span class="opacity-50">{{ $o['en'] }}</span>
             </a>
         @endforeach
         @if ($sortable)
-            <a href="{{ route('browse.genre', ['genre' => $genre, 'sort' => $sort, 'dir' => $dir === 'desc' ? 'asc' : 'desc']) }}"
+            <a href="{{ route('browse.genre', array_filter(['genre' => $genre, 'scope' => $scope ?? null, 'type' => $type ?? null, 'sort' => $sort, 'dir' => $dir === 'desc' ? 'asc' : 'desc'])) }}"
                class="shrink-0 whitespace-nowrap rounded-full bg-white/10 px-4 py-1.5 text-sm font-medium text-cream/85 transition hover:bg-white/15">
                 {{ $dir === 'desc' ? '↓ มากสุด High→Low' : '↑ น้อยสุด Low→High' }}
             </a>
@@ -75,21 +76,7 @@
         </div>
     @endif
 
-    {{-- Pager: the grid is paginated (60/page) so a big genre isn't a multi-MB page. --}}
-    @if ($items->hasPages())
-        <div class="mt-8 flex items-center justify-center gap-3 text-sm">
-            @if ($items->onFirstPage())
-                <span class="rounded-full bg-white/5 px-5 py-2 text-cream/30">‹ ก่อนหน้า</span>
-            @else
-                <a href="{{ $items->previousPageUrl() }}" class="rounded-full bg-white/10 px-5 py-2 transition hover:bg-white/15">‹ ก่อนหน้า</a>
-            @endif
-            <span class="text-cream/50">หน้า {{ $items->currentPage() }} / {{ $items->lastPage() }}</span>
-            @if ($items->hasMorePages())
-                <a href="{{ $items->nextPageUrl() }}" class="rounded-full bg-white/10 px-5 py-2 transition hover:bg-white/15">ถัดไป ›</a>
-            @else
-                <span class="rounded-full bg-white/5 px-5 py-2 text-cream/30">ถัดไป ›</span>
-            @endif
-        </div>
-    @endif
+    {{-- Jumpable pager (100/page, so a big genre isn't a multi-MB page). --}}
+    @include('partials.pager', ['p' => $items])
 </div>
 @endsection

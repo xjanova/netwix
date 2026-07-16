@@ -27,9 +27,14 @@ class PublicGenreController extends Controller
 
         $sort = (string) $request->query('sort', 'random');
         $dir = $request->query('dir') === 'asc' ? 'asc' : 'desc';
+        // Same in-category constraint as the member page so a drill-down from /anime (or /movies …)
+        // stays inside that category instead of bleeding across all of them — see Content::scopeInCategory.
+        $scope = in_array($request->query('scope'), ['anime', 'notanime'], true) ? $request->query('scope') : null;
+        $type = in_array($request->query('type'), ['movie', 'series', 'vertical'], true) ? $request->query('type') : null;
 
         $inGenre = fn () => Content::publicListing()
             ->whereHas('genres', fn ($g) => $g->where('genres.id', $genre->id))
+            ->inCategory($scope, $type)
             ->with('genres');
 
         // Top hits banner — hottest by view count (มาแรง).
@@ -51,9 +56,11 @@ class PublicGenreController extends Controller
         return view('frontend.public.genre', [
             'genre' => $genre,
             'top' => $top,
-            'items' => $q->paginate(60)->withQueryString(),
+            'items' => $q->paginate(100)->withQueryString(),
             'sort' => $sort,
             'dir' => $dir,
+            'scope' => $scope,
+            'type' => $type,
         ]);
     }
 }

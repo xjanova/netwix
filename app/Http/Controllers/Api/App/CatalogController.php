@@ -93,28 +93,28 @@ class CatalogController extends Controller
     }
 
     /**
-     * GET /api/app/titles?type=series|movie|vertical&genre=<slug>&anime=1&page=N&per=24
+     * GET /api/app/titles?type=series|movie|vertical&genre=<slug>&scope=anime|notanime&anime=1&page=N&per=24
      *
-     * `type` narrows the media type; `genre` narrows to one genre (by slug);
-     * `anime=1` returns the anime/cartoon bucket. With no genre/anime param the
-     * full catalogue is returned (this list also backs the app's offline cache).
-     * Anime stays separated where it matters — the home genre rails and the
-     * dedicated Anime category.
+     * `type` narrows the media type; `genre` narrows to one genre (by slug); `scope` keeps the list
+     * inside one main CATEGORY (anime | notanime) — and, crucially, these COMBINE: `scope=anime&genre=drama`
+     * = anime titles that are drama only, so the app's "ดูทั้งหมด" drill-down from the anime category
+     * matches the web instead of bleeding across every category. `anime=1` is the legacy alias for
+     * `scope=anime`. Max 100/page (owner: ไม่เกิน 100 ต่อหน้า). See [Content::scopeInCategory].
      */
     public function titles(Request $request): JsonResponse
     {
         $type = $request->query('type');
-        $per = (int) min(48, max(6, (int) $request->query('per', 24)));
-        $animeIds = $this->animeGenreIds();
-
-        $q = $this->viewable()->with('genres')->withCount('episodes')->latest();
-        if (in_array($type, ['series', 'movie', 'vertical'], true)) {
-            $q->where('type', $type);
-        }
-
+        $type = in_array($type, ['series', 'movie', 'vertical'], true) ? $type : null;
+        $scope = in_array($request->query('scope'), ['anime', 'notanime'], true) ? $request->query('scope') : null;
         if ($request->boolean('anime')) {
-            $q->whereHas('genres', fn ($g) => $g->whereIn('genres.id', $animeIds ?: [0]));
-        } elseif ($slug = $request->query('genre')) {
+            $scope = 'anime';   // legacy param → the anime category
+        }
+        $per = (int) min(100, max(6, (int) $request->query('per', 24)));
+
+        $q = $this->viewable()->with('genres')->withCount('episodes')->latest()
+            ->inCategory($scope, $type);
+
+        if ($slug = $request->query('genre')) {
             $q->whereHas('genres', fn ($g) => $g->where('slug', $slug));
         }
 
