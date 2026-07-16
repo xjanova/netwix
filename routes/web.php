@@ -204,6 +204,11 @@ Route::get('/stream/{episode}/video.mp4', [StreamController::class, 'mp4'])->nam
 Route::post('/api/playback/{content}/report', [\App\Http\Controllers\PlaybackController::class, 'report'])
     ->middleware('throttle:60,1')->name('playback.report');
 
+// On-demand cover heal: a card whose poster failed to load pings this → re-fetch + locally store the
+// cover on the spot (guest-callable; deduped by a per-title lock). Returns the new URL for a live swap.
+Route::post('/api/content/{content}/heal-cover', [\App\Http\Controllers\PosterHealController::class, 'heal'])
+    ->middleware('throttle:60,1')->name('content.heal-cover');
+
 // ---- Admin -------------------------------------------------------------
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/', [Admin\DashboardController::class, 'index'])->name('dashboard');

@@ -108,7 +108,7 @@
             </div>
             @if ($content->poster_url)
                 <img src="{{ $content->poster_url }}" alt="{{ $content->title }}" loading="lazy"
-                     referrerpolicy="no-referrer" onerror="this.remove()"
+                     referrerpolicy="no-referrer" onerror="nxHealCover(this, '{{ route('content.heal-cover', $content) }}')"
                      class="absolute inset-0 h-full w-full object-cover object-top">
             @endif
 

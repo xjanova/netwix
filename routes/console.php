@@ -102,11 +102,9 @@ Schedule::command('netwix:refresh-episodes --airing-only --limit=200 --sleep=250
 Schedule::command('netwix:recheck-playable 9nung --limit=3000 --sleep=250')
     ->dailyAt('04:40')->withoutOverlapping()->runInBackground();
 
-// Nightly: heal covers. Re-fetch + LOCALLY store a fresh poster for any title whose cover is missing
-// or whose hotlinked poster has gone dead (--check), so a broken cover self-heals over time. Bounded +
-// gentle so it never hammers a source; whatever can't be recovered shows the branded fallback cover.
-Schedule::command('netwix:backfill-posters --check --limit=150 --sleep=300')
-    ->dailyAt('04:10')->withoutOverlapping()->runInBackground();
+// Covers heal ON-DEMAND now (a card pings content.heal-cover when its poster fails to load — see
+// [App\Http\Controllers\PosterHealController]), so no nightly sweep. The netwix:backfill-posters
+// command is kept for manual bulk runs only.
 
 // Daily backup-link finder: re-source auto-suspended (un-playable) titles from another Halim pool
 // site and auto-republish. Self-gates on the admin toggle `backup_finder_enabled` (set on

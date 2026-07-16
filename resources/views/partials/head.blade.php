@@ -28,6 +28,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="csrf-token" content="{{ csrf_token() }}">
+{{-- On-demand cover heal: a card's poster <img> calls this from its onerror when the (hotlinked)
+     cover fails to load. We ask the server to re-fetch + locally store it right then, and swap the
+     healed URL in live; if there's no source cover, drop the <img> so the branded fallback shows.
+     Self-contained (works for guests too) and defined in <head> so it exists before any img errors. --}}
+<script>
+window.nxHealCover = function (img, url) {
+    if (!img) return;
+    if (!url || img.dataset.nxHeal) { img.remove(); return; }   // no url / second failure → fallback
+    img.dataset.nxHeal = '1';
+    var token = document.querySelector('meta[name="csrf-token"]');
+    fetch(url, {
+        method: 'POST',
+        headers: { 'X-CSRF-TOKEN': token ? token.content : '', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) { if (d && d.url) { img.src = d.url; } else { img.remove(); } })
+        .catch(function () { img.remove(); });
+};
+</script>
 
 <title>{{ $seoFullTitle }}</title>
 <meta name="description" content="{{ $seoDesc }}">
