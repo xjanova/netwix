@@ -31,7 +31,7 @@ class ClipCampaign extends Model
     public const TZ = 'Asia/Bangkok';
 
     protected $fillable = [
-        'name', 'slug', 'is_enabled',
+        'name', 'slug', 'is_enabled', 'media_type',
         'content_type', 'exclude_type', 'genre_id', 'source', 'content_id', 'pick', 'include_adult', 'avoid_recent_days',
         'duration', 'start_mode', 'duration_max', 'full_episode', 'episode_pick', 'aspect',
         'targets',
@@ -113,12 +113,27 @@ class ClipCampaign extends Model
         ));
     }
 
-    /** @return array<int, string> Facebook surfaces to post to (subset of reels|feed) */
+    /**
+     * @return array<int, string> Facebook surfaces to post to (subset of reels|feed)
+     *
+     * A photo campaign is always feed-only: Reels is a video surface, so a saved "reels" target
+     * on a campaign later switched to รูปปก/ภาพนิ่ง would just produce a guaranteed failure.
+     */
     public function targetList(): array
     {
+        if ($this->isPhoto()) {
+            return ['feed'];
+        }
+
         $targets = array_map('trim', explode(',', (string) $this->targets));
 
         return array_values(array_intersect(['reels', 'feed'], $targets)) ?: ['feed'];
+    }
+
+    /** True when this campaign posts a PHOTO (cover art / a grabbed still) instead of a video. */
+    public function isPhoto(): bool
+    {
+        return in_array($this->media_type, ['poster', 'frame'], true);
     }
 
     public function runsOnDay(CarbonInterface $when): bool

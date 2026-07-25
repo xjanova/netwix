@@ -1,6 +1,6 @@
 @extends('layouts.admin')
 @section('page-title', 'ตัดคลิป → เฟซบุ๊ก')
-@section('page-subtitle', 'ตัดคลิปสั้นจากหนังในเว็บด้วย ffmpeg (แนวตั้ง/จตุรัส/แนวนอน) พร้อม CTA ชวนโหลดแอป — เตรียมไว้โพสต์ลงเฟซบุ๊ก')
+@section('page-subtitle', 'ทำโพสต์เฟซบุ๊กจากหนังในเว็บ — คลิปสั้น (แนวตั้ง/จตุรัส/แนวนอน), รูปปกของเรื่อง หรือภาพนิ่งช็อตเดียวจากในหนัง')
 
 @section('content')
 <div class="nx-card p-5" x-data="clipCutter()" x-init="init()">
@@ -13,6 +13,24 @@
         <div class="rounded-xl bg-white/[0.03] p-4">
             <div class="text-[12px] text-cream/50">โพสต์ไปแล้ว</div>
             <div class="text-2xl font-bold">{{ number_format($posted) }}</div>
+        </div>
+    </div>
+
+    {{-- ── What to make ────────────────────────────────────────────── --}}
+    <div class="mb-4">
+        <label class="mb-1.5 block text-[12px] text-cream/50">โพสต์เป็นอะไร</label>
+        <div class="grid gap-2 sm:grid-cols-3">
+            @foreach ([
+                'clip' => ['🎬', 'คลิปวีดีโอ', 'ตัดฉากในหนังเป็นวิดีโอสั้น'],
+                'poster' => ['🖼️', 'รูปปกหนัง', 'ใช้ภาพปกของเรื่องนั้น ไม่ต้องตัดวิดีโอ'],
+                'frame' => ['📸', 'ภาพนิ่งจากในหนัง', 'จับภาพช็อตเดียวจากในตอน'],
+            ] as $val => [$icon, $lbl, $hint])
+                <label class="cursor-pointer rounded-lg border border-white/10 bg-white/5 p-3 has-[:checked]:border-brand/50 has-[:checked]:bg-brand/10">
+                    <input type="radio" name="media_mode" value="{{ $val }}" x-model="media" class="sr-only">
+                    <div class="text-sm">{{ $icon }} {{ $lbl }}</div>
+                    <div class="mt-0.5 text-[11px] leading-relaxed text-cream/40">{{ $hint }}</div>
+                </label>
+            @endforeach
         </div>
     </div>
 
@@ -41,8 +59,8 @@
                 </div>
             </div>
 
-            {{-- Episode --}}
-            <div x-show="episodes.length > 1" x-cloak>
+            {{-- Episode (cover art doesn't come from an episode at all) --}}
+            <div x-show="episodes.length > 1 && media !== 'poster'" x-cloak>
                 <label class="mb-1 block text-[12px] text-cream/50">ตอน</label>
                 <select x-model="episodeId" class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
                     <template x-for="e in episodes" :key="e.id">
@@ -54,12 +72,12 @@
 
         <div class="space-y-3 text-sm">
             <div class="grid grid-cols-2 gap-3">
-                <div>
+                <div x-show="media === 'clip'" x-cloak>
                     <label class="mb-1 block text-[12px] text-cream/50">ความยาว (วินาที)</label>
                     <input type="number" x-model.number="duration" min="5" max="180"
                            class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
                 </div>
-                <div>
+                <div x-show="media !== 'poster'" x-cloak>
                     <label class="mb-1 block text-[12px] text-cream/50">สัดส่วน</label>
                     <select x-model="aspect" class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
                         <option value="9:16">9:16 แนวตั้ง (Reels/TikTok)</option>
@@ -67,27 +85,31 @@
                         <option value="16:9">16:9 แนวนอน</option>
                     </select>
                 </div>
-                <div>
-                    <label class="mb-1 block text-[12px] text-cream/50">จำนวนคลิป</label>
+                <div x-show="media !== 'poster'" x-cloak>
+                    <label class="mb-1 block text-[12px] text-cream/50" x-text="media === 'frame' ? 'จำนวนภาพ' : 'จำนวนคลิป'">จำนวนคลิป</label>
                     <select x-model.number="count" :disabled="startSec !== ''"
                             class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream disabled:opacity-40">
                         <template x-for="n in 5" :key="n"><option :value="n" x-text="n"></option></template>
                     </select>
                 </div>
-                <div>
-                    <label class="mb-1 block text-[12px] text-cream/50">เริ่มที่ วิ. <span class="text-cream/30">(ว่าง=อัตโนมัติ)</span></label>
+                <div x-show="media !== 'poster'" x-cloak>
+                    <label class="mb-1 block text-[12px] text-cream/50"
+                           x-text="media === 'frame' ? 'จับที่วินาที (ว่าง=อัตโนมัติ)' : 'เริ่มที่ วิ. (ว่าง=อัตโนมัติ)'">เริ่มที่ วิ.</label>
                     <input type="number" x-model="startSec" min="0" placeholder="อัตโนมัติ"
                            class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream placeholder:text-cream/30">
                 </div>
             </div>
-            <p class="text-[11px] leading-relaxed text-cream/40">
-                เว้น “เริ่มที่” ไว้ = ระบบเลือกช่วงกลางเรื่องอัตโนมัติ (เลี่ยงอินโทร/เครดิต) และกระจายตามจำนวนคลิป ·
-                ใส่ตัวเลข = ตัดจุดเดียวตรงวินาทีนั้น
+            <p x-show="media !== 'poster'" x-cloak class="text-[11px] leading-relaxed text-cream/40">
+                เว้นช่องวินาทีไว้ = ระบบเลือกช่วงกลางเรื่องอัตโนมัติ (เลี่ยงอินโทร/เครดิต) และกระจายตามจำนวนที่สั่ง ·
+                ใส่ตัวเลข = เอาจุดเดียวตรงวินาทีนั้น
+            </p>
+            <p x-show="media === 'poster'" x-cloak class="text-[11px] leading-relaxed text-cream/40">
+                ใช้ภาพปกของเรื่องที่เลือก โพสต์เป็นรูปลงฟีด (ไม่ครอป ไม่ต้องตัดวิดีโอ) — ได้ 1 โพสต์ต่อเรื่อง
             </p>
             <button type="button" @click="create()" :disabled="!contentId || busy"
                     class="nx-gradient w-full rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-40"
                     style="box-shadow:0 8px 22px rgba(176,38,255,0.32)">
-                <span x-show="!busy">✂️ สร้างคลิป</span>
+                <span x-show="!busy" x-text="createLabel()">✂️ สร้างคลิป</span>
                 <span x-show="busy" x-cloak>⏳ กำลังส่งเข้าคิว…</span>
             </button>
         </div>
@@ -113,18 +135,23 @@
 
     {{-- ── Clip gallery ───────────────────────────────────────────── --}}
     <div class="mt-6">
-        <div class="mb-3 text-sm font-semibold text-cream/80">คลิปล่าสุด</div>
+        <div class="mb-3 text-sm font-semibold text-cream/80">โพสต์ล่าสุด</div>
         <div x-show="!clips.length" x-cloak class="rounded-xl border border-dashed border-white/10 py-10 text-center text-[13px] text-cream/40">
-            ยังไม่มีคลิป — เลือกเรื่องด้านบนแล้วกด “สร้างคลิป”
+            ยังไม่มีโพสต์ — เลือกว่าจะทำคลิป/รูปปก/ภาพนิ่ง แล้วเลือกเรื่องด้านบน
         </div>
         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <template x-for="c in clips" :key="c.id">
                 <div class="overflow-hidden rounded-xl border border-white/10 bg-white/[0.02]">
                     {{-- preview --}}
                     <div class="relative aspect-video bg-black/40">
-                        <template x-if="c.status === 'ready' && c.file_url">
+                        <template x-if="c.status === 'ready' && c.file_url && c.media_type === 'clip'">
                             <video :src="c.file_url" :poster="c.poster_url" controls preload="none"
                                    class="h-full w-full object-contain"></video>
+                        </template>
+                        <template x-if="c.status === 'ready' && c.file_url && c.media_type !== 'clip'">
+                            <a :href="c.file_url" target="_blank" rel="noopener" class="block h-full w-full">
+                                <img :src="c.file_url" :alt="c.title" loading="lazy" class="h-full w-full object-contain">
+                            </a>
                         </template>
                         <template x-if="c.status !== 'ready'">
                             <div class="flex h-full items-center justify-center text-center text-[12px]">
@@ -135,15 +162,14 @@
                                 <span x-show="c.status === 'failed'" class="text-[#ff6b81]" x-text="'✗ ' + reasonText(c.error)"></span>
                             </div>
                         </template>
-                        <span class="absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-cream/70" x-text="c.aspect"></span>
+                        <span class="absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-cream/70" x-text="mediaBadge(c)"></span>
                     </div>
                     {{-- meta --}}
                     <div class="space-y-2 p-3">
                         <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0">
                                 <div class="truncate text-[13px] font-medium text-cream" x-text="c.title"></div>
-                                <div class="text-[11px] text-cream/40"
-                                     x-text="(c.episode ? 'ตอน ' + c.episode + ' · ' : '') + 'เริ่ม ' + fmt(c.start) + ' · ยาว ' + c.duration + ' วิ'"></div>
+                                <div class="text-[11px] text-cream/40" x-text="metaText(c)"></div>
                             </div>
                             <span class="shrink-0 rounded-full px-2 py-0.5 text-[10px]"
                                   :class="{'bg-[#4ade80]/15 text-[#4ade80]': c.status==='ready', 'bg-white/10 text-cream/50': c.status==='pending'||c.status==='processing', 'bg-[#ff6b81]/15 text-[#ff6b81]': c.status==='failed', 'bg-brand/15 text-brand-2': c.posted_at}"
@@ -173,12 +199,12 @@
                                     <template x-if="c.file_url">
                                         <a :href="c.file_url" download class="rounded-md bg-white/10 px-2.5 py-1 hover:bg-white/15">⬇ โหลด</a>
                                     </template>
-                                    <button @click="retry(c)" class="rounded-md bg-white/10 px-2.5 py-1 hover:bg-white/15">↻ ตัดใหม่</button>
+                                    <button @click="retry(c)" class="rounded-md bg-white/10 px-2.5 py-1 hover:bg-white/15"
+                                            x-text="c.media_type === 'clip' ? '↻ ตัดใหม่' : '↻ สร้างใหม่'">↻ ตัดใหม่</button>
                                     <button @click="del(c)" class="ml-auto text-[#ff6b81]/70 hover:text-[#ff6b81]">ลบ</button>
                                 </div>
-                                <div x-show="c.purged && !c.file_url" x-cloak class="text-[11px] text-cream/40">
-                                    ไฟล์ถูกลบแล้ว (เก็บ 15 วัน) — กด “↻ ตัดใหม่” ถ้าจะโพสต์อีก
-                                </div>
+                                <div x-show="c.purged && !c.file_url" x-cloak class="text-[11px] text-cream/40"
+                                     x-text="'ไฟล์ถูกลบแล้ว (เก็บ 15 วัน) — กด “' + (c.media_type === 'clip' ? '↻ ตัดใหม่' : '↻ สร้างใหม่') + '” ถ้าจะโพสต์อีก'"></div>
                                 <div x-show="c.repost_count" x-cloak class="text-[11px] text-cream/40"
                                      x-text="'รีโพสไปแล้ว ' + c.repost_count + ' ครั้ง'"></div>
                                 <div x-show="c.post_error" x-cloak class="text-[11px]"
@@ -206,7 +232,7 @@ function clipCutter() {
     return {
         titleQ: '', titleResults: [], contentId: null, contentLabel: '',
         episodes: [], episodeId: '',
-        duration: 45, aspect: '9:16', count: 3, startSec: '',
+        media: 'clip', duration: 45, aspect: '9:16', count: 3, startSec: '',
         busy: false, clips: [],
         agents: [], batch: null, batchTotal: 0, batchDone: 0, watching: false,
 
@@ -222,7 +248,25 @@ function clipCutter() {
         statusText(s) { return { pending: 'รอคิว', processing: 'กำลังตัด', ready: 'พร้อม', failed: 'ล้มเหลว' }[s] || s; },
         reasonText(r) {
             return { no_source: 'ไม่พบแหล่งวิดีโอ', download_failed: 'ดาวน์โหลดไม่ได้', too_large: 'ไฟล์ใหญ่เกิน',
-                     ffmpeg_failed: 'ตัด/แปลงไม่ได้', error: 'ผิดพลาด' }[r] || (r || 'ผิดพลาด');
+                     ffmpeg_failed: 'ตัด/แปลงไม่ได้', no_poster: 'เรื่องนี้ไม่มีรูปปก', bad_image: 'รูปปกเสีย/อ่านไม่ได้',
+                     error: 'ผิดพลาด' }[r] || (r || 'ผิดพลาด');
+        },
+        // What each card IS. Anything unrecognised falls back to the original clip wording — the
+        // safe default for a row that predates media_type.
+        noun(c) { return { poster: 'โพสต์รูปปก', frame: 'ภาพนิ่ง' }[c.media_type] || 'คลิป'; },
+        createLabel() { return { poster: '🖼️ สร้างโพสต์รูปปก', frame: '📸 จับภาพนิ่ง' }[this.media] || '✂️ สร้างคลิป'; },
+        mediaBadge(c) {
+            if (c.media_type === 'poster') return 'รูปปก';
+            if (c.media_type === 'frame') return 'ภาพนิ่ง · ' + c.aspect;
+            return c.aspect;
+        },
+        metaText(c) {
+            const ep = c.episode ? 'ตอน ' + c.episode + ' · ' : '';
+            if (c.media_type === 'poster') return 'ภาพปกของเรื่อง';
+            // start=0 on a still means the position was resolved at cut time (ท้ายตอน/สุ่ม) —
+            // don't claim "ที่ 0:00", which would be flatly wrong.
+            if (c.media_type === 'frame') return ep + (+c.start ? 'ภาพนิ่งที่ ' + this.fmt(c.start) : 'ภาพนิ่งจากในตอน');
+            return ep + 'เริ่ม ' + this.fmt(c.start) + ' · ยาว ' + c.duration + ' วิ';
         },
         postErrText(r) {
             if (!r) return 'ผิดพลาด';
@@ -266,10 +310,13 @@ function clipCutter() {
             const body = {
                 content_id: this.contentId,
                 episode_id: this.episodeId || null,
-                duration: this.duration, aspect: this.aspect,
+                media_type: this.media,
+                // A blank/NaN box would 422 and leave the button doing nothing — and the field is
+                // hidden for photos anyway, where the value is ignored server-side.
+                duration: +this.duration || 45, aspect: this.aspect,
                 count: this.startSec !== '' ? 1 : this.count,
             };
-            if (this.startSec !== '') body.start = +this.startSec;
+            if (this.startSec !== '' && this.media !== 'poster') body.start = +this.startSec;
             let res;
             try { res = await this.post('{{ route('admin.clips.store') }}', body); }
             catch (e) { this.busy = false; return; }
@@ -342,9 +389,10 @@ function clipCutter() {
         // always asks first — and says out loud when it's the second time.
         async repost(c) {
             if (c._posting) return;
+            const noun = this.noun(c);
             let msg = c.posted_at
-                ? 'คลิปนี้โพสต์ไปแล้วเมื่อ ' + c.posted_at + '\n\nโพสต์ซ้ำขึ้นเพจอีกครั้ง?'
-                : 'โพสต์คลิปนี้ขึ้นเพจ Facebook?';
+                ? noun + 'นี้โพสต์ไปแล้วเมื่อ ' + c.posted_at + '\n\nโพสต์ซ้ำขึ้นเพจอีกครั้ง?'
+                : 'โพสต์' + noun + 'นี้ขึ้นเพจ Facebook?';
             if (!(c.caption || '').trim()) msg += '\n\n⚠ ยังไม่มีแคปชัน — โพสต์จะไม่มีข้อความ';
             if (!confirm(msg)) return;
 

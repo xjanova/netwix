@@ -89,7 +89,8 @@ class PostClipToFacebook implements ShouldQueue
                 'remote_post_id' => $videoId,
                 // Resolve the feed STORY id now so a later comment on this post maps to the title
                 // without a Graph lookup per comment (see FbInviteFunnel::contentForPost). Best-effort.
-                'remote_story_id' => $messenger->resolveStoryId($videoId),
+                // A photo upload already returns its story id, so that one is used as-is.
+                'remote_story_id' => $result['story'] ?? $messenger->resolveStoryId($videoId),
                 'dry_run' => false,
                 'meta' => $this->rememberPost($clip, $result['error']),
             ]);

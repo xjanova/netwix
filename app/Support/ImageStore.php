@@ -62,6 +62,32 @@ class ImageStore
     }
 
     /**
+     * Re-encode image bytes as JPEG (downscaled to $maxDim on the long side), or null when the bytes
+     * aren't a decodable image / GD can't write JPEG.
+     *
+     * Needed because Facebook's photo upload does NOT accept WebP — and most of our stored covers
+     * ARE WebP (see putWebp above), so a cover can only be posted after this conversion.
+     */
+    public static function toJpeg(string $bytes, int $maxDim = 1440, int $quality = 88): ?string
+    {
+        if (! function_exists('imagecreatefromstring') || ! function_exists('imagejpeg')) {
+            return null;
+        }
+        $img = @imagecreatefromstring($bytes);
+        if ($img === false) {
+            return null;
+        }
+        $img = self::downscale($img, $maxDim);
+
+        ob_start();
+        $ok = @imagejpeg($img, null, $quality);
+        $jpeg = (string) ob_get_clean();
+        imagedestroy($img);
+
+        return ($ok && strlen($jpeg) > 400) ? $jpeg : null;
+    }
+
+    /**
      * Store a cover/poster under a UNIQUE filename each call ("{basename}-{version}.webp") and delete
      * the previous file. A fresh PATH — not just a "?t=" query — is the only reliable way to make a
      * regenerated image show IMMEDIATELY: Cloudflare (and the browser) key their cache on the path and

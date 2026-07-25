@@ -181,7 +181,13 @@
                         <span class="rounded-md bg-white/[0.06] px-2 py-1 text-cream/70">หมวด {{ $c->genre->name }}</span>
                     @endif
                     <span class="rounded-md bg-white/[0.06] px-2 py-1 text-cream/70">{{ $pickLabels[$c->pick] ?? $c->pick }}</span>
-                    <span class="rounded-md bg-white/[0.06] px-2 py-1 text-cream/70">{{ $c->aspect }} · {{ $c->duration }} วิ</span>
+                    <span class="rounded-md bg-white/[0.06] px-2 py-1 text-cream/70">
+                        @switch($c->media_type)
+                            @case('poster') 🖼️ รูปปกหนัง @break
+                            @case('frame') 📸 ภาพนิ่ง · {{ $c->aspect }} @break
+                            @default 🎬 {{ $c->aspect }} · {{ $c->full_episode ? 'ทั้งตอน' : $c->duration.' วิ' }}
+                        @endswitch
+                    </span>
                     <span class="rounded-md bg-brand/15 px-2 py-1 text-brand-2">
                         {{ collect($c->targetList())->map(fn ($t) => $t === 'reels' ? 'Reels' : 'ฟีด')->implode(' + ') }}
                     </span>

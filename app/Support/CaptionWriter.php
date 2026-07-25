@@ -73,7 +73,7 @@ class CaptionWriter
         $key = (string) config('services.caption.api_key', '');
 
         if ($driver !== 'template' && $key !== '') {
-            $ai = $this->llmHook($title, $genres, $year, $synopsis, $key);
+            $ai = $this->llmHook($title, $genres, $year, $synopsis, $key, (string) $clip->media_type);
             if ($ai !== null) {
                 return $ai;
             }
@@ -82,7 +82,20 @@ class CaptionWriter
         return $this->templateHook($clip, $title, $genres, $year);
     }
 
-    private function llmHook(string $title, string $genres, ?int $year, string $synopsis, string $key): ?string
+    /**
+     * What the post actually shows, in the words the brief needs. A caption written for "คลิปนี้"
+     * on top of a poster reads as a broken promise — the reader looks for a clip that isn't there.
+     */
+    private function brief(string $media): string
+    {
+        return match ($media) {
+            'poster' => 'เขียนแคปชันแนะนำหนัง/ซีรีส์เรื่องนี้ประกอบภาพโปสเตอร์ ให้คนอยากกดดูเต็มเรื่อง (ห้ามพูดถึง “คลิป” หรือ “ตัวอย่าง”)',
+            'frame' => 'เขียนแคปชันประกอบ “ภาพนิ่ง” ฉากหนึ่งจากเรื่องนี้ ชวนให้สงสัยว่าฉากนี้เกิดอะไรขึ้น แล้วอยากไปดูเต็มเรื่อง (ห้ามพูดถึง “คลิป”)',
+            default => 'เขียนแคปชันชวนดูคลิปนี้ แล้วอยากไปดูเต็มเรื่องต่อ',
+        };
+    }
+
+    private function llmHook(string $title, string $genres, ?int $year, string $synopsis, string $key, string $media = 'clip'): ?string
     {
         $base = rtrim((string) config('services.caption.base_url', 'https://api.groq.com/openai/v1'), '/');
         $model = (string) config('services.caption.model', 'llama-3.3-70b-versatile');
@@ -92,7 +105,7 @@ class CaptionWriter
             .'ความยาว 2-4 บรรทัด ปิดท้ายด้วยประโยคชวนดูต่อ';
         $meta = trim("เรื่อง: {$title}".($year ? " ({$year})" : '').($genres ? " · แนว {$genres}" : ''));
         $user = $meta.($synopsis !== '' ? "\nเรื่องย่อ: ".mb_substr($synopsis, 0, 600) : '')
-            ."\nเขียนแคปชันชวนดูคลิปนี้ แล้วอยากไปดูเต็มเรื่องต่อ";
+            ."\n".$this->brief($media);
 
         try {
             $resp = Http::timeout(30)->withToken($key)->acceptJson()
@@ -141,8 +154,14 @@ class CaptionWriter
         ];
         $hook = $hooks[$clip->id % count($hooks)];
         $tail = trim($title.($year ? " ({$year})" : '').($genres ? " — {$genres}" : ''));
+        // The closing line must match what the post actually shows — see brief().
+        $close = match ((string) $clip->media_type) {
+            'poster' => 'กดดูเต็มเรื่องกันเลย ✨',
+            'frame' => 'ฉากนี้มีที่มา… ไปดูเต็มเรื่องกันเลย ✨',
+            default => 'ดูตัวอย่างแล้วไปต่อเต็มเรื่องกันเลย ✨',
+        };
 
-        return $hook."\n".$tail."\nดูตัวอย่างแล้วไปต่อเต็มเรื่องกันเลย ✨";
+        return $hook."\n".$tail."\n".$close;
     }
 
     // ---- deterministic marketing footer -------------------------------------

@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Http\Controllers\StreamController;
+use App\Models\Content;
 use App\Models\Episode;
 use App\Models\MarketingClip;
 use App\Services\Import\Contracts\EmbedPlayback;
@@ -17,6 +18,13 @@ use Throwable;
  * Cuts a short marketing clip out of a title/episode with ffmpeg — server-side, so it
  * works for every source (incl. cross-origin HLS the browser can't touch).
  *
+ * It also produces the two PHOTO post types (clip.media_type), which share the clip's
+ * storage shape (postable file in file_path, webp preview in poster_path) so everything
+ * downstream — posting, reposting, purging, the gallery — needs no special case:
+ *   poster — the title's own cover art, re-encoded to JPEG. No ffmpeg, no source download.
+ *   frame  — one still grabbed out of the episode at the same window a clip would cut,
+ *            cropped/blur-padded to the chosen aspect exactly like the video is.
+ *
  * Two hard constraints on the prod box (see brain: "NetWix server — ffmpeg …"):
  *   1. php-fpm has proc_open/exec DISABLED, so this MUST run from a CLI queue worker.
  *   2. the static ffmpeg SEGFAULTS on any https input, so we NEVER hand it a URL — we
@@ -30,6 +38,17 @@ use Throwable;
  */
 class ClipMaker
 {
+    /**
+     * How much media a STILL grab pulls down. A frame needs one moment, but HLS is only
+     * addressable by segment, so this is really "grab the segment the moment lives in, plus a
+     * little slack". Also the length the position modes (ท้ายตอน/สุ่ม) reason about, so a
+     * still lands in the same place a clip starting there would.
+     */
+    public const STILL_SECONDS = 6;
+
+    /** Sanity ceiling on a cover image we fetch to post — real posters are well under a megabyte. */
+    private const COVER_MAX_BYTES = 12 * 1024 * 1024;
+
     /** Never pull more than this from a direct (non-HLS) mp4 source for a SHORT clip. */
     private const MP4_MAX_BYTES = 350 * 1024 * 1024;
 
@@ -45,13 +64,19 @@ class ClipMaker
     public function __construct(private SourceRegistry $registry) {}
 
     /**
-     * Produce + store the clip. Returns a status code:
-     *   ok | no_source | download_failed | too_large | ffmpeg_failed | error
+     * Produce + store the clip (or photo). Returns a status code:
+     *   ok | no_source | no_poster | bad_image | download_failed | too_large | ffmpeg_failed | error
      * On ok the model is updated (status=ready, file_path, poster_path, file_size).
      */
     public function make(MarketingClip $clip): string
     {
         @ini_set('memory_limit', '1024M');   // a minute of 720p segments + encode headroom
+
+        // Cover art needs no episode and no media at all — resolve it before any of the
+        // stream plumbing below, which would only fail on a title whose source can't be cut.
+        if ($clip->media_type === 'poster') {
+            return $this->makePoster($clip);
+        }
 
         // Load the episode with ALL its columns (source/source_ref/video_url) — the job's
         // eager-load is column-limited for the label, which isn't enough to resolve a stream.
@@ -65,6 +90,10 @@ class ClipMaker
         $url = $this->playableUrl($episode);
         if (! $url) {
             return $this->fail($clip, 'no_source');
+        }
+
+        if ($clip->media_type === 'frame') {
+            return $this->makeFrame($clip, $episode, $url);
         }
 
         $start = max(0, (int) $clip->start);
@@ -135,6 +164,167 @@ class ClipMaker
             @unlink($srcPath);
             @unlink($out);
         }
+    }
+
+    // ---- photo posts --------------------------------------------------------
+
+    /**
+     * media_type=poster — post the title's own cover art. No source media, no ffmpeg: the cover
+     * is simply re-encoded to JPEG (Facebook's photo upload rejects WebP, and most of our covers
+     * ARE WebP) and stored where a clip's mp4 would live.
+     *
+     * Deliberately NOT cropped to the campaign's aspect: a poster is artwork with title text on
+     * it, and cropping a 2:3 cover into 9:16 or 1:1 cuts that off. Facebook renders portrait
+     * photos fine as-is.
+     */
+    private function makePoster(MarketingClip $clip): string
+    {
+        $content = Content::withoutGlobalScopes()->find($clip->content_id);
+        $bytes = $content ? $this->coverBytes($content) : null;
+        if ($bytes === null) {
+            return $this->fail($clip, 'no_poster');
+        }
+
+        $jpeg = ImageStore::toJpeg($bytes, 1440);
+        if ($jpeg === null) {
+            return $this->fail($clip, 'bad_image');
+        }
+
+        return $this->storePhoto($clip, $jpeg);
+    }
+
+    /**
+     * media_type=frame — one still out of the episode, at the same spot a clip would have started
+     * (incl. the deferred ท้ายตอน/สุ่ม modes, resolved from the real media length), cropped or
+     * blur-padded to the chosen aspect exactly like the video path does.
+     */
+    private function makeFrame(MarketingClip $clip, Episode $episode, string $url): string
+    {
+        $start = max(0, (int) $clip->start);
+        $mode = (string) $clip->start_mode;
+        $trimEnd = $mode === 'ending' ? max(0, (int) ($episode->content?->outro_seconds ?? 0)) : 0;
+
+        [$srcPath, $offset] = $this->fetchWindow($url, $start, self::STILL_SECONDS, false, $mode, $trimEnd);
+        if ($srcPath === null) {
+            // transient CDN hiccup — re-resolve a fresh link + retry once (same as the clip path)
+            usleep(700_000);
+            $retry = $this->playableUrl($episode);
+            [$srcPath, $offset] = $retry
+                ? $this->fetchWindow($retry, $start, self::STILL_SECONDS, false, $mode, $trimEnd)
+                : [null, 0.0];
+            if ($srcPath === null) {
+                return $this->fail($clip, 'download_failed');
+            }
+        }
+
+        $jpg = $srcPath.'.jpg';
+        try {
+            if (! $this->grabFrame($srcPath, $jpg, $offset, (string) $clip->aspect)) {
+                return $this->fail($clip, 'ffmpeg_failed');
+            }
+            $data = (string) @file_get_contents($jpg);
+
+            return strlen($data) > 400 ? $this->storePhoto($clip, $data) : $this->fail($clip, 'ffmpeg_failed');
+        } catch (Throwable $e) {
+            report($e);
+
+            return $this->fail($clip, 'error');
+        } finally {
+            @unlink($srcPath);
+            @unlink($jpg);
+        }
+    }
+
+    /**
+     * Decode one frame at $offset into a JPEG sized for the chosen aspect. Reuses the clip's own
+     * video graph, so a 9:16 still gets the same blurred fill (never a crop) as a 9:16 clip.
+     */
+    private function grabFrame(string $src, string $out, float $offset, string $aspect): bool
+    {
+        @unlink($out);
+        $bin = config('services.ffmpeg.bin', '/home/admin/bin/ffmpeg');
+        $probe = $this->probe($src);
+        [$w, $h] = $this->outputSize($aspect, false, $probe);
+        $graph = $this->clipVideoGraph('[0:v:0]', $aspect === '9:16' && $this->isLandscape($probe), false, $w, $h);
+
+        try {
+            $res = Process::timeout(180)->run(Ffmpeg::cmd([
+                $bin, '-y', '-nostdin', '-threads', '2',
+                '-ss', number_format($offset, 3, '.', ''), '-i', $src,
+                '-filter_complex', $graph, '-map', '[cv]',
+                '-frames:v', '1', '-q:v', '2', '-pix_fmt', 'yuvj420p', $out,
+            ]));
+        } catch (Throwable $e) {
+            Log::warning('clip frame grab timed out', ['out' => basename($out), 'error' => $e->getMessage()]);
+
+            return false;
+        }
+
+        if (is_file($out) && filesize($out) > 400) {
+            return true;
+        }
+
+        Log::warning('clip frame grab failed', [
+            'out' => basename($out),
+            'exit' => $res->exitCode(),
+            'stderr' => mb_substr(trim($res->errorOutput() ?: $res->output()), -600),
+        ]);
+
+        return false;
+    }
+
+    /**
+     * Store a finished photo the same way a clip is stored: the postable JPEG in file_path (what
+     * Facebook gets), a small webp in poster_path (what the admin gallery shows).
+     */
+    private function storePhoto(MarketingClip $clip, string $jpeg): string
+    {
+        $path = 'media/clips/'.$clip->id.'.jpg';
+        if (! Storage::disk('public')->put($path, $jpeg)) {
+            return $this->fail($clip, 'error');
+        }
+
+        $clip->update([
+            'status' => 'ready',
+            'error' => null,
+            'file_path' => $path,
+            'poster_path' => ImageStore::putWebp($jpeg, 'media/clips', 'poster-'.$clip->id, 640),
+            'file_size' => strlen($jpeg),
+        ]);
+
+        return 'ok';
+    }
+
+    /** Raw bytes of a title's cover (falling back to its backdrop), local or remote. */
+    private function coverBytes(Content $content): ?string
+    {
+        foreach ([$content->poster_path, $content->backdrop_path] as $path) {
+            $path = (string) $path;
+            if ($path === '') {
+                continue;
+            }
+            try {
+                if (str_starts_with($path, 'http')) {
+                    $resp = Http::timeout(25)->get($path);
+                    $body = $resp->successful() ? $resp->body() : '';
+                    if (strlen($body) > 400 && strlen($body) <= self::COVER_MAX_BYTES) {
+                        return $body;
+                    }
+
+                    continue;
+                }
+                if (Storage::disk('public')->exists($path)) {
+                    $raw = (string) Storage::disk('public')->get($path);
+                    if (strlen($raw) > 400 && strlen($raw) <= self::COVER_MAX_BYTES) {
+                        return $raw;
+                    }
+                }
+            } catch (Throwable $e) {
+                // fall through to the next candidate — a missing cover is a normal outcome here
+            }
+        }
+
+        return null;
     }
 
     // ---- source window ------------------------------------------------------

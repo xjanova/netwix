@@ -6,6 +6,12 @@
 @endsection
 
 @php
+    $selMedia = old('media_type', $campaign->media_type ?? 'clip');
+    $mediaOptions = [
+        'clip' => ['🎬', 'คลิปวีดีโอ', 'ตัดฉากในหนังออกมาเป็นวิดีโอสั้น'],
+        'poster' => ['🖼️', 'รูปปกหนัง', 'ใช้ภาพปกของเรื่องนั้น ไม่ต้องตัดวิดีโอ'],
+        'frame' => ['📸', 'ภาพนิ่งจากในหนัง', 'จับภาพช็อตเดียวจากในตอน'],
+    ];
     $selType = old('content_type', $campaign->content_type);
     $selPick = old('pick', $campaign->pick ?? 'trending');
     $selAspect = old('aspect', $campaign->aspect ?? '9:16');
@@ -18,7 +24,7 @@
 
 @section('content')
 <form method="POST" action="{{ $campaign->exists ? route('admin.clip-campaigns.update', $campaign) : route('admin.clip-campaigns.store') }}"
-      x-data="campaignForm({{ Illuminate\Support\Js::from($selSlots) }}, {{ Illuminate\Support\Js::from($campaign->content ? ['id' => $campaign->content->id, 'title' => $campaign->content->title] : null) }}, {{ old('full_episode', $campaign->full_episode) ? 'true' : 'false' }})"
+      x-data="campaignForm({{ Illuminate\Support\Js::from($selSlots) }}, {{ Illuminate\Support\Js::from($campaign->content ? ['id' => $campaign->content->id, 'title' => $campaign->content->title] : null) }}, {{ old('full_episode', $campaign->full_episode) ? 'true' : 'false' }}, {{ Illuminate\Support\Js::from($selMedia) }})"
       class="max-w-3xl space-y-6">
     @csrf
     @if ($campaign->exists) @method('PUT') @endif
@@ -36,6 +42,26 @@
                    class="h-4 w-4 rounded border-white/20 bg-white/5 text-brand-2">
             <span>เปิดใช้งานแคมเปญนี้ทันที <span class="text-cream/40">(ต้องเปิด “ระบบอัตโนมัติ” ที่หน้ารวมด้วย ถึงจะโพสต์เอง)</span></span>
         </label>
+    </div>
+
+    {{-- ── What this campaign posts ────────────────────────────────────────── --}}
+    <div class="nx-card space-y-3 p-5">
+        <div class="text-sm font-semibold text-cream/80">โพสต์เป็นอะไร</div>
+        <div class="grid gap-2 sm:grid-cols-3">
+            @foreach ($mediaOptions as $val => [$icon, $lbl, $hint])
+                <label class="cursor-pointer rounded-lg border border-white/10 bg-white/5 p-3 has-[:checked]:border-brand/50 has-[:checked]:bg-brand/10">
+                    <input type="radio" name="media_type" value="{{ $val }}" x-model="media"
+                           @checked($selMedia === $val) class="sr-only">
+                    <div class="text-sm">{{ $icon }} {{ $lbl }}</div>
+                    <div class="mt-0.5 text-[11px] leading-relaxed text-cream/40">{{ $hint }}</div>
+                </label>
+            @endforeach
+        </div>
+        <p x-show="media !== 'clip'" x-cloak class="text-[11px] leading-relaxed text-cream/45">
+            โพสต์รูปจะลง <b>ฟีด</b> เสมอ (Reels รับเฉพาะวิดีโอ) และใช้เวลาประมวลผลน้อยกว่าคลิปมาก —
+            <span x-show="media === 'poster'">รูปปกใช้ภาพจริงของเรื่องนั้น ไม่ครอป จึงไม่ต้องตั้งความยาว/สัดส่วน</span>
+            <span x-show="media === 'frame'">ภาพนิ่งจะถูกจับจากตำแหน่งเดียวกับที่คลิปจะเริ่ม แล้วปรับให้ได้สัดส่วนที่เลือก</span>
+        </p>
     </div>
 
     {{-- ── Title selection ─────────────────────────────────────────────────── --}}
@@ -131,10 +157,11 @@
 
     {{-- ── Clip + targets ──────────────────────────────────────────────────── --}}
     <div class="nx-card space-y-4 p-5">
-        <div class="text-sm font-semibold text-cream/80">คลิป & ปลายทาง</div>
+        <div class="text-sm font-semibold text-cream/80" x-text="media === 'clip' ? 'คลิป & ปลายทาง' : 'รูป & ปลายทาง'">คลิป & ปลายทาง</div>
 
         {{-- full-episode switch --}}
-        <label class="flex items-start gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm"
+        <label x-show="media === 'clip'" x-cloak
+               class="flex items-start gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm"
                :class="fullEp ? 'border-brand/50 bg-brand/10' : ''">
             <input type="checkbox" name="full_episode" value="1" x-model="fullEp"
                    class="mt-0.5 h-4 w-4 rounded border-white/20 bg-white/5 text-brand-2">
@@ -144,21 +171,23 @@
             </span>
         </label>
 
-        <div class="grid gap-4 sm:grid-cols-2" :class="fullEp ? 'pointer-events-none opacity-40' : ''">
-            <div>
+        {{-- Clip window. Hidden inputs still submit, so a photo campaign keeps valid (unused) values. --}}
+        <div x-show="media !== 'poster'" x-cloak
+             class="grid gap-4 sm:grid-cols-2" :class="fullEp && media === 'clip' ? 'pointer-events-none opacity-40' : ''">
+            <div x-show="media === 'clip'" x-cloak>
                 <label class="mb-1 block text-[12px] text-cream/50">ความยาวคลิป (วินาที)</label>
                 <input type="number" name="duration" min="5" max="600" value="{{ old('duration', $campaign->duration ?? 45) }}"
                        class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
             </div>
-            <div>
+            <div x-show="media === 'clip'" x-cloak>
                 <label class="mb-1 block text-[12px] text-cream/50">สุ่มความยาว สูงสุดไม่เกิน (วินาที) <span class="text-cream/30">(ไม่บังคับ)</span></label>
                 <input type="number" name="duration_max" min="5" max="600" value="{{ old('duration_max', $campaign->duration_max) }}"
                        placeholder="เว้นว่าง = ใช้ความยาวคงที่"
                        class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream placeholder:text-cream/30">
                 <p class="mt-1 text-[11px] text-cream/35">ใส่แล้วแต่ละโพสต์จะสุ่มความยาวระหว่าง “ความยาวคลิป” ถึงค่านี้</p>
             </div>
-            <div>
-                <label class="mb-1 block text-[12px] text-cream/50">ตำแหน่งที่ตัด</label>
+            <div x-show="media !== 'poster'" x-cloak>
+                <label class="mb-1 block text-[12px] text-cream/50" x-text="media === 'frame' ? 'ตำแหน่งที่จับภาพ' : 'ตำแหน่งที่ตัด'">ตำแหน่งที่ตัด</label>
                 <select name="start_mode" class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
                     <option value="middle" @selected(old('start_mode', $campaign->start_mode ?? 'middle') === 'middle')>กลางเรื่อง (เลี่ยงintro/เครดิต)</option>
                     <option value="random" @selected(old('start_mode', $campaign->start_mode ?? 'middle') === 'random')>สุ่มตำแหน่ง (ไม่ซ้ำฉากเดิม)</option>
@@ -166,7 +195,7 @@
                 </select>
                 <p class="mt-1 text-[11px] text-cream/35">“ท้ายตอน” = เอาช่วงสุดท้ายตามความยาวที่ตั้งไว้ ตัดจบก่อนเครดิตท้ายเรื่อง (ถ้าตอนสั้นกว่านั้นจะได้ทั้งตอน)</p>
             </div>
-            <div>
+            <div x-show="media !== 'poster'" x-cloak>
                 <label class="mb-1 block text-[12px] text-cream/50">สัดส่วน</label>
                 <select name="aspect" class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
                     <option value="9:16" @selected($selAspect === '9:16')>9:16 แนวตั้ง (Reels)</option>
@@ -176,7 +205,7 @@
             </div>
         </div>
 
-        <div>
+        <div x-show="media !== 'poster'" x-cloak>
             <label class="mb-1 block text-[12px] text-cream/50">เลือกตอน (สำหรับซีรีส์/เรื่องที่มีหลายตอน)</label>
             <select name="episode_pick" class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-cream">
                 <option value="first" @selected(old('episode_pick', $campaign->episode_pick ?? 'first') === 'first')>ตอนแรกเสมอ</option>
@@ -189,7 +218,7 @@
                 <b>ไม่ซ้ำเด็ดขาด</b> = ดูจากประวัติการโพสต์จริง<b>ของทุกแคมเปญรวมกัน</b> ตอนที่เคยโพสต์แล้วจะไม่ถูกหยิบอีกเลย ถ้าเรื่องไหนโพสต์ครบทุกตอนแล้วจะข้ามไปเรื่องอื่นให้เอง (เหมาะกับสุ่มเรื่องรายชั่วโมง)
             </p>
         </div>
-        <div>
+        <div x-show="media === 'clip'" x-cloak>
             <label class="mb-1.5 block text-[12px] text-cream/50">โพสต์ไปที่</label>
             <div class="flex gap-2">
                 @foreach (['reels' => 'Reels', 'feed' => 'ฟีด (โพสต์วิดีโอ)'] as $val => $lbl)
@@ -200,6 +229,9 @@
                     </label>
                 @endforeach
             </div>
+        </div>
+        <div x-show="media !== 'clip'" x-cloak class="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-cream/60">
+            โพสต์ไปที่ <b class="text-cream/80">ฟีด</b> (โพสต์รูป)
         </div>
         <p class="text-[11px] leading-relaxed text-cream/40">
             แคปชันเขียนให้อัตโนมัติ (AI/เทมเพลต) + ต่อท้ายด้วยลิงก์โหลดแอป NetWix และแฮชแท็กเสมอ —
@@ -247,8 +279,9 @@
 </form>
 
 <script>
-function campaignForm(initialSlots, pinnedTitle, fullEpisode) {
+function campaignForm(initialSlots, pinnedTitle, fullEpisode, mediaType) {
     return {
+        media: mediaType || 'clip',
         fullEp: !!fullEpisode,
         slots: (initialSlots && initialSlots.length) ? [...initialSlots] : ['18:00'],
         addSlot() { this.slots.push('12:00'); },

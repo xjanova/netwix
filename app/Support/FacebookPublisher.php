@@ -56,11 +56,12 @@ class FacebookPublisher
 
     /**
      * Post a clip to the requested surfaces (subset of reels|feed). Returns:
-     *   ['dry_run' => bool, 'results' => ['feed' => '<id>', …], 'error' => ?string]
-     * dry_run=true means Facebook was not connected and nothing was sent.
+     *   ['dry_run' => bool, 'results' => ['feed' => '<id>', …], 'story' => ?string, 'error' => ?string]
+     * dry_run=true means Facebook was not connected and nothing was sent. `story` is the feed
+     * story id when the API handed it to us outright (photos do) — see postPhoto.
      *
      * @param  array<int, string>  $targets
-     * @return array{dry_run: bool, results: array<string, string>, error: ?string}
+     * @return array{dry_run: bool, results: array<string, string>, story?: ?string, error: ?string}
      */
     public function postClip(MarketingClip $clip, array $targets): array
     {
@@ -75,11 +76,18 @@ class FacebookPublisher
 
         // Reels needs the bytes off disk (see postReel); feed just needs the public URL.
         $filePath = $clip->file_path ? Storage::disk('public')->path($clip->file_path) : null;
+        $caption = (string) ($clip->caption ?? '');
+
+        // A photo post (cover art / a grabbed still) is a different endpoint entirely, and Reels
+        // can't carry one — so surfaces don't apply: there is exactly one place it can go.
+        if ($clip->isPhoto()) {
+            return $this->publishPhoto($filePath, $caption);
+        }
+
         if (in_array('reels', $targets, true) && (! $filePath || ! is_readable($filePath))) {
             return ['dry_run' => false, 'results' => [], 'error' => 'no_local_file'];
         }
 
-        $caption = (string) ($clip->caption ?? '');
         $targets = array_unique($targets);
         $results = [];
         $errors = [];
@@ -121,7 +129,58 @@ class FacebookPublisher
         ];
     }
 
+    /**
+     * One photo → the page feed. Wrapped like postClip's video paths: never throws, always
+     * returns a recordable result.
+     *
+     * @return array{dry_run: bool, results: array<string, string>, story: ?string, error: ?string}
+     */
+    private function publishPhoto(?string $filePath, string $caption): array
+    {
+        if (! $filePath || ! is_readable($filePath)) {
+            return ['dry_run' => false, 'results' => [], 'story' => null, 'error' => 'no_local_file'];
+        }
+
+        try {
+            [$photoId, $storyId] = $this->postPhoto($filePath, $caption);
+        } catch (Throwable $e) {
+            return ['dry_run' => false, 'results' => [], 'story' => null, 'error' => 'photo:'.mb_substr($e->getMessage(), 0, 80)];
+        }
+
+        return $photoId
+            ? ['dry_run' => false, 'results' => ['feed' => $photoId], 'story' => $storyId, 'error' => null]
+            : ['dry_run' => false, 'results' => [], 'story' => null, 'error' => 'photo:no_id'];
+    }
+
     // ---- Graph API calls ----------------------------------------------------
+
+    /**
+     * Upload one photo to the page's feed. Returns [photoId, storyId].
+     *
+     * BYTES, not a `url=` — for the same reason Reels can't be hosted (see postReel): the edge
+     * serves Cloudflare's managed robots.txt, which forbids meta-externalagent, so anything
+     * Facebook has to fetch itself fails. A photo is a couple hundred KB, so this is cheap.
+     *
+     * The response carries `post_id` (the pageid_postid story), which is exactly what the
+     * comment→DM funnel matches on — so it's handed back instead of being looked up later.
+     *
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function postPhoto(string $filePath, string $caption): array
+    {
+        $resp = Http::attach('source', (string) file_get_contents($filePath), basename($filePath))
+            ->timeout(180)
+            ->post("{$this->base()}/{$this->page()}/photos", [
+                'caption' => $caption,
+                'published' => 'true',
+                'access_token' => $this->token(),
+            ]);
+        $this->assertOk($resp);
+
+        $photoId = $resp->json('id');
+
+        return [$photoId ? (string) $photoId : null, $resp->json('post_id') ? (string) $resp->json('post_id') : null];
+    }
 
     /** Simple one-shot feed video (also appears in the page's Videos tab). */
     private function postFeedVideo(string $fileUrl, string $caption): ?string

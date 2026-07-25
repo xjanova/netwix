@@ -7,7 +7,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * One marketing clip cut from a title/episode, destined for Facebook.
+ * One marketing post cut from a title/episode, destined for Facebook.
+ *
+ * `media_type` says what the artifact IS:
+ *   clip   — an mp4 cut out of the episode (the original, still the default)
+ *   poster — the title's cover art, posted as a photo
+ *   frame  — one still frame grabbed out of the episode
+ * Photos keep the same shape as clips — the postable file lives in `file_path` (a .jpg),
+ * `poster_path` stays the small webp preview — so posting, reposting, purging and deleting
+ * need no special case anywhere.
  *
  * The heavy lifting (download the source segments, ffmpeg cut/encode) happens in
  * [App\Jobs\GenerateMarketingClip] on the CLI queue — see [App\Support\ClipMaker].
@@ -15,7 +23,7 @@ use Illuminate\Support\Facades\Storage;
 class MarketingClip extends Model
 {
     protected $fillable = [
-        'campaign_id', 'content_id', 'episode_id', 'start', 'start_mode', 'duration', 'aspect',
+        'campaign_id', 'content_id', 'episode_id', 'media_type', 'start', 'start_mode', 'duration', 'aspect',
         'status', 'error', 'file_path', 'poster_path', 'file_size', 'files_purged_at',
         'caption', 'platform', 'auto_post', 'post_targets', 'scheduled_at', 'posted_at',
         'remote_post_id', 'remote_story_id', 'dry_run', 'batch_id', 'meta',
@@ -70,5 +78,14 @@ class MarketingClip extends Model
     public function getIsReadyAttribute(): bool
     {
         return $this->status === 'ready' && (bool) $this->file_path;
+    }
+
+    /**
+     * A photo post (cover art or a grabbed still) rather than a video. Facebook takes these on a
+     * different endpoint (/photos, not /videos or /video_reels) and Reels can't carry them at all.
+     */
+    public function isPhoto(): bool
+    {
+        return in_array($this->media_type, ['poster', 'frame'], true);
     }
 }

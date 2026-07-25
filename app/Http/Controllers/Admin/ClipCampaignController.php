@@ -54,7 +54,7 @@ class ClipCampaignController extends Controller
     {
         return view('admin.clip-campaigns.form', [
             'campaign' => new ClipCampaign([
-                'is_enabled' => false, 'pick' => 'trending', 'include_adult' => false,
+                'is_enabled' => false, 'media_type' => 'clip', 'pick' => 'trending', 'include_adult' => false,
                 'avoid_recent_days' => 14, 'duration' => 45, 'aspect' => '9:16',
                 'start_mode' => 'middle', 'duration_max' => null,
                 'full_episode' => false, 'episode_pick' => 'first',
@@ -139,6 +139,7 @@ class ClipCampaignController extends Controller
     {
         $request->validate([
             'name' => ['required', 'string', 'max:80'],
+            'media_type' => ['required', Rule::in(['clip', 'poster', 'frame'])],
             'content_type' => ['nullable', Rule::in(['movie', 'series', 'anime', 'vertical'])],
             'exclude_type' => ['nullable', Rule::in(['movie', 'series', 'anime', 'vertical']), 'different:content_type'],
             'genre_id' => ['nullable', 'integer', 'exists:genres,id'],
@@ -151,7 +152,9 @@ class ClipCampaignController extends Controller
             'start_mode' => ['required', Rule::in(['middle', 'random', 'ending'])],
             'episode_pick' => ['required', Rule::in(['first', 'random', 'sequential', 'unposted'])],
             'aspect' => ['required', Rule::in(['9:16', '1:1', '16:9'])],
-            'targets' => ['required', 'array', 'min:1'],
+            // Photo campaigns have exactly one possible surface (the feed), so the picker is hidden
+            // for them and nothing is submitted — only a video campaign must choose.
+            'targets' => ['required_unless:media_type,poster,frame', 'array'],
             'targets.*' => [Rule::in(['reels', 'feed'])],
             'days' => ['nullable', 'array'],
             'days.*' => ['integer', 'between:0,6'],
@@ -173,9 +176,15 @@ class ClipCampaignController extends Controller
         $days = collect($request->input('days', []))
             ->map(fn ($d) => (int) $d)->filter(fn ($d) => $d >= 0 && $d <= 6)->unique()->sort()->values();
 
+        // A photo campaign has no video surface and no "whole episode": normalise both away at the
+        // door, so the stored row can't disagree with what the form showed (and with targetList()).
+        $media = (string) $request->input('media_type', 'clip');
+        $photo = in_array($media, ['poster', 'frame'], true);
+
         return [
             'name' => trim((string) $request->input('name')),
             'is_enabled' => $request->boolean('is_enabled'),
+            'media_type' => $media,
             'content_type' => $request->input('content_type') ?: null,
             'exclude_type' => $request->input('exclude_type') ?: null,
             'genre_id' => $request->input('genre_id') ?: null,
@@ -187,10 +196,10 @@ class ClipCampaignController extends Controller
             'duration' => (int) $request->input('duration'),
             'duration_max' => $request->filled('duration_max') ? (int) $request->input('duration_max') : null,
             'start_mode' => $request->input('start_mode', 'middle'),
-            'full_episode' => $request->boolean('full_episode'),
+            'full_episode' => ! $photo && $request->boolean('full_episode'),
             'episode_pick' => $request->input('episode_pick', 'first'),
             'aspect' => $request->input('aspect'),
-            'targets' => $targets->isEmpty() ? 'feed' : $targets->implode(','),
+            'targets' => ($photo || $targets->isEmpty()) ? 'feed' : $targets->implode(','),
             'days' => $days->implode(','),
             'slots' => $slots,
         ];

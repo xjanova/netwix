@@ -127,9 +127,16 @@ class ClipCampaignRunner
             return false;
         }
 
-        $full = (bool) $campaign->full_episode;
-        // duration=0 is the "whole episode" sentinel ClipMaker understands (no -t, all segments).
-        $duration = $full ? 0 : $this->pickDuration($campaign);
+        // What this campaign posts: a cut clip, the title's cover art, or one still frame.
+        // Cover art has no window at all; a still uses the same window maths as a clip, just
+        // over the few seconds a frame is grabbed from.
+        $media = (string) ($campaign->media_type ?: 'clip');
+        $cover = $media === 'poster';
+        $full = $media === 'clip' && (bool) $campaign->full_episode;
+        // duration=0 is the "whole episode" sentinel ClipMaker understands (no -t, all segments);
+        // photos have no length of their own, so they carry 0 too (their branch runs before it).
+        $duration = ($full || $media !== 'clip') ? 0 : $this->pickDuration($campaign);
+        $window = $media === 'frame' ? ClipMaker::STILL_SECONDS : $duration;
 
         // "ending" and "random" can only land on the RIGHT spot if the real media length is known,
         // and duration_minutes is usually absent for these sources (goseries4k/rongyok store none)
@@ -137,14 +144,18 @@ class ClipCampaignRunner
         // probe. Only "middle" (a deterministic centre that's fine even on a rough length) is
         // computed here. Deferred modes carry start=0 + the mode; the cutter fills in the real start.
         $mode = (string) $campaign->start_mode;
-        $deferred = ! $full && in_array($mode, ['ending', 'random'], true);
-        $start = ($full || $deferred) ? 0 : $this->pickStart($episode?->duration_minutes, $duration, $mode);
-        $clipMode = $full ? 'absolute' : ($deferred ? $mode : 'absolute');
+        $deferred = ! $full && ! $cover && in_array($mode, ['ending', 'random'], true);
+        $start = ($full || $cover || $deferred) ? 0 : $this->pickStart($episode?->duration_minutes, $window, $mode);
+        $clipMode = $deferred ? $mode : 'absolute';
 
         $clip = MarketingClip::create([
             'campaign_id' => $campaign->id,
             'content_id' => $title->id,
-            'episode_id' => $episode?->id,
+            // Cover art belongs to the TITLE, not an episode — and recording one here would make
+            // the global "ไม่ซ้ำเด็ดขาด" memory (which reads episode_id off every clip) think that
+            // episode had already been teased, silently burning it for the real clip campaigns.
+            'episode_id' => $cover ? null : $episode?->id,
+            'media_type' => $media,
             'start' => $start,
             'start_mode' => $clipMode,
             'duration' => $duration,
@@ -172,7 +183,8 @@ class ClipCampaignRunner
         // routinely outruns it — the job would be killed mid-encode and retried forever. They
         // go to the single-worker `clips-heavy` lane (hours-scale timeout, withoutOverlapping)
         // which also keeps two heavy ffmpeg runs off this shared box at once.
-        $heavy = $full || $duration > self::HEAVY_SECONDS;
+        // A photo is never heavy: cover art touches no media at all, and a still grabs seconds.
+        $heavy = $media === 'clip' && ($full || $duration > self::HEAVY_SECONDS);
         GenerateMarketingClip::dispatch($clip->id, heavy: $heavy)->onQueue($heavy ? 'clips-heavy' : 'clips');
 
         return true;

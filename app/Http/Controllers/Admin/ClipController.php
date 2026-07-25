@@ -10,6 +10,7 @@ use App\Models\Content;
 use App\Models\Episode;
 use App\Models\MarketingClip;
 use App\Support\CaptionWriter;
+use App\Support\ClipMaker;
 use App\Support\FacebookPublisher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -69,30 +70,38 @@ class ClipController extends Controller
     }
 
     /**
-     * Create + enqueue one or more clips. Body:
-     *   content_id (req), episode_id (opt), duration, aspect, count (1-5), start (opt).
-     * With an explicit start → one clip there. Otherwise → `count` clips auto-spaced
-     * across the episode (skipping the intro/credits margins).
+     * Create + enqueue one or more posts. Body:
+     *   content_id (req), episode_id (opt), media_type, duration, aspect, count (1-5), start (opt).
+     *
+     * media_type decides what gets made:
+     *   clip   — an mp4. With an explicit start → one clip there; otherwise `count` clips
+     *            auto-spaced across the episode (skipping the intro/credits margins).
+     *   frame  — the same window logic, but each position yields a still instead of a video.
+     *   poster — the title's cover art: no episode, no window, exactly one post.
      */
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
             'content_id' => ['required', 'integer', 'exists:contents,id'],
             'episode_id' => ['nullable', 'integer', 'exists:episodes,id'],
+            'media_type' => ['nullable', 'in:clip,poster,frame'],
             'duration' => ['required', 'integer', 'min:5', 'max:180'],
             'aspect' => ['required', 'in:9:16,1:1,16:9'],
             'count' => ['nullable', 'integer', 'min:1', 'max:5'],
             'start' => ['nullable', 'integer', 'min:0'],
         ]);
 
+        $media = $data['media_type'] ?? 'clip';
         $episode = ! empty($data['episode_id'])
             ? Episode::where('content_id', $data['content_id'])->find($data['episode_id'])
             : Content::find($data['content_id'])?->episodes()->orderBy('sort')->first();
 
-        $starts = $this->pickStarts(
+        // Cover art has no position in the media, so there is exactly one of it. A still is placed
+        // by the same maths as a clip, over the few seconds a frame is grabbed from.
+        $starts = $media === 'poster' ? [0] : $this->pickStarts(
             explicit: $request->filled('start') ? (int) $data['start'] : null,
             count: (int) ($data['count'] ?? 1),
-            duration: (int) $data['duration'],
+            duration: $media === 'frame' ? ClipMaker::STILL_SECONDS : (int) $data['duration'],
             episodeMinutes: $episode?->duration_minutes,
         );
 
@@ -102,9 +111,10 @@ class ClipController extends Controller
         foreach ($starts as $start) {
             $clip = MarketingClip::create([
                 'content_id' => $data['content_id'],
-                'episode_id' => $episode?->id,
+                'episode_id' => $media === 'poster' ? null : $episode?->id,
+                'media_type' => $media,
                 'start' => $start,
-                'duration' => $data['duration'],
+                'duration' => $media === 'clip' ? $data['duration'] : 0,
                 'aspect' => $data['aspect'],
                 'status' => 'pending',
                 'batch_id' => $batch,
@@ -136,6 +146,7 @@ class ClipController extends Controller
                 'id' => $c->id,
                 'title' => $c->content?->title ?? '—',
                 'episode' => $c->episode?->number,
+                'media_type' => $c->media_type ?: 'clip',
                 'start' => $c->start,
                 'duration' => $c->duration,
                 'aspect' => $c->aspect,
@@ -245,10 +256,12 @@ class ClipController extends Controller
             ], 422);
         }
         if (! $clip->is_ready) {
+            $noun = $clip->isPhoto() ? 'รูป' : 'คลิป';
+
             return response()->json([
                 'error' => $clip->files_purged_at
-                    ? 'ไฟล์คลิปถูกลบไปแล้ว (ระบบเก็บไฟล์ 15 วัน) — กด “↻ ตัดใหม่” ให้สร้างไฟล์ก่อน แล้วค่อยโพสต์'
-                    : 'คลิปนี้ยังไม่พร้อมโพสต์',
+                    ? "ไฟล์{$noun}ถูกลบไปแล้ว (ระบบเก็บไฟล์ 15 วัน) — กดสร้างใหม่ให้มีไฟล์ก่อน แล้วค่อยโพสต์"
+                    : "{$noun}นี้ยังไม่พร้อมโพสต์",
             ], 422);
         }
 
@@ -264,12 +277,13 @@ class ClipController extends Controller
         // Stale verdict from a previous attempt → the page would call THIS run failed on sight.
         unset($meta['last_post_error'], $meta['last_post_partial']);
 
-        // A 9:16 cut exists to be a Reel; anything else belongs in the feed. Only fills a blank —
-        // campaign clips carry their campaign's targets, and the admin's own edit is kept.
+        // A 9:16 cut exists to be a Reel; anything else (and every photo — Reels is video-only)
+        // belongs in the feed. Only fills a blank — campaign clips carry their campaign's targets,
+        // and the admin's own edit is kept.
         $clip->update([
             'meta' => $meta,
             'post_targets' => blank($clip->post_targets)
-                ? ($clip->aspect === '9:16' ? 'reels' : 'feed')
+                ? (! $clip->isPhoto() && $clip->aspect === '9:16' ? 'reels' : 'feed')
                 : $clip->post_targets,
         ]);
 
