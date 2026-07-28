@@ -56,7 +56,11 @@
     </div>
 
     {{-- ============ ลงโฆษณา ============ --}}
-    @php($myAds = \App\Models\AdBooking::where('user_id', auth()->id())->count())
+    {{-- Block form, not @php(...): the inline directive mis-compiled this expression to an unclosed
+         "<?php(" and swallowed the markup after it, 500-ing the whole page. --}}
+    @php
+        $myAds = \App\Models\AdBooking::where('user_id', auth()->id())->count();
+    @endphp
     <a href="{{ route('advertise.index') }}"
        class="nx-card mt-4 flex flex-wrap items-center gap-4 p-5 transition hover:bg-white/[0.03]">
         <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl"

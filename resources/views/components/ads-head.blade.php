@@ -15,7 +15,12 @@
     The publisher id is regex-validated in [App\Support\Ads::clientId] before it reaches here, so it
     can only ever be `ca-pub-<digits>`.
 --}}
-@php($nxAdsClient = \App\Support\Ads::allowedFor(auth()->user(), $content ?? null) ? \App\Support\Ads::clientId() : null)
+{{-- Block form — see the note in ad-slot.blade.php. This sits in <head> on every page. --}}
+@php
+    $nxAdsClient = \App\Support\Ads::allowedFor(auth()->user(), $content ?? null)
+        ? \App\Support\Ads::clientId()
+        : null;
+@endphp
 
 @if ($nxAdsClient)
     <meta name="google-adsense-account" content="{{ $nxAdsClient }}">

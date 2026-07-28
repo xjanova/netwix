@@ -10,7 +10,12 @@
       house   → one of our OWN uploaded banners (see [App\Models\HouseBanner])
       custom  → raw markup from another network, pasted by an admin (see the note on trust in Ads.php)
 --}}
-@php($nxAd = \App\Support\Ads::slot($name, auth()->user(), $content))
+{{-- Block form on purpose. The inline @php(...) directive has mis-compiled a nested-call expression
+     into an unclosed "<?php(" before (it 500-ed /account on 2026-07-28), and this component renders
+     on every page — the blast radius of that failure here is the entire site. --}}
+@php
+    $nxAd = \App\Support\Ads::slot($name, auth()->user(), $content);
+@endphp
 
 @if ($nxAd)
     <div class="nx-ad nx-ad-{{ $name }} {{ $class }}" data-ad-slot="{{ $name }}">
