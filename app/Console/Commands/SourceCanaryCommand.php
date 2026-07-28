@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Content;
+use App\Models\Episode;
 use App\Models\Setting;
 use App\Services\Import\SourceRegistry;
 use App\Support\SourceHealth;
@@ -50,27 +51,22 @@ class SourceCanaryCommand extends Command
 
         $hidden = array_filter(array_map('trim', explode(',', (string) Setting::get('hidden_sources', ''))));
         $downNow = [];
+        $verdicts = [];   // source id => [ok, tried], held back until the run is sanity-checked
 
         foreach ($registry->all() as $id => $source) {
             if ($only !== '' ? $id !== $only : in_array($id, $hidden, true)) {
                 continue;   // a hidden source is already off — probing it tells us nothing useful
             }
 
-            $titles = Content::withoutGlobalScopes()
-                ->where('source', $id)
-                ->whereNotNull('source_key')
-                ->where('is_published', true)
-                ->orderByDesc('views')
-                ->limit($confirm)
-                ->get(['id', 'title', 'source_key', 'type']);
+            $probes = $this->probesFor($id, $confirm);
 
-            if ($titles->isEmpty()) {
+            if ($probes === []) {
                 $this->line(sprintf('  %-12s no published titles — skipped', $id));
 
                 continue;
             }
 
-            [$ok, $tried, $threw] = $this->probe($source, $titles, $sample, $sleepUs);
+            [$ok, $tried, $threw] = $this->probe($source, $probes, $sample, $sleepUs);
 
             // Our own network wobbled — say nothing rather than brake the whole catalogue on a guess.
             if ($ok === 0 && $threw) {
@@ -79,7 +75,7 @@ class SourceCanaryCommand extends Command
                 continue;
             }
 
-            SourceHealth::record($id, $ok, $tried);
+            $verdicts[$id] = [$ok, $tried];
 
             if ($ok === 0) {
                 $downNow[] = $id;
@@ -87,6 +83,25 @@ class SourceCanaryCommand extends Command
             } else {
                 $this->line(sprintf('  %-12s ok (%d/%d)', $id, $ok, $tried));
             }
+        }
+
+        // Sanity rail: independent sites do not fail together. A majority reporting down means the
+        // fault is far more likely to be ours — our network, or a bug in this very command, which is
+        // precisely what happened on its first run (it probed every source with a hardcoded episode
+        // ref). Recording those verdicts would disable auto-suspend across most of the catalogue on
+        // the strength of our own bug, so nothing is written and a human is asked to look.
+        if (count($downNow) > count($verdicts) / 2 && count($verdicts) > 1) {
+            Log::error('source-canary: majority of sources reported down — verdicts discarded as implausible', [
+                'down' => $downNow, 'checked' => array_keys($verdicts),
+            ]);
+            $this->newLine();
+            $this->error('มี '.count($downNow).'/'.count($verdicts).' แหล่งรายงานว่าล่มพร้อมกัน — ไม่น่าเป็นไปได้ จึงไม่บันทึกผล (น่าจะเป็นฝั่งเราเอง)');
+
+            return self::FAILURE;
+        }
+
+        foreach ($verdicts as $id => [$ok, $tried]) {
+            SourceHealth::record($id, $ok, $tried);
         }
 
         if ($downNow !== []) {
@@ -100,29 +115,69 @@ class SourceCanaryCommand extends Command
     }
 
     /**
-     * Probe titles until $sample of them resolve. Only when NONE has resolved by then do we keep going
-     * to $titles->count() (the --confirm width), so the expensive wide sample is paid for exactly in
-     * the case that's about to be called an outage.
+     * The (key, ref) pairs to probe for one source, most-watched first.
      *
-     * @param  \Illuminate\Support\Collection<int,Content>  $titles
+     * The ref MUST be the episode's own stored source_ref, never a hardcoded "1": only the Halim sites
+     * take a plain episode number: goseries4k's ref is an episode POST id, animeruka's is an "ep/{id}"
+     * path, wowdrama's a numeric episode id. Probing those with "1" resolves nothing and would report
+     * a healthy source as a total outage — which is exactly what the first run of this command did,
+     * and it would have silently disabled auto-suspend for three working sources.
+     *
+     * @return array<int,array{key:string,ref:string,title:string}>
+     */
+    private function probesFor(string $sourceId, int $limit): array
+    {
+        $titles = Content::withoutGlobalScopes()
+            ->where('source', $sourceId)
+            ->whereNotNull('source_key')
+            ->where('is_published', true)
+            ->orderByDesc('views')
+            ->limit($limit)
+            ->get(['id', 'title', 'source_key']);
+
+        if ($titles->isEmpty()) {
+            return [];
+        }
+
+        // One episode per title, lowest number — the same key/ref pair the player would resolve.
+        $firstEp = Episode::whereIn('content_id', $titles->pluck('id'))
+            ->whereNotNull('source_ref')->where('source_ref', '!=', '')
+            ->orderBy('number')
+            ->get(['content_id', 'source_ref'])
+            ->groupBy('content_id');
+
+        $probes = [];
+        foreach ($titles as $c) {
+            $ref = (string) ($firstEp[$c->id][0]->source_ref ?? '');
+            if ($ref !== '') {
+                $probes[] = ['key' => (string) $c->source_key, 'ref' => $ref, 'title' => (string) $c->title];
+            }
+        }
+
+        return $probes;
+    }
+
+    /**
+     * Probe until $sample of them resolve. Only when NONE has resolved by then do we keep going to the
+     * full --confirm width, so the expensive wide sample is paid for exactly in the case that's about
+     * to be called an outage.
+     *
+     * @param  array<int,array{key:string,ref:string,title:string}>  $probes
      * @return array{0:int,1:int,2:bool} [resolved, probed, hitAnException]
      */
-    private function probe($source, $titles, int $sample, int $sleepUs): array
+    private function probe($source, array $probes, int $sample, int $sleepUs): array
     {
         $ok = 0;
         $tried = 0;
         $threw = false;
 
-        foreach ($titles as $c) {
+        foreach ($probes as $p) {
             if ($ok >= $sample || ($ok > 0 && $tried >= $sample)) {
                 break;   // it's clearly alive; no need to keep poking the source
             }
             $tried++;
             try {
-                // Episode "1" resolves a movie, and is representative for a series (the same remote id
-                // serves every episode via its own episode param).
-                $stream = $source->resolveByRef((string) $c->source_key, '1');
-                if ($stream !== null) {
+                if ($source->resolveByRef($p['key'], $p['ref']) !== null) {
                     $ok++;
                 }
             } catch (Throwable $e) {
