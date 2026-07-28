@@ -115,6 +115,12 @@ Schedule::command('netwix:source-canary')
 Schedule::command('netwix:alert-digest')
     ->hourly()->withoutOverlapping()->runInBackground();
 
+// Every 10 min: fold cached ad-impression counters into ad_bookings and retire finished campaigns.
+// Impressions are counted in cache on render (a DB write per page view would cost more than the ad
+// earns), so this is what makes the advertiser's delivery numbers real.
+Schedule::command('netwix:ad-impressions')
+    ->everyTenMinutes()->withoutOverlapping()->runInBackground();
+
 // Covers heal ON-DEMAND now (a card pings content.heal-cover when its poster fails to load — see
 // [App\Http\Controllers\PosterHealController]), so no nightly sweep. The netwix:backfill-posters
 // command is kept for manual bulk runs only.

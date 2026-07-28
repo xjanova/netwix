@@ -36,6 +36,17 @@ Route::get('/b/{banner}', function (\App\Models\HouseBanner $banner) {
     return redirect()->away($to);
 })->middleware('throttle:60,1')->name('house-banner.click');
 
+// Paid-ad click-through: counts, then forwards to the advertiser's screened destination. Same
+// re-validation as the house-banner route — a row is never trusted to hold a safe scheme.
+Route::get('/ad/{booking}', function (\App\Models\AdBooking $booking) {
+    $to = (string) $booking->link_url;
+    abort_unless(preg_match('~^https?://~i', $to) === 1, 404);
+
+    \App\Models\AdBooking::whereKey($booking->id)->increment('clicks');
+
+    return redirect()->away($to);
+})->middleware('throttle:60,1')->name('ad.click');
+
 // AdSense reads /ads.txt to confirm who may sell this site's inventory. Served from the admin-edited
 // setting so the owner can paste the line Google gives them; empty setting → 404, which is the
 // correct answer for "we don't publish one" (an empty 200 reads as a malformed file).
@@ -169,6 +180,18 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::post('/account/settings', [\App\Http\Controllers\AccountController::class, 'updateContact'])->name('account.contact');
 
     // Missions — watch a video → earn coins. beat is throttled (heartbeat ~every 15s).
+    // ---- Self-serve advertising ("ลงโฆษณา") ----------------------------
+    // Buying is member-only: an ad is paid for on-chain and reviewed by a human, both of which need
+    // an account to attach to. Screening + pricing happen server-side in AdvertiseController.
+    Route::get('/advertise', [\App\Http\Controllers\AdvertiseController::class, 'index'])->name('advertise.index');
+    Route::get('/advertise/mine', [\App\Http\Controllers\AdvertiseController::class, 'mine'])->name('advertise.mine');
+    Route::get('/advertise/{placement}', [\App\Http\Controllers\AdvertiseController::class, 'create'])->name('advertise.create');
+    Route::post('/advertise/{placement}', [\App\Http\Controllers\AdvertiseController::class, 'store'])
+        ->middleware('throttle:10,1')->name('advertise.store');
+    Route::get('/advertise/order/{booking}', [\App\Http\Controllers\AdvertiseController::class, 'checkout'])->name('advertise.checkout');
+    Route::get('/advertise/order/{booking}/status', [\App\Http\Controllers\AdvertiseController::class, 'status'])
+        ->middleware('throttle:60,1')->name('advertise.status');
+
     Route::get('/missions', [\App\Http\Controllers\MissionController::class, 'index'])->name('missions.index');
     Route::post('/missions/{mission}/start', [\App\Http\Controllers\MissionController::class, 'start'])->middleware('throttle:20,1')->name('missions.start');
     Route::post('/missions/{mission}/beat', [\App\Http\Controllers\MissionController::class, 'beat'])->middleware('throttle:30,1')->name('missions.beat');
@@ -395,6 +418,17 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::put('line-alerts', [Admin\LineAlertController::class, 'update'])->name('line-alerts.update');
     Route::post('line-alerts/test', [Admin\LineAlertController::class, 'test'])->name('line-alerts.test');
     Route::delete('line-alerts/token', [Admin\LineAlertController::class, 'forget'])->name('line-alerts.forget');
+
+    // Self-serve ad marketplace ("ขายโฆษณาให้ลูกค้า") — placements, review queue, booking calendar.
+    Route::get('ad-market', [Admin\AdMarketController::class, 'index'])->name('ad-market.index');
+    Route::put('ad-market/settings', [Admin\AdMarketController::class, 'settings'])->name('ad-market.settings');
+    Route::post('ad-market/placements', [Admin\AdMarketController::class, 'storePlacement'])->name('ad-market.placements.store');
+    Route::put('ad-market/placements/{placement}', [Admin\AdMarketController::class, 'updatePlacement'])->name('ad-market.placements.update');
+    Route::delete('ad-market/placements/{placement}', [Admin\AdMarketController::class, 'destroyPlacement'])->name('ad-market.placements.destroy');
+    Route::get('ad-market/review', [Admin\AdMarketController::class, 'review'])->name('ad-market.review');
+    Route::post('ad-market/review/{booking}/approve', [Admin\AdMarketController::class, 'approve'])->name('ad-market.approve');
+    Route::post('ad-market/review/{booking}/reject', [Admin\AdMarketController::class, 'reject'])->name('ad-market.reject');
+    Route::get('ad-market/calendar', [Admin\AdMarketController::class, 'calendar'])->name('ad-market.calendar');
 
     // House banners ("โฆษณาสำรอง") — our own uploaded creatives for the same slots.
     Route::get('house-banners', [Admin\HouseBannerController::class, 'index'])->name('house-banners.index');

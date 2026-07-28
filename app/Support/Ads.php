@@ -2,10 +2,12 @@
 
 namespace App\Support;
 
+use App\Models\AdBooking;
 use App\Models\Content;
 use App\Models\HouseBanner;
 use App\Models\Setting;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Google ad placements — AdSense on the web, AdMob in the app. One place decides whether a given
@@ -119,10 +121,13 @@ class Ads
         $unit = self::unit($slot);
         $network = ($client && $unit) ? ['kind' => 'adsense', 'client' => $client, 'unit' => $unit] : null;
 
-        // TODO(ad-marketplace): a PAID booking will take the slot `ad_paid_share` percent of the time
-        // (owner: "แบ่งกันตามเปอร์เซ็นต์ที่ตั้ง"). Deliberately NOT wired yet — ad_bookings does not
-        // exist on production, and this method runs on every page render, so a half-finished branch
-        // here is a site-wide 500 rather than a missing feature.
+        // A PAID booking takes the slot `ad_paid_share` percent of the time (owner: "แบ่งกันตาม
+        // เปอร์เซ็นต์ที่ตั้ง"). It gets first refusal because it is the only inventory a customer was
+        // actually charged for — but it shares, so the network keeps earning the rest.
+        $paid = self::paidSlot($slot);
+        if ($paid !== null && random_int(1, 100) <= self::paidShare()) {
+            return $paid;
+        }
 
         // No network unit for this slot → the house banner is the only candidate. Otherwise it gets
         // the slot `house_ads_fill` percent of the time. Picked at most ONCE: in rotate mode the pick
@@ -130,13 +135,75 @@ class Ads
         $wantHouse = $network === null || random_int(1, 100) <= self::houseFill();
         $house = $wantHouse ? self::houseSlot($slot) : null;
 
-        return $house ?? $network ?? ($wantHouse ? null : self::houseSlot($slot));
+        // Paid inventory is also the LAST resort: with nothing else configured, the advertiser we
+        // charged must still get the impression rather than the slot rendering empty.
+        return $house ?? $network ?? ($wantHouse ? null : self::houseSlot($slot)) ?? $paid;
     }
 
     /** Percentage of impressions house banners take when a network unit IS configured (0–100). */
     public static function houseFill(): int
     {
         return max(0, min(100, (int) Setting::get('house_ads_fill', 0)));
+    }
+
+    /** Share of impressions a paid booking takes when one is running (0–100). */
+    public static function paidShare(): int
+    {
+        return max(0, min(100, (int) Setting::get('ad_paid_share', 70)));
+    }
+
+    /**
+     * Pick one running paid booking for this slot, round-robin so co-running advertisers get equal
+     * delivery — they each bought the same days, so an uneven split would be a quiet breach.
+     * Impressions are counted in a cache counter and flushed to the row by netwix:ad-impressions,
+     * because a DB write per page view is not something a banner should cost.
+     *
+     * @return array{kind:string,id:int,src:string,link:?string,name:?string}|null
+     */
+    private static function paidSlot(string $slot): ?array
+    {
+        try {
+            $rows = Cache::remember('admarket:live:'.$slot, now()->addMinutes(1), function () use ($slot) {
+                return AdBooking::runnable()
+                    ->whereHas('placement', fn ($q) => $q->where('slot', $slot))
+                    ->orderBy('id')
+                    ->get(['id', 'image_path', 'link_url', 'title'])
+                    ->map(fn (AdBooking $b) => [
+                        'id' => (int) $b->id,
+                        'src' => (string) $b->image_src,
+                        'link' => $b->link_url ?: null,
+                        'name' => $b->title,
+                    ])
+                    ->all();
+            });
+        } catch (\Throwable) {
+            return null;   // table missing / db hiccup → fall through to the other inventory
+        }
+
+        if (! is_array($rows) || $rows === []) {
+            return null;
+        }
+
+        $pick = $rows[self::cursor('admarket:cursor:'.$slot) % count($rows)];
+        try {
+            Cache::increment('admarket:imp:'.$pick['id']);
+        } catch (\Throwable) {
+            // impression accounting is best-effort; never block a render for it
+        }
+
+        return ['kind' => 'paid'] + $pick;
+    }
+
+    /** Monotonic counter used for fair round-robin; falls back to random with no atomic store. */
+    private static function cursor(string $key): int
+    {
+        try {
+            Cache::add($key, 0, now()->addDay());
+
+            return (int) Cache::increment($key);
+        } catch (\Throwable) {
+            return random_int(0, 9999);
+        }
     }
 
     /** @return array{kind:string,id:int,src:string,link:?string,name:?string}|null */

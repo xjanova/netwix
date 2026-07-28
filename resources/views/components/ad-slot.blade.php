@@ -19,7 +19,20 @@
                  for AdSense specifically, a policy violation. --}}
             <div class="mb-1 text-[10px] uppercase tracking-wider text-cream/25">โฆษณา</div>
 
-            @if ($nxAd['kind'] === 'house')
+            @if ($nxAd['kind'] === 'paid')
+                {{-- A customer's booked banner. Click goes through /ad/{id} so delivery is counted. --}}
+                @if ($nxAd['link'])
+                    <a href="{{ route('ad.click', $nxAd['id']) }}" target="_blank"
+                       rel="sponsored nofollow noopener" class="block">
+                        <img src="{{ $nxAd['src'] }}" alt="{{ $nxAd['name'] ?? 'โฆษณา' }}" loading="lazy"
+                             class="mx-auto h-auto w-full max-w-full rounded-lg">
+                    </a>
+                @else
+                    <img src="{{ $nxAd['src'] }}" alt="{{ $nxAd['name'] ?? 'โฆษณา' }}" loading="lazy"
+                         class="mx-auto h-auto w-full max-w-full rounded-lg">
+                @endif
+
+            @elseif ($nxAd['kind'] === 'house')
                 {{-- Our own creative. rel="sponsored nofollow" keeps a paid/self promo from passing
                      link equity, and the click goes through /b/{id} so it can be counted. --}}
                 @if ($nxAd['link'])

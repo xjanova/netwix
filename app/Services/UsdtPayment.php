@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AdBooking;
 use App\Models\Setting;
 use App\Models\UsdtOrder;
 use App\Models\User;
@@ -118,6 +119,24 @@ class UsdtPayment
         }
 
         return $this->makeOrder($u, 'pro', round($price, 6), 0, (int) ($cfg['pro_days'] ?? 30));
+    }
+
+    /**
+     * Invoice an ad booking. Same receive-only machinery as gold/Pro — the buyer sends an exact,
+     * unique amount and the watcher settles it — with the booking id carried in `meta` so settling
+     * knows what to activate. The amount is decided by the placement's price, never by the client.
+     */
+    public function createAdOrder(User $u, float $usdt, int $bookingId): UsdtOrder
+    {
+        $this->assertReady();
+        if ($usdt <= 0) {
+            throw new RuntimeException('ยอดชำระไม่ถูกต้อง');
+        }
+
+        $order = $this->makeOrder($u, 'ad', round($usdt, 6), 0, 0);
+        $order->forceFill(['meta' => ['ad_booking_id' => $bookingId]])->save();
+
+        return $order;
     }
 
     private function makeOrder(User $u, string $purpose, float $base, int $gold, int $days): UsdtOrder
@@ -304,6 +323,17 @@ class UsdtPayment
                 } elseif ($o->purpose === 'pro' && $o->pro_days > 0) {
                     $this->m->grantProDays($u, (int) $o->pro_days);
                     $this->m->distributeProDividend($u);
+                } elseif ($o->purpose === 'ad') {
+                    // Paying does NOT put the ad on screen — it only moves it into the review queue.
+                    // An admin still has to approve the creative, and a rejection is not refunded
+                    // (the buyer accepts that at checkout). Guarded by the status so a re-settle,
+                    // or a payment arriving after the booking was edited, can't resurrect anything.
+                    $bookingId = (int) ($o->meta['ad_booking_id'] ?? 0);
+                    if ($bookingId > 0) {
+                        AdBooking::whereKey($bookingId)
+                            ->whereIn('status', ['awaiting_payment', 'draft'])
+                            ->update(['status' => 'paid', 'usdt_order_id' => $o->id]);
+                    }
                 }
 
                 return true;
