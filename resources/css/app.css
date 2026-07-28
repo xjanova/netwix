@@ -124,6 +124,57 @@
         border-radius: 14px;
     }
 
+    /* ---- Admin nav: translucent "glass" buttons -------------------------------
+       Depth comes from three stacked cues rather than a drop shadow: a light inset
+       along the top edge (as if lit from above), a dark inset along the bottom, and
+       an outer shadow beneath. backdrop-filter samples the sidebar gradient behind,
+       which is what makes it read as a wet//frosted surface instead of flat grey.
+       The 1px lift on hover and the press-down on :active are what sell it as a
+       physical button — without them the highlights just look like decoration. */
+    .nx-glass {
+        background-image: linear-gradient(160deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.02));
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 12px;
+        backdrop-filter: blur(10px) saturate(140%);
+        -webkit-backdrop-filter: blur(10px) saturate(140%);
+        box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.16),
+            inset 0 -1px 0 rgba(0, 0, 0, 0.30),
+            0 2px 6px rgba(0, 0, 0, 0.30);
+        transition: transform .16s ease, box-shadow .16s ease, background-image .16s ease;
+    }
+
+    .nx-glass:hover {
+        background-image: linear-gradient(160deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
+        transform: translateY(-1px);
+        box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.22),
+            inset 0 -1px 0 rgba(0, 0, 0, 0.32),
+            0 6px 16px rgba(0, 0, 0, 0.38);
+    }
+
+    /* Pressed: sink INTO the surface — outer shadow off, inner shadow on. */
+    .nx-glass:active {
+        transform: translateY(1px);
+        box-shadow:
+            inset 0 2px 6px rgba(0, 0, 0, 0.45),
+            inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+    }
+
+    /* Current page: lit from within, in the brand colours. */
+    .nx-glass-on {
+        background-image: linear-gradient(160deg, rgba(176, 38, 255, 0.34), rgba(255, 45, 85, 0.20));
+        border-color: rgba(176, 38, 255, 0.45);
+        box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.28),
+            inset 0 -1px 0 rgba(0, 0, 0, 0.28),
+            0 4px 18px rgba(176, 38, 255, 0.35);
+    }
+
+    .nx-glass-on:hover {
+        background-image: linear-gradient(160deg, rgba(176, 38, 255, 0.42), rgba(255, 45, 85, 0.26));
+    }
+
     /* horizontal content rail — NO scroll-snap / scroll-smooth: on this flex rail they
        pinned every programmatic scroll (arrow click + edge-hover glide) back to 0
        (verified in-browser 2026-07-04). Free-scroll; the JS animates the arrow click. */
