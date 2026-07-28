@@ -24,6 +24,18 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', [HomeController::class, 'index'])->name('home');
 
+// House-banner click-through: counts the click, then forwards to the admin-set destination. The
+// destination is validated as http(s) at save time AND here, so a malformed row can never turn this
+// into a javascript: sink or an open redirect to a scheme we didn't intend.
+Route::get('/b/{banner}', function (\App\Models\HouseBanner $banner) {
+    $to = (string) $banner->link_url;
+    abort_unless(preg_match('~^https?://~i', $to) === 1, 404);
+
+    \App\Models\HouseBanner::whereKey($banner->id)->increment('clicks');
+
+    return redirect()->away($to);
+})->middleware('throttle:60,1')->name('house-banner.click');
+
 // AdSense reads /ads.txt to confirm who may sell this site's inventory. Served from the admin-edited
 // setting so the owner can paste the line Google gives them; empty setting → 404, which is the
 // correct answer for "we don't publish one" (an empty 200 reads as a malformed file).
@@ -377,6 +389,14 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     // Network banner ads ("โฆษณา Google") — AdSense on the web, AdMob in the app. Settings only.
     Route::get('google-ads', [Admin\GoogleAdsController::class, 'index'])->name('google-ads.index');
     Route::put('google-ads', [Admin\GoogleAdsController::class, 'update'])->name('google-ads.update');
+
+    // House banners ("โฆษณาสำรอง") — our own uploaded creatives for the same slots.
+    Route::get('house-banners', [Admin\HouseBannerController::class, 'index'])->name('house-banners.index');
+    Route::put('house-banners/settings', [Admin\HouseBannerController::class, 'settings'])->name('house-banners.settings');
+    Route::post('house-banners', [Admin\HouseBannerController::class, 'store'])->name('house-banners.store');
+    Route::put('house-banners/{banner}', [Admin\HouseBannerController::class, 'update'])->name('house-banners.update');
+    Route::post('house-banners/{banner}/toggle', [Admin\HouseBannerController::class, 'toggle'])->name('house-banners.toggle');
+    Route::delete('house-banners/{banner}', [Admin\HouseBannerController::class, 'destroy'])->name('house-banners.destroy');
 
     // Missions ("ภารกิจ / รางวัล") — watch-a-video → earn coins.
     Route::get('missions', [Admin\MissionController::class, 'index'])->name('missions.index');

@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Content;
+use App\Models\HouseBanner;
 use App\Models\Setting;
 use App\Models\User;
 
@@ -92,7 +93,18 @@ class Ads
         return true;
     }
 
-    /** Everything a slot needs to render, or null when it shouldn't. */
+    /**
+     * Everything a slot needs to render, or null when it shouldn't.
+     *
+     * Order of preference:
+     *   1. a per-slot custom snippet (an admin pasted another network's code — they meant it),
+     *   2. otherwise AdSense or a HOUSE banner, split by `house_ads_fill`,
+     *   3. and either one falls back to the other rather than leaving the slot empty.
+     *
+     * The fill share is what makes house banners more than a stopgap: at 0 they only appear when no
+     * network unit is configured, at 100 they take the slot outright, and in between the owner can run
+     * their own promos alongside paid inventory without touching code.
+     */
     public static function slot(string $slot, ?User $user = null, mixed $content = null): ?array
     {
         if (! in_array($slot, self::SLOTS, true) || ! self::allowedFor($user, $content)) {
@@ -105,8 +117,35 @@ class Ads
 
         $client = self::clientId();
         $unit = self::unit($slot);
+        $network = ($client && $unit) ? ['kind' => 'adsense', 'client' => $client, 'unit' => $unit] : null;
 
-        return ($client && $unit) ? ['kind' => 'adsense', 'client' => $client, 'unit' => $unit] : null;
+        // No network unit for this slot → the house banner is the only candidate. Otherwise it gets
+        // the slot `house_ads_fill` percent of the time. Picked at most ONCE: in rotate mode the pick
+        // advances a cursor, so calling it twice would skip a banner in the cycle.
+        $wantHouse = $network === null || random_int(1, 100) <= self::houseFill();
+        $house = $wantHouse ? self::houseSlot($slot) : null;
+
+        return $house ?? $network ?? ($wantHouse ? null : self::houseSlot($slot));
+    }
+
+    /** Percentage of impressions house banners take when a network unit IS configured (0–100). */
+    public static function houseFill(): int
+    {
+        return max(0, min(100, (int) Setting::get('house_ads_fill', 0)));
+    }
+
+    /** @return array{kind:string,id:int,src:string,link:?string,name:?string}|null */
+    private static function houseSlot(string $slot): ?array
+    {
+        $b = HouseBanner::pickFor($slot);
+
+        return $b ? ['kind' => 'house'] + $b : null;
+    }
+
+    /** The app needs an absolute URL — Storage::url is site-relative on the local disk. */
+    private static function absolute(string $src): string
+    {
+        return str_starts_with($src, '/') ? rtrim((string) config('app.url'), '/').$src : $src;
     }
 
     // ------------------------------------------------------------------ app
@@ -120,10 +159,20 @@ class Ads
      */
     public static function appConfig(?User $user = null): array
     {
-        $on = Setting::flag('admob_enabled', false) && ! $user?->isProMember();
+        // House banners are the app's fallback too: AdMob may be unconfigured or simply unfilled, and
+        // the app should still have something to put in the slot. They're gated on the same Pro rule.
+        $pro = (bool) $user?->isProMember();
+        $on = Setting::flag('admob_enabled', false) && ! $pro;
+        $house = (! $pro && self::enabled()) ? HouseBanner::pickFor('header') : null;
 
         return [
             'show_ads' => $on,
+            // Shown when show_ads is false-but-not-Pro, or when AdMob returns no fill.
+            'house_banner' => $house ? [
+                'image' => self::absolute($house['src']),
+                'link' => $house['link'],
+                'name' => $house['name'],
+            ] : null,
             'android_app_id' => $on ? self::admobId('admob_android_app_id') : null,
             'ios_app_id' => $on ? self::admobId('admob_ios_app_id') : null,
             'units' => [
