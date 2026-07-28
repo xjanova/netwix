@@ -24,6 +24,16 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', [HomeController::class, 'index'])->name('home');
 
+// AdSense reads /ads.txt to confirm who may sell this site's inventory. Served from the admin-edited
+// setting so the owner can paste the line Google gives them; empty setting → 404, which is the
+// correct answer for "we don't publish one" (an empty 200 reads as a malformed file).
+Route::get('/ads.txt', function () {
+    $body = trim((string) \App\Models\Setting::get('ads_txt', ''));
+    abort_if($body === '', 404);
+
+    return response($body."\n", 200, ['Content-Type' => 'text/plain; charset=UTF-8']);
+})->name('ads.txt');
+
 // ---- SEO: sitemap index + typed children -------------------------------
 Route::get('/sitemap.xml', [SitemapController::class, 'index'])->name('sitemap');
 Route::get('/sitemap-pages.xml', [SitemapController::class, 'pages'])->name('sitemap.pages');
@@ -363,6 +373,10 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::put('ads/{ad}', [Admin\AdController::class, 'update'])->name('ads.update');
     Route::post('ads/{ad}/toggle', [Admin\AdController::class, 'toggle'])->name('ads.toggle');
     Route::delete('ads/{ad}', [Admin\AdController::class, 'destroy'])->name('ads.destroy');
+
+    // Network banner ads ("โฆษณา Google") — AdSense on the web, AdMob in the app. Settings only.
+    Route::get('google-ads', [Admin\GoogleAdsController::class, 'index'])->name('google-ads.index');
+    Route::put('google-ads', [Admin\GoogleAdsController::class, 'update'])->name('google-ads.update');
 
     // Missions ("ภารกิจ / รางวัล") — watch-a-video → earn coins.
     Route::get('missions', [Admin\MissionController::class, 'index'])->name('missions.index');

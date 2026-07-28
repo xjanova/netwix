@@ -116,4 +116,7 @@ window.nxHealCover = function (img, url) {
     ],
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) !!}
 </script>
+{{-- AdSense loader — self-suppressing for Pro members, adult pages, and when ads are off. --}}
+<x-ads-head :content="$adContent ?? ($content ?? null)" />
+
 @stack('head')

@@ -55,6 +55,10 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
         // Home-screen promo banners — optional auth so hide_for_pro works.
         Route::get('banners', [BannerController::class, 'index']);
 
+        // AdMob unit ids + the show_ads flag. Optional auth so a signed-in Pro member gets
+        // show_ads=false and null units — the ad-free plan is enforced server-side, not by the client.
+        Route::get('ads/config', [AdController::class, 'config']);
+
         // In-app notification inbox (admin broadcasts). Public: guests see news too.
         Route::get('notifications', [NotificationController::class, 'index']);
 

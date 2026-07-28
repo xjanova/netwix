@@ -6,7 +6,7 @@
 {{-- Whole-source outage alarm (netwix:source-canary). Deliberately above everything else. --}}
 @if ($sourcesDown->isNotEmpty())
     <div class="mb-6 rounded-xl border border-brand/40 bg-brand/10 px-4 py-4">
-        <div class="text-[14px] font-bold text-brand">⚠️ แหล่งหนังล่มทั้งแหล่ง — หนังทั้งหมดของแหล่งนี้เล่นไม่ได้</div>
+        <div class="text-[14px] font-bold text-brand">⚠️ ดึงลิ้งค์จากแหล่งนี้ไม่ได้ทั้งแหล่ง — หนังทั้งหมดของแหล่งนี้เล่นไม่ได้</div>
         <div class="mt-2 space-y-1 text-[13px] text-cream/70">
             @foreach ($sourcesDown as $s)
                 <div>
@@ -17,7 +17,8 @@
             @endforeach
         </div>
         <div class="mt-2.5 text-[12px] text-cream/45">
-            ระบบพักการหยุดเผยแพร่อัตโนมัติของแหล่งนี้ไว้แล้ว หนังจะไม่ถูกปิดทิ้งระหว่างที่ต้นทางล่ม
+            อาจเป็นเว็บต้นทางล่มจริง หรือเขาเปลี่ยนรูปแบบ URL/เพลเยอร์จนลิ้งค์ที่เก็บไว้ใช้ไม่ได้ — ต้องเข้าไปดูทีละกรณี
+            <br>ระบบพักการหยุดเผยแพร่อัตโนมัติของแหล่งนี้ไว้แล้ว หนังจะไม่ถูกปิดทิ้งระหว่างนี้
             — ไปซ่อนทั้งแหล่งชั่วคราวได้ที่ <a href="{{ route('admin.import.index') }}" class="underline hover:text-cream">หน้านำเข้า</a>
         </div>
     </div>

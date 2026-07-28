@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\App;
 use App\Http\Controllers\Controller;
 use App\Models\AdCampaign;
 use App\Models\Content;
+use App\Support\Ads;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
@@ -24,6 +25,25 @@ use Throwable;
  */
 class AdController extends Controller
 {
+    /**
+     * GET /api/app/ads/config — AdMob unit ids for this viewer, plus the single `show_ads` flag that
+     * decides whether the app renders any network ads at all.
+     *
+     * The Pro-member decision is made HERE, not in the client: an ad-free plan must not depend on the
+     * installed app being current or well-behaved. A Pro member simply receives show_ads=false and
+     * null unit ids, so there is nothing for an old build to display even if it ignored the flag.
+     */
+    public function config(Request $request): JsonResponse
+    {
+        try {
+            $config = Ads::appConfig($request->user());
+        } catch (Throwable $e) {
+            $config = ['show_ads' => false];   // never let an ad-config error break app startup
+        }
+
+        return response()->json(['success' => true, 'data' => $config]);
+    }
+
     /** GET /api/app/content/{content}/ad — the one pre-roll for this title + viewer, or null. */
     public function preroll(Request $request, Content $content): JsonResponse
     {

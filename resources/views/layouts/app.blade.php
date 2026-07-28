@@ -13,9 +13,13 @@
     <canvas id="nx-dream" aria-hidden="true"></canvas>
     @include('partials.nav')
 
+    <x-ad-slot name="header" :content="$adContent ?? ($content ?? null)" />
+
     <main>
         @yield('content')
     </main>
+
+    <x-ad-slot name="footer" :content="$adContent ?? ($content ?? null)" />
 
     @include('partials.site-footer')
 

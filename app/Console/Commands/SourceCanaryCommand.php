@@ -79,7 +79,11 @@ class SourceCanaryCommand extends Command
 
             if ($ok === 0) {
                 $downNow[] = $id;
-                $this->error(sprintf('  %-12s DOWN — 0/%d titles resolved', $id, $tried));
+                // "unresolvable", not "down": we cannot tell a site being offline from a site that
+                // quietly changed its URL scheme under us — anifume did exactly that, kept serving
+                // 200s, and only our stored refs went stale. Both need attention; they need
+                // DIFFERENT attention, so don't let the label pick one.
+                $this->error(sprintf('  %-12s UNRESOLVABLE — 0/%d titles resolved', $id, $tried));
             } else {
                 $this->line(sprintf('  %-12s ok (%d/%d)', $id, $ok, $tried));
             }
@@ -105,10 +109,11 @@ class SourceCanaryCommand extends Command
         }
 
         if ($downNow !== []) {
-            // ERROR level so it stands out in the log even though the site itself is serving fine.
-            Log::error('source-canary: whole-source outage', ['sources' => $downNow]);
+            // ERROR level so it stands out in the log even though the site itself may be serving fine.
+            Log::error('source-canary: source unresolvable', ['sources' => $downNow]);
             $this->newLine();
-            $this->error('แหล่งที่ล่ม: '.implode(', ', $downNow).' — auto-suspend ของแหล่งนี้ถูกพักไว้แล้ว');
+            $this->error('แหล่งที่ดึงลิ้งค์ไม่ได้: '.implode(', ', $downNow)
+                .' — อาจล่มจริง หรือเปลี่ยนรูปแบบ URL/เพลเยอร์ ต้องเข้าไปดู · auto-suspend ของแหล่งนี้ถูกพักไว้แล้ว');
         }
 
         return self::SUCCESS;

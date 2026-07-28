@@ -14,6 +14,10 @@
             ])
         </div>
     </div>
+    {{-- Between the title card and the recommendations: the one in-page spot a reader pauses at.
+         Passing $content makes the slot self-suppress on an 18+/VIP title. --}}
+    <x-ad-slot name="infeed" :content="$content" />
+
     <x-content-row title="เรื่องที่คล้ายกัน" :items="$related" />
 </div>
 @endsection
