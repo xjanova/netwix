@@ -83,6 +83,7 @@
                     <a href="{{ route('account') }}" class="block px-3.5 py-2.5 text-[13px] text-cream/60 border-t border-white/10 hover:text-cream">บัญชี / ชวนเพื่อนรับ Pro</a>
                     <a href="{{ route('account.settings') }}" class="block px-3.5 py-2.5 text-[13px] text-cream/60 hover:text-cream">จัดการโปรไฟล์ / ข้อมูลส่วนตัว</a>
                     <a href="{{ route('missions.index') }}" class="block px-3.5 py-2.5 text-[13px] text-cream/60 hover:text-cream">🪙 ภารกิจ รับเหรียญ</a>
+                    <a href="{{ route('advertise.index') }}" class="block px-3.5 py-2.5 text-[13px] text-cream/60 hover:text-cream">📢 ลงโฆษณากับเรา</a>
                     <a href="{{ route('download') }}" class="block px-3.5 py-2.5 text-[13px] text-cream/60 hover:text-cream">📱 ดาวน์โหลดแอป Android</a>
                     <a href="{{ route('profiles.index') }}" class="block px-3.5 py-2.5 text-[13px] text-cream/60 border-t border-white/10 hover:text-cream">จัดการโปรไฟล์</a>
                     @if (auth()->user()->isAdmin())
@@ -107,6 +108,13 @@
                     {{ $link['label'] }} <span class="text-sm font-normal text-cream/40">{{ $link['en'] }}</span>
                 </a>
             @endforeach
+
+            {{-- Member tools that aren't part of the browse rail. Mirrors the desktop profile menu,
+                 which is otherwise unreachable on a phone. --}}
+            <a href="{{ route('missions.index') }}" class="block border-b border-white/10 py-4 text-base">🪙 ภารกิจ รับเหรียญ</a>
+            <a href="{{ route('advertise.index') }}" class="block border-b border-white/10 py-4 text-base">📢 ลงโฆษณากับเรา</a>
+            <a href="{{ route('account') }}" class="block border-b border-white/10 py-4 text-base">บัญชีของฉัน</a>
+
             <form method="POST" action="{{ route('logout') }}" class="mt-4">
                 @csrf<button class="py-4 text-base text-cream/60">ออกจากระบบ</button>
             </form>

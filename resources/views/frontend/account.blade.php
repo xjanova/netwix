@@ -55,6 +55,25 @@
         </div>
     </div>
 
+    {{-- ============ ลงโฆษณา ============ --}}
+    @php($myAds = \App\Models\AdBooking::where('user_id', auth()->id())->count())
+    <a href="{{ route('advertise.index') }}"
+       class="nx-card mt-4 flex flex-wrap items-center gap-4 p-5 transition hover:bg-white/[0.03]">
+        <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl"
+              style="background:linear-gradient(150deg,rgba(176,38,255,.28),rgba(255,45,85,.18))">📢</span>
+        <div class="min-w-0 flex-1">
+            <div class="text-[15px] font-bold">ลงโฆษณากับ NetWix</div>
+            <div class="mt-0.5 text-[13px] text-cream/55">
+                @if ($myAds > 0)
+                    คุณมีโฆษณา {{ number_format($myAds) }} รายการ — กดเพื่อดูสถานะหรือลงเพิ่ม
+                @else
+                    เลือกตำแหน่ง อัพโหลดแบนเนอร์เอง ชำระด้วย USDT/USDC (BEP20)
+                @endif
+            </div>
+        </div>
+        <span class="shrink-0 text-cream/35">→</span>
+    </a>
+
     {{-- ============ เติมเหรียญทอง / สมาชิก (USDT) + แปลงเหรียญ ============ --}}
     @php
         $g = $cfg['gold'];
