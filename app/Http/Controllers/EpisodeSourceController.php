@@ -3,10 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Episode;
-use App\Services\Import\Contracts\EmbedPlayback;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
 use App\Support\ImageStore;
+use App\Support\MirrorRotation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -56,104 +56,39 @@ class EpisodeSourceController extends Controller
             return response()->json(['ready' => false, 'error' => 'no_source'], 404);
         }
 
-        // A manually FORCED backup (admin "บังคับอัพเดทลิ้งค์") dictates playback — including its KIND —
-        // over the primary. Every backup-pool site is HLS, so a forced backup means "play via the proxy"
-        // even if the primary is a signed-CDN (progressive) source. StreamController::resolve then picks
-        // the forced backup's stream first.
-        if ($episode->backup_forced && $episode->backup_source) {
-            $forced = $registry->get($episode->backup_source);
-            if ($forced && ! $forced->isProgressive()) {
-                return $this->hlsReady($episode);
+        // Walk the link rotation: a forced backup, then whatever played last, then the title's own
+        // source, then every mirror ([App\Support\MirrorRotation]). The link that WINS decides how the
+        // stream is played back, which is why this resolves before choosing a response shape — a
+        // progressive-source title can perfectly well end up playing from an HLS mirror.
+        $resolved = MirrorRotation::resolve($episode, $registry);
+        if ($resolved === null) {
+            // Every link failed (or is mid-cooldown) — the client shows "preparing" and retries. If the
+            // whole cycle failed definitively, MirrorRotation has already unpublished the title.
+            if (! $registry->has((string) $episode->source) || ! $episode->content?->source_key) {
+                return response()->json(['ready' => false, 'error' => 'no_source'], 404);
             }
+
+            return response()->json(['ready' => false], 202);
         }
 
-        // HLS sources (wow-drama / any Halim site) play through the server-side proxy: it adds the
-        // upstream Referer the browser can't send and rewrites the segment URLs. Without this a raw
-        // .m3u8 is handed back and the browser can't fetch its Referer-gated segments (web won't play,
-        // even though the native app, which sends its own Referer, does). Gate on !isProgressive() so a
-        // newly-added Halim source is covered automatically (no per-id whitelist to keep in sync).
-        $primary = $registry->get($episode->source);
+        $stream = $resolved['stream'];
 
         // Embed source (9nung/abyss): playback is a 3rd-party player iframe, not a stream we can proxy.
         // Hand back the embed page for a sandboxed <iframe> in the player (see [EmbedPlayback]).
-        if ($primary instanceof EmbedPlayback) {
-            return $this->embedReady($episode, $primary);
+        if ($stream->kind === RemoteStream::KIND_EMBED) {
+            return response()->json(['ready' => true, 'kind' => 'embed', 'url' => $stream->url]);
         }
 
-        if ($primary && ! $primary->isProgressive()) {
+        // HLS sources (wow-drama / any Halim site / hd432) play through the server-side proxy: it adds
+        // the upstream Referer the browser can't send and rewrites the segment URLs. Without this a raw
+        // .m3u8 is handed back and the browser can't fetch its Referer-gated segments (web won't play,
+        // even though the native app, which sends its own Referer, does). Gate on the resolved KIND so
+        // a newly-added source is covered automatically (no per-id whitelist to keep in sync).
+        if ($stream->kind === RemoteStream::KIND_HLS) {
             return $this->hlsReady($episode);
         }
 
-        // Signed-CDN sources (rongyok): the URL expires ~24h, so resolve on demand and cache the
-        // resolved url per-episode until shortly before it expires.
-        $cacheKey = "episode:src:{$episode->id}";
-        if (is_string($cached = Cache::get($cacheKey)) && $cached !== '') {
-            return response()->json(['ready' => true, 'kind' => 'mp4', 'url' => $cached]);
-        }
-
-        // A recent failure is cached briefly so a burst of "preparing" polls doesn't hammer the
-        // upstream (and get NetWix's IP blocked) while it's momentarily unavailable.
-        if (Cache::get($cacheKey.':miss')) {
-            return response()->json(['ready' => false], 202);
-        }
-
-        $seriesKey = $episode->content?->source_key;
-        if (! $primary || ! $seriesKey) {
-            return response()->json(['ready' => false, 'error' => 'no_source'], 404);
-        }
-
-        $stream = $primary->resolveByRef((string) $seriesKey, (string) $episode->source_ref);
-        if (! $stream) {
-            // Primary CDN link is dead — if the bot found an HLS backup on another Halim site, play it
-            // through the proxy instead (same fallback the StreamController resolve applies).
-            $backup = $episode->backup_source ? $registry->get($episode->backup_source) : null;
-            if ($backup && ! $backup->isProgressive()) {
-                return $this->hlsReady($episode);
-            }
-
-            // Transient (source down / just rotated again) — the client shows "preparing" and retries.
-            Cache::put($cacheKey.':miss', 1, now()->addSeconds(15));
-
-            return response()->json(['ready' => false], 202);
-        }
-
-        // Cache until ~1h before the signed url's own expiry, min 60s. Two known formats: Discord's
-        // ex=<hex unix seconds> (rongyok) and e=<decimal unix seconds> (anifume/rukoluo, short-lived).
-        $ttl = 6 * 3600;
-        if (preg_match('~[?&]ex=([0-9a-f]+)~i', $stream->url, $m)) {
-            $ttl = max(60, (int) hexdec($m[1]) - time() - 3600);
-        } elseif (preg_match('~[?&]e=(\d{10})(?:&|$)~', $stream->url, $m)) {
-            $ttl = max(60, (int) $m[1] - time() - 3600);
-        }
-        Cache::put($cacheKey, $stream->url, now()->addSeconds($ttl));
-
         return response()->json(['ready' => true, 'kind' => $stream->kind, 'url' => $stream->url]);
-    }
-
-    /**
-     * "Ready" response for an EMBED episode (9nung/abyss): resolve the 3rd-party embed page once and
-     * cache it briefly (the abyss id lives on the source's detail page, which we don't want to scrape on
-     * every poll). The front-end renders it in a sandboxed <iframe> — popups blocked, no proxy.
-     */
-    private function embedReady(Episode $episode, EmbedPlayback $source): JsonResponse
-    {
-        $cacheKey = "episode:embed:{$episode->id}";
-        $url = Cache::get($cacheKey);
-
-        if (! is_string($url) || $url === '') {
-            $seriesKey = (string) ($episode->content?->source_key ?? '');
-            $stream = $seriesKey !== '' ? $source->resolveByRef($seriesKey, (string) $episode->source_ref) : null;
-            if (! $stream || $stream->kind !== RemoteStream::KIND_EMBED || $stream->url === '') {
-                // Detail page didn't yield an embed id (title may have no real stream) — client shows "preparing".
-                Cache::put($cacheKey.':miss', 1, now()->addSeconds(20));
-
-                return response()->json(['ready' => false], 202);
-            }
-            $url = $stream->url;
-            Cache::put($cacheKey, $url, now()->addMinutes(30));
-        }
-
-        return response()->json(['ready' => true, 'kind' => 'embed', 'url' => $url]);
     }
 
     /**

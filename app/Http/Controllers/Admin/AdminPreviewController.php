@@ -110,19 +110,26 @@ class AdminPreviewController extends Controller
         $body = HlsManifest::unwrap($body);
         $base = $this->baseUrl($url);
 
-        $out = collect(preg_split('/\r?\n/', $body))->map(function (string $line) use ($base, $ref) {
+        // Children of a MASTER are playlists (variants + audio renditions), children of a media
+        // playlist are segments — the same rule [App\Http\Controllers\StreamController::manifest] uses.
+        // An extension test would miss hd432, whose renditions have no extension at all.
+        $isMaster = str_contains($body, '#EXT-X-STREAM-INF') && (int) $request->query('d', 0) < 1;
+
+        $out = collect(preg_split('/\r?\n/', $body))->map(function (string $line) use ($base, $ref, $isMaster) {
             $trim = trim($line);
             if ($trim === '') {
                 return $line;
             }
             if (str_starts_with($trim, '#')) {
-                return preg_replace_callback('/URI="([^"]+)"/', fn ($m) => 'URI="'.$this->segUrl($this->absolute($m[1], $base), $ref).'"', $line);
+                return preg_replace_callback('/URI="([^"]+)"/', function ($m) use ($base, $ref, $isMaster) {
+                    $abs = $this->absolute($m[1], $base);
+
+                    return 'URI="'.($isMaster ? $this->manifestUrl($abs, $ref) : $this->segUrl($abs, $ref)).'"';
+                }, $line);
             }
             $abs = $this->absolute($trim, $base);
-            // Nested playlist → re-proxy through manifest (a fresh signed spec); else a segment.
-            return str_ends_with(strtolower(parse_url($abs, PHP_URL_PATH) ?? ''), '.m3u8')
-                ? $this->manifestUrl($abs, $ref)
-                : $this->segUrl($abs, $ref);
+
+            return $isMaster ? $this->manifestUrl($abs, $ref) : $this->segUrl($abs, $ref);
         })->implode("\n");
 
         return response($out, 200)->withHeaders([
@@ -240,7 +247,10 @@ class AdminPreviewController extends Controller
     {
         $exp = time() + self::TTL;
 
-        return route('admin.preview.manifest').'?'.http_build_query(['u' => $url, 'r' => $ref, 'e' => $exp, 's' => $this->specSig($url, $ref ?: null, $exp)]);
+        return route('admin.preview.manifest').'?'.http_build_query([
+            'u' => $url, 'r' => $ref, 'e' => $exp, 's' => $this->specSig($url, $ref ?: null, $exp),
+            'd' => 1,   // depth marker — a nested playlist never nests again
+        ]);
     }
 
     private function segUrl(string $url, string $ref): string

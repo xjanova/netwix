@@ -1,8 +1,19 @@
 @extends('layouts.admin')
 @section('page-title', 'หนังที่ใช้ลิ้งค์สำรอง')
-@section('page-subtitle', 'หนังที่ถูกดึงลิ้งค์สำรองมาจากเว็บอื่นอัตโนมัติ เพราะลิ้งค์เดิมเล่นไม่ได้ — และเผยแพร่ให้ใหม่แล้ว')
+@section('page-subtitle', 'เรื่องที่มีลิ้งค์สำรองไว้ให้วนใช้ — ถ้าลิ้งค์แรกเปิดไม่ได้ ระบบจะไล่ลิ้งค์ถัดไปเองจนกว่าจะครบรอบ')
 
 @section('content')
+{{-- Mirror chains: duplicates across sites paired as each other's backup --}}
+<div class="mb-5 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-4 text-[13px] leading-relaxed text-cream/55">
+    <div class="mb-0.5 font-semibold text-cream/80">ลิ้งค์สำรองข้ามเว็บ (จับคู่เรื่องซ้ำอัตโนมัติ)</div>
+    เรื่องเดียวกันที่มีอยู่หลายเว็บจะถูกจับเป็นลิ้งค์สำรองของกันและกันตอนนำเข้า
+    เวลาเล่นระบบจะไล่ทีละลิ้งค์ — ถ้าวนครบทุกลิ้งค์แล้วยังเปิดไม่ได้ ถือว่าหนังตาย แล้วหยุดเผยแพร่ให้อัตโนมัติ
+    <div class="mt-1 text-[12px] text-cream/40">
+        ตอนนี้มีลิ้งค์สำรองข้ามเว็บทั้งหมด <b class="text-cream/70">{{ number_format($mirrorCount) }}</b> ลิ้งค์
+        · จับคู่เรื่องเก่าย้อนหลังด้วยคำสั่ง <code class="rounded bg-black/30 px-1.5 py-0.5">php artisan netwix:link-mirrors</code>
+    </div>
+</div>
+
 {{-- On/off toggle for the daily finder --}}
 <div class="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-4">
     <div class="min-w-0 text-[13px] leading-relaxed text-cream/55">
@@ -25,10 +36,10 @@
 @if ($items->total() === 0)
     <div class="nx-card p-10 text-center text-cream/55">
         <div class="text-4xl">🔗</div>
-        <div class="mt-3">ยังไม่มีหนังที่ใช้ลิ้งค์สำรอง</div>
+        <div class="mt-3">ยังไม่มีเรื่องที่มีลิ้งค์สำรอง</div>
     </div>
 @else
-    <div class="text-[13px] text-cream/45">มี {{ number_format($items->total()) }} เรื่องที่ใช้ลิ้งค์สำรองอยู่</div>
+    <div class="text-[13px] text-cream/45">มี {{ number_format($items->total()) }} เรื่องที่มีลิ้งค์สำรองไว้</div>
     <div class="mt-3 space-y-2.5">
         @foreach ($items as $c)
             <div class="nx-card flex flex-wrap items-center gap-4 p-3.5">
@@ -43,9 +54,14 @@
                         @endif
                     </div>
                     <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-cream/45">
-                        <span class="text-[#8b5cf6]">🔗 ลิ้งค์สำรองจาก <b class="text-cream/70">{{ $siteLabels[$c->id] ?? '—' }}</b></span>
-                        <span>· ต้นทางเดิม {{ $c->source ?: '—' }}</span>
-                        <span>· {{ $c->episodes->count() }} ตอนใช้สำรอง</span>
+                        <span>ลำดับลิ้งค์:</span>
+                        <span class="text-cream/70">{{ $c->source ?: '—' }} <span class="text-cream/35">(ต้นทางเดิม)</span></span>
+                        @foreach ($chains[$c->id] ?? [] as $site)
+                            <span class="text-[#8b5cf6]">→ <b class="text-cream/70">{{ $site }}</b></span>
+                        @endforeach
+                        @if (!empty($ailing[$c->id]))
+                            <span class="text-gold/80">· {{ $ailing[$c->id] }} ลิ้งค์กำลังมีปัญหา</span>
+                        @endif
                     </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-2">

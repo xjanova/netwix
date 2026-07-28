@@ -18,10 +18,18 @@ class Content extends Model
     {
         // Kids profiles never see adult (18+/20+) titles, anywhere (listings + direct URL binding).
         static::addGlobalScope(new MaturityScope);
+
+        // Keep the stored dedupe key in step with the title — it's what [App\Support\MirrorLinker]
+        // matches duplicates on, and it can only be computed in PHP (see [self::dedupeKey]).
+        static::saving(function (self $content) {
+            if ($content->isDirty('title') || $content->dedupe_key === null) {
+                $content->dedupe_key = self::dedupeKey($content->title);
+            }
+        });
     }
 
     protected $fillable = [
-        'title', 'slug', 'source', 'source_key', 'type', 'synopsis', 'year', 'maturity', 'dub_type',
+        'title', 'dedupe_key', 'slug', 'source', 'source_key', 'type', 'synopsis', 'year', 'maturity', 'dub_type',
         'match_score', 'rating', 'is_original', 'is_featured', 'is_published', 'is_vip', 'vip_price_gold',
         'suspended_at', 'suspend_reason', 'playback_fail_count', 'review_flagged_at', 'review_ignored',
         'poster_path', 'backdrop_path', 'trailer_youtube_id', 'video_url',
@@ -76,6 +84,12 @@ class Content extends Model
     public function episodes(): HasMany
     {
         return $this->hasMany(Episode::class)->orderBy('season_id')->orderBy('number');
+    }
+
+    /** Other sites carrying this same title — the failover chain (see [App\Support\MirrorRotation]). */
+    public function mirrors(): HasMany
+    {
+        return $this->hasMany(ContentMirror::class);
     }
 
     public function comments(): HasMany
@@ -229,7 +243,9 @@ class Content extends Model
         $t = preg_replace('~พากย์ไทย|ซับไทย|ซับ|พากย์|เต็มเรื่อง|ตอนจบ|ครบทุกตอน|the\s*movie|hd~u', ' ', $t) ?? $t;
         $t = preg_replace('~[^\p{L}\p{N}]+~u', '', $t) ?? $t;   // drop spaces & punctuation
 
-        return $t;
+        // Capped to the width of `contents.dedupe_key`, so the stored key and a freshly computed one
+        // always compare equal — and so an unusually long title can't blow up a strict-mode insert.
+        return mb_substr($t, 0, 191, 'UTF-8');
     }
 
     public function getMatchLabelAttribute(): string

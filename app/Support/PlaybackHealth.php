@@ -26,6 +26,12 @@ class PlaybackHealth
     private const SET_TTL = 7 * 24 * 3600;   // remember failing viewers for a week
     private const COOLDOWN = 12 * 3600;      // grace window after an admin re-publishes
 
+    /** Most titles auto-death may unpublish per DEAD_WINDOW before it assumes an outage — see
+     *  [self::withinDeathBudget]. Beyond this the extras are only flagged for review. */
+    private const DEAD_BUDGET = 25;
+
+    private const DEAD_WINDOW = 900;         // 15 minutes
+
     /** A viewer couldn't play this title — count them once; suspend at the threshold. */
     public static function recordFailure(Content $content, string $viewer, string $reason): void
     {
@@ -34,6 +40,9 @@ class PlaybackHealth
         }
         if (Cache::has(self::cooldownKey($content->id))) {
             return; // just re-published by an admin — give it a grace window
+        }
+        if (self::sourceIsDown($content)) {
+            return; // whole source is out — see [self::sourceIsDown]
         }
         try {
             $key = self::setKey($content->id);
@@ -74,6 +83,89 @@ class PlaybackHealth
         // Plays fine now → clear the auto review-flag (leave review_ignored — that's the admin's call).
         try {
             Content::whereKey($content->id)->whereNotNull('review_flagged_at')->update(['review_flagged_at' => null]);
+        } catch (Throwable $e) {
+            // ignore
+        }
+    }
+
+    /**
+     * Every link in the title's rotation failed — "ครบรอบ ถือว่าหนังตาย" — so take it down at once,
+     * without waiting for THRESHOLD distinct viewers. Called by [App\Support\MirrorRotation] only after
+     * a FULL cycle of definitive failures (a transient/network failure anywhere in the chain doesn't
+     * get here), and it still honours every safety rail suspension has:
+     *  - the admin's playback_auto_suspend switch,
+     *  - the post-republish grace window,
+     *  - DEAD_BUDGET, which stops a global outage from unpublishing the whole catalogue in one sweep.
+     * When a rail blocks the unpublish the title is still flagged for admin review, so nothing is lost.
+     */
+    public static function declareDead(Content $content, string $reason = 'all_links_failed'): void
+    {
+        if (! $content->is_published || $content->suspended_at) {
+            return;
+        }
+        if (Cache::has(self::cooldownKey($content->id))) {
+            return;   // an admin just re-published it — leave their call alone
+        }
+        if (self::sourceIsDown($content)) {
+            return;   // whole source is out — see [self::sourceIsDown]
+        }
+
+        if (! Setting::flag('playback_auto_suspend', true) || ! self::withinDeathBudget()) {
+            self::flagForReview($content);
+
+            return;
+        }
+
+        self::suspend($content, $reason);
+        try {
+            Redis::del(self::viewerFailKey($content->id, self::viewer()));
+        } catch (Throwable $e) {
+            // ignore
+        }
+    }
+
+    /**
+     * True when the canary has this title's source flagged as wholly down ([SourceHealth]). Nothing is
+     * wrong with the TITLE then — 24-hdx's Cloudflare challenge took ~6,500 of them out in one second
+     * — and unpublishing the catalogue an item at a time would only have to be undone by hand once the
+     * source recovers. Failures are still recorded upstream in the logs; only the suspension stops.
+     */
+    private static function sourceIsDown(Content $content): bool
+    {
+        return $content->source !== null && SourceHealth::isDown((string) $content->source);
+    }
+
+    /**
+     * Rate-limit auto-death. If every source is unreachable at once (our DNS, an upstream provider,
+     * a bad deploy) a whole-catalogue sweep would unpublish thousands of perfectly good titles, and
+     * only a human can tell that apart from a genuinely dead link. Past DEAD_BUDGET auto-deaths in a
+     * DEAD_WINDOW the rest are only flagged — the owner sees the pile-up in review instead.
+     */
+    private static function withinDeathBudget(): bool
+    {
+        try {
+            $key = 'netwix:autodead:'.intdiv(time(), self::DEAD_WINDOW);
+            $n = (int) Redis::incr($key);
+            Redis::expire($key, self::DEAD_WINDOW * 2);
+
+            if ($n === self::DEAD_BUDGET + 1) {
+                Log::error('playback: auto-death budget hit — suspending only flags from here', [
+                    'budget' => self::DEAD_BUDGET, 'window_seconds' => self::DEAD_WINDOW,
+                ]);
+            }
+
+            return $n <= self::DEAD_BUDGET;
+        } catch (Throwable $e) {
+            return true;   // no Redis → fall back to the un-throttled behaviour rather than blocking
+        }
+    }
+
+    /** Park a title in the admin review queue without unpublishing it. */
+    private static function flagForReview(Content $content): void
+    {
+        try {
+            Content::whereKey($content->id)->whereNull('review_flagged_at')->where('review_ignored', false)
+                ->update(['review_flagged_at' => now()]);
         } catch (Throwable $e) {
             // ignore
         }

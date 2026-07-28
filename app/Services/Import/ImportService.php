@@ -10,7 +10,9 @@ use App\Services\Import\Contracts\EmbedPlayback;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Support\Maturity;
+use App\Support\MirrorLinker;
 use App\Support\VerticalGenre;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class ImportService
@@ -121,10 +123,25 @@ class ImportService
         $count = $this->importEpisodes($source, $st, $content, $type);
         $this->fillSynopsis($source, $st, $content);
         $this->ensureGuessedGenre($content);   // after fillSynopsis so the guess can use the synopsis
+        $this->linkMirrors($content);          // duplicates on other sites become mutual backup links
 
         $st->update(['content_id' => $content->id, 'episodes_count' => $count]);
 
         return $content;
+    }
+
+    /**
+     * Pair this title with any copy of it already imported from another site, in both directions, so
+     * either one can fail over to the other ([App\Support\MirrorRotation]). Best-effort: a title is
+     * perfectly importable without a backup, and an import must never die over its bookkeeping.
+     */
+    private function linkMirrors(Content $content): void
+    {
+        try {
+            MirrorLinker::linkTitle($content);
+        } catch (\Throwable $e) {
+            Log::warning('import: mirror linking failed', ['content_id' => $content->id, 'error' => $e->getMessage()]);
+        }
     }
 
     /**

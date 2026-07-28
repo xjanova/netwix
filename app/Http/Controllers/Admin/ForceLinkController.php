@@ -207,7 +207,7 @@ class ForceLinkController extends Controller
     private function forgetStreamCaches(int $episodeId): void
     {
         Cache::forget("ep_raw:{$episodeId}");
-        Cache::forget("episode:src:{$episodeId}");
-        Cache::forget("episode:src:{$episodeId}:miss");
+        Cache::forget("ep_raw:{$episodeId}:miss");
+        Cache::forget("ep_manifest:{$episodeId}");
     }
 }

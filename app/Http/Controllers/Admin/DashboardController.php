@@ -76,6 +76,17 @@ class DashboardController extends Controller
 
         $storage = \App\Support\MediaUsage::summary();
 
-        return view('admin.dashboard', compact('stats', 'miniMetrics', 'activity', 'typeBreakdown', 'genreShares', 'topContent', 'storage'));
+        // Whole-source outages found by netwix:source-canary — the loudest thing on the page, because
+        // one dead source is thousands of un-playable titles and it must not wait to be stumbled upon.
+        $sourcesDown = collect(\App\Support\SourceHealth::down())
+            ->map(fn ($v, $id) => [
+                'id' => $id,
+                'name' => app(\App\Services\Import\SourceRegistry::class)->get($id)?->displayName() ?? $id,
+                'since' => $v['down_since'] ? Carbon::parse($v['down_since'])->diffForHumans() : null,
+                'titles' => Content::withoutGlobalScopes()->where('source', $id)->where('is_published', true)->count(),
+            ])
+            ->values();
+
+        return view('admin.dashboard', compact('stats', 'miniMetrics', 'activity', 'typeBreakdown', 'genreShares', 'topContent', 'storage', 'sourcesDown'));
     }
 }

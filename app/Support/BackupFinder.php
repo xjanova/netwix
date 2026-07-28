@@ -112,24 +112,31 @@ class BackupFinder
             return false;
         }
 
-        try {
-            $body = Http::withHeaders($this->headers($stream->referer))
-                ->connectTimeout(8)->timeout(20)->get($stream->url)->body();
-        } catch (\Throwable) {
+        $url = $stream->url;
+        $body = $this->fetchPlaylist($url, $stream->referer);
+        if ($body === null) {
             return false;
         }
+
+        // A MASTER (hd432) lists variants, not segments — step down into the first one before looking
+        // for a segment, or every hd432 title would read as un-playable.
+        if (str_contains($body, '#EXT-X-STREAM-INF')) {
+            $variant = $this->firstUri($body);
+            if ($variant === null) {
+                return false;
+            }
+            $url = $this->absolute($variant, $url);
+            $body = $this->fetchPlaylist($url, $stream->referer);
+            if ($body === null) {
+                return false;
+            }
+        }
+
         if (! str_contains($body, '#EXTINF')) {
             return false;
         }
 
-        $seg = null;
-        foreach (preg_split('/\r?\n/', $body) ?: [] as $line) {
-            $t = trim($line);
-            if ($t !== '' && ! str_starts_with($t, '#')) {
-                $seg = $t;
-                break;
-            }
-        }
+        $seg = $this->firstUri($body);
         if ($seg === null) {
             return false;
         }
@@ -138,7 +145,7 @@ class BackupFinder
             // Range keeps this cheap (a few KB, not a whole ~3 MB segment). The CDN answers 206
             // Partial Content — successful() accepts any 2xx, unlike ok() which is 200-only.
             $resp = Http::withHeaders($this->headers($stream->referer) + ['Range' => 'bytes=0-8191'])
-                ->connectTimeout(8)->timeout(20)->get($this->absolute($seg, $stream->url));
+                ->connectTimeout(8)->timeout(20)->get($this->absolute($seg, $url));
         } catch (\Throwable) {
             return false;
         }
@@ -152,7 +159,34 @@ class BackupFinder
         }
         $pos = strpos($data, "\x47");   // MPEG-TS sync, at/near the start once the fake header is skipped
 
-        return $pos !== false && $pos < 512;
+        // hd432's segments carry a ~545-byte PNG header, so allow a little more slack than a Halim one.
+        return $pos !== false && $pos < 1024;
+    }
+
+    /** GET a playlist body, or null on any failure / non-playlist response. */
+    private function fetchPlaylist(string $url, ?string $referer): ?string
+    {
+        try {
+            $body = Http::withHeaders($this->headers($referer))
+                ->connectTimeout(8)->timeout(20)->get($url)->body();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return str_contains($body, '#EXTM3U') ? $body : null;
+    }
+
+    /** First non-comment line of a playlist (a variant URI in a master, a segment in a media list). */
+    private function firstUri(string $body): ?string
+    {
+        foreach (preg_split('/\r?\n/', $body) ?: [] as $line) {
+            $t = trim($line);
+            if ($t !== '' && ! str_starts_with($t, '#')) {
+                return $t;
+            }
+        }
+
+        return null;
     }
 
     private function headers(?string $referer): array

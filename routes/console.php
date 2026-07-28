@@ -102,6 +102,14 @@ Schedule::command('netwix:refresh-episodes --airing-only --limit=200 --sleep=250
 Schedule::command('netwix:recheck-playable 9nung --limit=3000 --sleep=250')
     ->dailyAt('04:40')->withoutOverlapping()->runInBackground();
 
+// Every 2h: probe a few top titles per source to catch a WHOLE-SOURCE outage (24-hdx's Cloudflare
+// challenge took all ~6,500 of its titles out at once and nothing noticed until the owner browsed).
+// A verdict of "down" shows on the admin dashboard and brakes per-title auto-suspend for that source,
+// so an upstream going dark can't quietly unpublish its catalogue. ~6 requests per source, so it's
+// far too cheap to be worth throttling further.
+Schedule::command('netwix:source-canary')
+    ->everyTwoHours()->withoutOverlapping()->runInBackground();
+
 // Covers heal ON-DEMAND now (a card pings content.heal-cover when its poster fails to load — see
 // [App\Http\Controllers\PosterHealController]), so no nightly sweep. The netwix:backfill-posters
 // command is kept for manual bulk runs only.

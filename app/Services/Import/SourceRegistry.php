@@ -9,6 +9,7 @@ use App\Services\Import\Sources\AnimerukaSource;
 use App\Services\Import\Sources\Goseries4kSource;
 use App\Services\Import\Sources\HalimSource;
 use App\Services\Import\Sources\HalimSites;
+use App\Services\Import\Sources\Hd432Source;
 use App\Services\Import\Sources\NaayNungSource;
 use App\Services\Import\Sources\RongYokSource;
 use App\Services\Import\Sources\WowDramaSource;
@@ -20,7 +21,7 @@ class SourceRegistry
 
     public function __construct()
     {
-        $sources = [new RongYokSource, new WowDramaSource, new NaayNungSource, new AnifumeSource, new Goseries4kSource, new AnimerukaSource];
+        $sources = [new RongYokSource, new WowDramaSource, new NaayNungSource, new AnifumeSource, new Goseries4kSource, new AnimerukaSource, new Hd432Source];
         // Every Halim-theme site (24-hdx, anime108, …) is the same engine + a config — see [HalimSites].
         foreach (HalimSites::all() as $config) {
             $sources[] = new HalimSource($config);

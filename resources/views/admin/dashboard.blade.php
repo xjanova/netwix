@@ -3,6 +3,26 @@
 @section('page-subtitle', 'ภาพรวมระบบ NetWix')
 
 @section('content')
+{{-- Whole-source outage alarm (netwix:source-canary). Deliberately above everything else. --}}
+@if ($sourcesDown->isNotEmpty())
+    <div class="mb-6 rounded-xl border border-brand/40 bg-brand/10 px-4 py-4">
+        <div class="text-[14px] font-bold text-brand">⚠️ แหล่งหนังล่มทั้งแหล่ง — หนังทั้งหมดของแหล่งนี้เล่นไม่ได้</div>
+        <div class="mt-2 space-y-1 text-[13px] text-cream/70">
+            @foreach ($sourcesDown as $s)
+                <div>
+                    <b class="text-cream">{{ $s['name'] }}</b>
+                    — กระทบ {{ number_format($s['titles']) }} เรื่อง
+                    @if ($s['since']) · ล่มมาตั้งแต่ {{ $s['since'] }} @endif
+                </div>
+            @endforeach
+        </div>
+        <div class="mt-2.5 text-[12px] text-cream/45">
+            ระบบพักการหยุดเผยแพร่อัตโนมัติของแหล่งนี้ไว้แล้ว หนังจะไม่ถูกปิดทิ้งระหว่างที่ต้นทางล่ม
+            — ไปซ่อนทั้งแหล่งชั่วคราวได้ที่ <a href="{{ route('admin.import.index') }}" class="underline hover:text-cream">หน้านำเข้า</a>
+        </div>
+    </div>
+@endif
+
 {{-- Stat cards --}}
 <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
     @foreach ($stats as $s)

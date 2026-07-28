@@ -7,6 +7,7 @@ use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
 use App\Support\HlsManifest;
 use App\Support\HlsSegment;
+use App\Support\MirrorRotation;
 use App\Support\PlaybackHealth;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -40,19 +41,33 @@ class StreamController extends Controller
         // NB: no gateAdult() here — this route is cookieless (so Cloudflare can cache it) and has no
         // session/auth. The Pro/adult gate is enforced upstream in EpisodeSourceController::resolve,
         // which is the ONLY thing that mints a manifest token, so an unentitled viewer never gets here.
-        $stream = $this->resolve($episode, $registry);
-        if (! $stream || $stream->kind !== RemoteStream::KIND_HLS) {
-            // Upstream link is dead — count this viewer toward auto-suspend (see PlaybackHealth).
-            if ($episode->content) {
-                PlaybackHealth::recordFailure($episode->content, PlaybackHealth::viewer(), 'no_source');
+        //
+        // `u` = a NESTED playlist (a variant or an audio rendition of a master this route already
+        // served), signed exactly like a proxied segment so it can't be used as an open proxy. Without
+        // it we're serving the episode's own top-level stream.
+        $nested = $this->signedNestedUrl($episode, $request);
+        $link = null;
+        if ($nested !== null) {
+            $stream = new RemoteStream(RemoteStream::KIND_HLS, $nested, ((string) $request->query('r', '')) ?: null);
+            $cacheKey = "ep_manifest:{$episode->id}:".sha1($nested);
+        } else {
+            $resolved = $this->resolveWithLink($episode, $registry);
+            $stream = $resolved['stream'] ?? null;
+            $link = $resolved['link'] ?? null;
+            if (! $stream || $stream->kind !== RemoteStream::KIND_HLS) {
+                // Upstream link is dead — count this viewer toward auto-suspend (see PlaybackHealth).
+                if ($episode->content) {
+                    PlaybackHealth::recordFailure($episode->content, PlaybackHealth::viewer(), 'no_source');
+                }
+                abort(404);
             }
-            abort(404);
+            $cacheKey = "ep_manifest:{$episode->id}";
         }
 
         // Rewriting the upstream playlist means fetching a big (100k+) manifest and signing every one
         // of its ~700 segment URLs — slow (several seconds) on a cold hit. Cache the finished playlist
         // briefly so re-plays / seeks start instantly; segment signatures stay valid far longer.
-        $out = Cache::remember("ep_manifest:{$episode->id}", now()->addMinutes(10), function () use ($episode, $stream) {
+        $out = Cache::remember($cacheKey, now()->addMinutes(10), function () use ($episode, $stream, $request, $link) {
             // A dead/slow upstream (e.g. a rotated tiktokcdn link) must not bubble up as an uncaught
             // ConnectionException — that spammed the ERROR log. Fail fast on connect, return a clean 504.
             try {
@@ -78,6 +93,11 @@ class StreamController extends Controller
                 if ($resp->serverError()) {
                     abort(504, 'upstream manifest unavailable');   // transient — no failure recorded
                 }
+                // This link resolved but doesn't actually play. Bench it so the next request rotates
+                // on to the next link in the chain instead of re-serving the same dead one.
+                if ($link !== null) {
+                    MirrorRotation::markDead($episode, $link);
+                }
                 if ($episode->content) {
                     PlaybackHealth::recordFailure($episode->content, PlaybackHealth::viewer(), 'dead_manifest');
                 }
@@ -85,22 +105,34 @@ class StreamController extends Controller
             }
             $base = $this->baseUrl($stream->url);
 
-            return collect(preg_split('/\r?\n/', $body))->map(function (string $line) use ($base, $episode, $stream) {
+            // A MASTER playlist lists variant streams + alternate renditions; a MEDIA playlist lists
+            // segments. That one fact decides how every child URI is rewritten — children of a master
+            // are playlists (re-proxy through this route), children of a media playlist are segments.
+            // Don't test the .m3u8 extension: hd432's renditions have no extension at all.
+            // HLS allows exactly two levels (master → media). A third would mean a self-referencing
+            // playlist, so stop rewriting there rather than proxying in a circle.
+            $isMaster = str_contains($body, '#EXT-X-STREAM-INF') && (int) $request->query('d', 0) < 1;
+            $token = (string) $request->query('t', '');
+
+            return collect(preg_split('/\r?\n/', $body))->map(function (string $line) use ($base, $episode, $stream, $isMaster, $token) {
                 $trim = trim($line);
                 if ($trim === '') {
                     return $line;
                 }
-                // #EXT-X-KEY / media URIs inside tags
+                // URIs inside tags: #EXT-X-MEDIA renditions (master) vs #EXT-X-KEY (media playlist).
                 if (str_starts_with($trim, '#')) {
-                    return preg_replace_callback('/URI="([^"]+)"/', function ($m) use ($base, $episode, $stream) {
-                        return 'URI="'.$this->proxyUrl($episode, $this->absolute($m[1], $base), $stream->referer).'"';
+                    return preg_replace_callback('/URI="([^"]+)"/', function ($m) use ($base, $episode, $stream, $isMaster, $token) {
+                        $abs = $this->absolute($m[1], $base);
+
+                        return 'URI="'.($isMaster
+                            ? $this->nestedManifestUrl($episode, $abs, $stream->referer, $token)
+                            : $this->proxyUrl($episode, $abs, $stream->referer)).'"';
                     }, $line);
                 }
-                // a segment or sub-playlist URI
                 $abs = $this->absolute($trim, $base);
 
-                return str_ends_with(strtolower(parse_url($abs, PHP_URL_PATH) ?? ''), '.m3u8')
-                    ? route('stream.manifest', $episode) // nested playlist → re-proxy through manifest
+                return $isMaster
+                    ? $this->nestedManifestUrl($episode, $abs, $stream->referer, $token)
                     : $this->proxyUrl($episode, $abs, $stream->referer);
             })->implode("\n");
         });
@@ -217,48 +249,33 @@ class StreamController extends Controller
         }
     }
 
+    /**
+     * A stored/mirrored file plays straight from us; everything else goes through the link rotation
+     * ([MirrorRotation]), which walks the forced backup → last-working link → own source → mirrors and
+     * declares the title dead once the whole cycle has failed.
+     */
     private function resolve(Episode $episode, SourceRegistry $registry): ?RemoteStream
     {
-        if (! $episode->source || ! $episode->source_ref) {
-            return $episode->video_url
-                ? new RemoteStream(str_contains($episode->video_url, '.m3u8') ? RemoteStream::KIND_HLS : RemoteStream::KIND_MP4, $episode->video_url)
-                : null;
-        }
-
-        $cached = Cache::remember("ep_raw:{$episode->id}", now()->addMinutes(10), function () use ($episode, $registry) {
-            $hasBackup = $episode->backup_source && $episode->backup_key;
-            $backup = fn () => $this->resolveVia($registry, $episode->backup_source, (string) $episode->backup_key, (string) ($episode->backup_ref ?: $episode->source_ref));
-            $primary = fn () => $this->resolveVia($registry, $episode->source, $episode->content->source_key ?? '', (string) $episode->source_ref);
-
-            // A manually FORCED backup (admin "บังคับอัพเดทลิ้งค์") wins over the primary — try it first,
-            // even when the primary still resolves. Otherwise primary first, backup only as a fallback
-            // for a dead link (the netwix:find-backups bot's behaviour). Either way we still try the
-            // other source if the preferred one is momentarily down, so a title is never bricked.
-            $s = ($episode->backup_forced && $hasBackup) ? $backup() : $primary();
-            if ($s === null) {
-                $s = ($episode->backup_forced && $hasBackup) ? $primary() : ($hasBackup ? $backup() : null);
-            }
-
-            return $s ? ['kind' => $s->kind, 'url' => $s->url, 'referer' => $s->referer] : null;
-        });
-        if (! $cached) {
-            Cache::forget("ep_raw:{$episode->id}");
-
-            return null;
-        }
-
-        return new RemoteStream($cached['kind'], $cached['url'], $cached['referer'] ?? null);
+        return $this->resolveWithLink($episode, $registry)['stream'] ?? null;
     }
 
-    /** Resolve a fresh stream from a registered source's stored keys, or null (unknown source / empty keys). */
-    private function resolveVia(SourceRegistry $registry, string $sourceId, string $key, string $ref): ?RemoteStream
+    /**
+     * As [self::resolve], but also says WHICH link produced the stream so the caller can bench it if
+     * the playlist turns out to be junk. A stored/mirrored file has no link (nothing to rotate to).
+     *
+     * @return array{stream:?RemoteStream,link:?\App\Support\MirrorLink}
+     */
+    private function resolveWithLink(Episode $episode, SourceRegistry $registry): array
     {
-        $source = $registry->get($sourceId);
-        if (! $source || $key === '' || $ref === '') {
-            return null;
+        if (! $episode->source || ! $episode->source_ref) {
+            $stream = $episode->video_url
+                ? new RemoteStream(str_contains($episode->video_url, '.m3u8') ? RemoteStream::KIND_HLS : RemoteStream::KIND_MP4, $episode->video_url)
+                : null;
+
+            return ['stream' => $stream, 'link' => null];
         }
 
-        return $source->resolveByRef($key, $ref);
+        return MirrorRotation::resolve($episode, $registry) ?? ['stream' => null, 'link' => null];
     }
 
     private function headers(?string $referer): array
@@ -280,6 +297,46 @@ class StreamController extends Controller
             's' => $this->segSig($episode, $abs, $exp),
             'r' => $referer ?: '',
         ]);
+    }
+
+    /**
+     * Proxy URL for a child playlist of a master (a bitrate variant or an alternate audio rendition):
+     * back through this same route with the sub-playlist as a signed `u`, so it gets its own segment
+     * rewriting. Carries the caller's manifest token — this route refuses to serve without one.
+     */
+    private function nestedManifestUrl(Episode $episode, string $abs, ?string $referer, string $token): string
+    {
+        $exp = time() + self::TTL;
+
+        return route('stream.manifest', $episode).'?'.http_build_query([
+            't' => $token,
+            'u' => $abs,
+            'e' => $exp,
+            's' => $this->segSig($episode, $abs, $exp),
+            'r' => $referer ?: '',
+            'd' => 1,   // depth marker — a nested playlist never nests again
+        ]);
+    }
+
+    /**
+     * Validate the signed `u` on a nested-playlist request, or null when this is a plain top-level
+     * manifest request. Same HMAC as a proxied segment, so a caller can only ask for a sub-playlist we
+     * ourselves emitted — never an arbitrary URL (SSRF).
+     */
+    private function signedNestedUrl(Episode $episode, Request $request): ?string
+    {
+        $url = (string) $request->query('u', '');
+        if ($url === '') {
+            return null;
+        }
+        $exp = (int) $request->query('e', 0);
+        abort_unless(
+            $exp >= time() && hash_equals($this->segSig($episode, $url, $exp), (string) $request->query('s', '')),
+            403,
+        );
+        abort_unless(str_starts_with($url, 'https://'), 400);
+
+        return $url;
     }
 
     /** HMAC over "app.key" — truncated so signed URLs stay short. */
