@@ -141,8 +141,13 @@ class AnifumeSource implements MediaSource, ProvidesSynopsis
     }
 
     /**
-     * Episodes = the slugged watch links the SERIES page (/{id}) lists: /{id}/{slug}-{NN}. ref is the
-     * full relative path so resolveByRef can hit it directly. Deduped + ordered by episode number.
+     * Episodes = the watch links the series page (/{id}) lists, as `.eplink` anchors.
+     *
+     * 2026-07-28: anifume replaced its readable per-episode slugs (`/{id}/{Slug}-07`) with opaque
+     * tokens (`/{id}/6k-OBbV2…QHS`), so EVERY stored ref started 404ing and the whole source went
+     * unresolvable overnight — the site itself was fine throughout. The episode NUMBER is no longer
+     * in the URL either; it now only exists in the link text ("… ตอนที่ 7 ซับไทย"), which is what this
+     * reads. Refs are the full relative path so resolveByRef can hit them directly.
      *
      * @return array<int,array{number:int,ref:string}>
      */
@@ -155,9 +160,14 @@ class AnifumeSource implements MediaSource, ProvidesSynopsis
         }
 
         $byNum = [];
-        if (preg_match_all('~href="'.preg_quote(self::BASE, '~').'/'.preg_quote($series->sourceKey, '~').'/([A-Za-z0-9\-_.]+?-(\d+))"~', $html, $ms, PREG_SET_ORDER)) {
-            foreach ($ms as $m) {
-                $n = (int) $m[2];
+        $re = '~href="'.preg_quote(self::BASE, '~').'/'.preg_quote($series->sourceKey, '~')
+            .'/([A-Za-z0-9\-_.]+)"[^>]*>([^<]*)</a>~u';
+
+        if (preg_match_all($re, $html, $ms, PREG_SET_ORDER)) {
+            foreach ($ms as $i => $m) {
+                // "ตอนที่ 7 ซับไทย" → 7. A title with no per-episode numbering (a movie/OVA) still
+                // yields one playable entry, numbered by document order.
+                $n = preg_match('~ตอนที่\s*(\d+)~u', $m[2], $nm) ? (int) $nm[1] : $i + 1;
                 $byNum[$n] = ['number' => $n, 'ref' => $series->sourceKey.'/'.$m[1]];
             }
         }
@@ -184,8 +194,18 @@ class AnifumeSource implements MediaSource, ProvidesSynopsis
     }
 
     /**
-     * Resolve the direct MP4 for one episode: watch page → on-site player iframe → jwplayer "file".
-     * $sourceRef is the slugged path "{id}/{slug}-{NN}". Tries the primary player then /player2.
+     * Resolve the direct MP4 for one episode. $sourceRef is the relative watch path "{id}/{token}".
+     *
+     * The watch page no longer embeds the player. Since 2026-07-28 it ships inline jQuery that fetches
+     * the iframe from an obfuscated endpoint, and offers two of them — `mainv()` for the default
+     * server and `mirp2()` behind the site's own "ตัวเล่นสำรอง" button:
+     *
+     *   1. watch page          → url: "/{key}?u={blob}"      (one per server, in that order)
+     *   2. that endpoint       → <iframe src="{BASE}/player/s=…&f=…&m=…&e=…">
+     *   3. the player page     → jwplayer sources → https://aNN.rukoluo.com/…mp4?m=…&e=…
+     *
+     * Both the iframe URL and the MP4 carry an `e=<unix>` expiry, which is why the resolver runs at
+     * watch time and its result is only cached until shortly before that stamp.
      */
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream
     {
@@ -196,17 +216,38 @@ class AnifumeSource implements MediaSource, ProvidesSynopsis
             return null;
         }
 
-        foreach (['player', 'player2'] as $server) {
-            if (! preg_match('~<iframe src="('.preg_quote(self::BASE, '~').'/'.$server.'/[^"]+)"~', $html, $m)) {
-                continue;
-            }
-            $playerUrl = html_entity_decode($m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            if ($mp4 = $this->extractMp4($playerUrl, $watch)) {
+        // Every player the page offers, primary first — the backup exists precisely for the episodes
+        // whose main server is down, so trying it costs one request and saves the title.
+        if (! preg_match_all('~url:\s*"(/[A-Za-z0-9]+\?u=[^"]+)"~', $html, $ms)) {
+            return null;
+        }
+
+        foreach (array_unique($ms[1]) as $endpoint) {
+            $playerUrl = $this->playerIframe(self::BASE.html_entity_decode($endpoint, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $watch);
+            if ($playerUrl !== null && ($mp4 = $this->extractMp4($playerUrl, $watch)) !== null) {
                 return new RemoteStream(RemoteStream::KIND_MP4, $mp4);
             }
         }
 
         return null;
+    }
+
+    /** GET the obfuscated player endpoint → the on-site player iframe URL it returns, or null. */
+    private function playerIframe(string $endpoint, string $watchRef): ?string
+    {
+        try {
+            $body = $this->http()->withHeaders([
+                'Referer' => $watchRef,
+                'X-Requested-With' => 'XMLHttpRequest',
+                'Accept' => '*/*',
+            ])->get($endpoint)->body();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return preg_match('~<iframe[^>]+src="([^"]+)"~i', $body, $m)
+            ? html_entity_decode($m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8')
+            : null;
     }
 
     /** GET the player iframe and pull the highest-quality jwplayer source ("file": "…mp4"). */
@@ -220,6 +261,10 @@ class AnifumeSource implements MediaSource, ProvidesSynopsis
         // jwplayer setup lists sources full-quality-first, then -q360; take the first real .mp4.
         if (preg_match('~"file"\s*:\s*"(https?://[^"]+?\.mp4[^"]*)"~', $body, $m)) {
             return str_replace('\\/', '/', $m[1]);
+        }
+        // Fall back to any absolute .mp4 on the page, in case the player markup changes shape again.
+        if (preg_match('~https?://[^"\'\s<>]+?\.mp4[^"\'\s<>]*~', $body, $m)) {
+            return str_replace('\\/', '/', $m[0]);
         }
 
         return null;
