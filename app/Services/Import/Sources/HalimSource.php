@@ -87,6 +87,12 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
                 '_fields' => 'id,slug,title,featured_media,categories,date',
             ]);
             if (! $resp->ok()) {
+                // Page 1 failing means the REST route itself is gone/blocked (24-hdx: Cloudflare
+                // challenge) — not "past the last page" — so switch to the RSS crawl if configured.
+                if ($page === 1 && $this->config->rssCatalogFallback) {
+                    return $this->fetchCatalogViaRss($onBatch, $maxPages);
+                }
+
                 break; // 400 = past the last page
             }
             $posts = $resp->json();
@@ -104,6 +110,130 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
         }
 
         return $total;
+    }
+
+    /**
+     * Catalogue fallback for a site whose WP REST is blocked but whose RSS feed still answers
+     * (24-hdx behind Cloudflare). `/feed/?paged=N` serves 5 posts a page — the post id comes from the
+     * guid (`/?p=40081`), the slug from the permalink, and the categories arrive as NAMES, which
+     * [self::catSlugsFromNames] converts back to slugs so every slug-keyed rule still applies.
+     *
+     * Newest-first, so this is really an INCREMENTAL crawl: it walks far enough back to pick up
+     * anything added since the last sync, not the site's whole back-catalogue. Posters aren't in the
+     * feed and are left null — [PosterBackfill] / [self::fetchPoster] heal those from the title page.
+     */
+    private function fetchCatalogViaRss(callable $onBatch, int $maxPages): int
+    {
+        $total = 0;
+        $seen = [];
+
+        for ($page = 1; $page <= $maxPages; $page++) {
+            try {
+                $body = $this->http()->withHeaders(['Referer' => $this->config->base.'/'])
+                    ->get($this->config->base.'/feed/', ['paged' => $page])->body();
+            } catch (\Throwable) {
+                break;
+            }
+            if (! preg_match_all('~<item>(.*?)</item>~s', $body, $m)) {
+                break;   // past the last page (or the feed is blocked too)
+            }
+
+            $items = [];
+            foreach ($m[1] as $xml) {
+                $s = $this->parseRssItem($xml);
+                if ($s === null || isset($seen[$s->sourceKey])) {
+                    continue;   // the edge cache can repeat a page — never emit the same post twice
+                }
+                $seen[$s->sourceKey] = true;
+                $items[] = $s;
+            }
+            if ($items === []) {
+                break;   // a whole page of nothing new → we've caught up
+            }
+
+            $onBatch($items);
+            $total += count($items);
+        }
+
+        return $total;
+    }
+
+    private function parseRssItem(string $xml): ?RemoteSeries
+    {
+        // guid is "https://site/?p=40081" — the WP post id, which is what the player ajax needs.
+        if (! preg_match('~<guid[^>]*>[^<]*[?&]p=(\d+)~', $xml, $gm)) {
+            return null;
+        }
+        if (! preg_match('~<link>\s*([^<\s]+)~', $xml, $lm)) {
+            return null;
+        }
+        $slug = trim((string) parse_url(trim($lm[1]), PHP_URL_PATH), '/');
+        if ($slug === '') {
+            return null;
+        }
+
+        $rawTitle = preg_match('~<title>(.*?)</title>~s', $xml, $tm) ? $this->xmlText($tm[1]) : '';
+        if ($rawTitle === '') {
+            return null;
+        }
+
+        $names = [];
+        if (preg_match_all('~<category>(.*?)</category>~s', $xml, $cm)) {
+            foreach ($cm[1] as $c) {
+                $n = $this->xmlText($c);
+                if ($n !== '') {
+                    $names[] = $n;
+                }
+            }
+        }
+        $date = preg_match('~<pubDate>(.*?)</pubDate>~s', $xml, $dm) ? trim($dm[1]) : '';
+
+        return $this->makeSeries(
+            id: (int) $gm[1],
+            slug: $slug,
+            rawTitle: $rawTitle,
+            catSlugs: $this->catSlugsFromNames($names),
+            catNames: $names,
+            date: $date,
+            mediaId: 0,
+        );
+    }
+
+    /**
+     * The feed only names its categories, while genreMap / seriesCatSlug / adultCatSlug are keyed by
+     * slug. Map each name through the site's explicit table first, then fall back to the slug WordPress
+     * would have generated ("Sci-fi" → "sci-fi"), which covers every English genre name.
+     *
+     * @param  string[]  $names
+     * @return string[]
+     */
+    private function catSlugsFromNames(array $names): array
+    {
+        $slugs = [];
+        foreach ($names as $n) {
+            if (isset($this->config->catNameToSlug[$n])) {
+                $slugs[] = $this->config->catNameToSlug[$n];
+
+                continue;
+            }
+            $derived = strtolower(trim(preg_replace('~[^a-zA-Z0-9]+~', '-', $n) ?? '', '-'));
+            if ($derived !== '') {
+                $slugs[] = $derived;
+            }
+        }
+
+        return array_values(array_unique($slugs));
+    }
+
+    /** CDATA-or-plain XML text node → decoded, trimmed string. */
+    private function xmlText(string $raw): string
+    {
+        $t = trim($raw);
+        if (preg_match('~^<!\[CDATA\[(.*)\]\]>$~s', $t, $m)) {
+            $t = $m[1];
+        }
+
+        return trim(html_entity_decode($t, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
     }
 
     /**
@@ -188,6 +318,25 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
         $catNames = array_filter(array_map(fn ($cid) => $cats[$cid]['name'] ?? '', $catIds));
         $catSlugs = array_filter(array_map(fn ($cid) => $cats[$cid]['slug'] ?? '', $catIds));
 
+        return $this->makeSeries(
+            id: $id,
+            slug: $slug,
+            rawTitle: $rawTitle,
+            catSlugs: array_values($catSlugs),
+            catNames: array_values($catNames),
+            date: (string) ($el['date'] ?? ''),
+            mediaId: (int) ($el['featured_media'] ?? 0),
+        );
+    }
+
+    /**
+     * Build one RemoteSeries from the fields both catalogue paths (WP REST and RSS) end up with.
+     *
+     * @param  string[]  $catSlugs  source category slugs — what every per-site rule is keyed by
+     * @param  string[]  $catNames  category display names, only used for dub detection
+     */
+    private function makeSeries(int $id, string $slug, string $rawTitle, array $catSlugs, array $catNames, string $date, int $mediaId): RemoteSeries
+    {
         // Suggested NetWix genres: the umbrella (if any) first, then any mapped source categories.
         $genreNames = $this->config->umbrellaGenre ? [$this->config->umbrellaGenre] : [];
         foreach ($catSlugs as $s) {
@@ -199,7 +348,7 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
 
         $extra = [
             'slug' => $slug,
-            'media_id' => (int) ($el['featured_media'] ?? 0),
+            'media_id' => $mediaId,
             'is_movie' => $this->isMovie($catSlugs),
             'genre_names' => $genreNames,
         ];
@@ -214,7 +363,7 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
             title: $rawTitle,
             cleanTitle: $this->cleanTitle($rawTitle),
             posterUrl: null,
-            year: $this->parseYear($rawTitle, (string) ($el['date'] ?? '')),
+            year: $this->parseYear($rawTitle, $date),
             dubType: $this->detectDub($rawTitle.' '.implode(' ', $catNames)),
             extra: $extra,
         );

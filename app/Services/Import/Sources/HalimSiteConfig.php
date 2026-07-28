@@ -37,6 +37,11 @@ class HalimSiteConfig
      * @param  bool  $backupPool  eligible to serve as a backup stream for another site's suspended title
      * @param  ?string  $adultCatSlug  category slug that marks a title 18+ (e.g. 24-hdx "18") → imported
      *                                  as 18+ AND is_vip (see [App\Services\Import\ImportService::resolveMaturity])
+     * @param  bool  $rssCatalogFallback  when the WP REST catalogue is unreachable (Cloudflare challenge),
+     *                                     fall back to crawling /feed/?paged=N — see [HalimSource::fetchCatalogViaRss]
+     * @param  array<string,string>  $catNameToSlug  RSS-mode only: category NAME → category slug, for the
+     *                                                names a slug can't be derived from (Thai names). The feed
+     *                                                carries names, every other rule here is keyed by slug.
      */
     public function __construct(
         public string $id,
@@ -57,5 +62,7 @@ class HalimSiteConfig
         public string $episodeMode = self::EP_OPTION_NUM,
         public bool $backupPool = false,
         public ?string $adultCatSlug = null,
+        public bool $rssCatalogFallback = false,
+        public array $catNameToSlug = [],
     ) {}
 }

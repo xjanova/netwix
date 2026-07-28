@@ -22,8 +22,20 @@ class HalimSites
 
     /**
      * 24-hdx.com — WordPress + Halim theme, Thai-dubbed/subbed MOVIES (~6,500 titles). The player
-     * ajax lives on a SEPARATE subdomain (api.24-hdx.com/get.php), `lang` is required, and a title
-     * carries only some of Thai/Sound Track × server 1/2 — hence multiple langs+servers to try.
+     * ajax lives on a SEPARATE subdomain, `lang` is required, and a title carries only some of
+     * Thai/Sound Track × server 1/2/3 — hence multiple langs+servers to try.
+     *
+     * 2026-07-28: the site put a Cloudflare MANAGED CHALLENGE on its WordPress layer — both
+     * `/wp-json/*` and `api.24-hdx.com` answer server-side requests with `cf-mitigated: challenge`
+     * 403, which killed playback site-wide (no player hash → no stream). The plain title pages, the
+     * player host and the whole segment CDN are untouched. Two ways around it, both verified from the
+     * prod IP:
+     *   - resolve → the sibling alias `api.24-hds.com/get.php` is the SAME backend, un-challenged,
+     *     and returns the identical player hash. That's the apiUrl below.
+     *   - catalogue → no un-challenged REST route survives (every alias 301s back to www.24-hdx.com),
+     *     so `rssCatalogFallback` crawls /feed/?paged=N instead. See [HalimSource::fetchCatalogViaRss].
+     * If the alias ever gets challenged too, re-run the recon: the fix is whichever host still answers
+     * `action=halim_ajax_player` with an `index_th.php?id=…` iframe.
      */
     public static function the24hdx(): HalimSiteConfig
     {
@@ -31,10 +43,10 @@ class HalimSites
             id: '24hdx',
             displayName: '24-HDX (ภาพยนตร์)',
             base: 'https://www.24-hdx.com',
-            apiUrl: 'https://api.24-hdx.com/get.php',   // Halim player ajax — separate subdomain
+            apiUrl: 'https://api.24-hds.com/get.php',   // alias subdomain — the 24-hdx one is CF-challenged
             playerHost: 'https://main.24playerhd.com',
             langs: ['Thai', 'Sound Track'],
-            servers: ['1', '2'],
+            servers: ['1', '2', '3'],   // the title page now offers a 3rd ("สำรอง") server
             defaultContentType: 'movie',
             genreMap: [
                 'action' => 'แอ็กชัน', 'action-2' => 'แอ็กชัน', 'superhero' => 'แอ็กชัน',
@@ -57,6 +69,14 @@ class HalimSites
             episodeMode: HalimSiteConfig::EP_OPTION_NUM,
             backupPool: true,
             adultCatSlug: '18',                  // 24-hdx "18" category (~168 titles) → import as 18+/VIP
+            rssCatalogFallback: true,            // WP REST is Cloudflare-challenged — crawl /feed/ instead
+            catNameToSlug: [                     // RSS carries category NAMES; the Thai ones need a map
+                'ดูซีรี่ย์' => 'series',
+                'ซีรี่ย์' => 'series',
+                'หนัง Rate 18+' => '18',
+                'Rate 18+' => '18',
+                '18+' => '18',
+            ],
         );
     }
 
