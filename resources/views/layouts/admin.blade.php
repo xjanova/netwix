@@ -37,6 +37,7 @@
         ['route' => 'admin.app-stats.index', 'label' => 'สถิติแอป (อุปกรณ์)'],
         ['route' => 'admin.legal.index', 'label' => 'นโยบาย / ข้อตกลง'],
         ['route' => 'admin.fb-dm.index', 'label' => 'DM ชวนดูหนัง (Facebook)'],
+        ['route' => 'admin.line-alerts.index', 'label' => 'แจ้งเตือนปัญหาเข้า LINE'],
         ['route' => 'admin.debug.index', 'label' => 'Debug แอป'],
     ];
     $admin = auth()->user();

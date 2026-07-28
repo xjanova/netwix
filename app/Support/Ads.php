@@ -119,13 +119,23 @@ class Ads
         $unit = self::unit($slot);
         $network = ($client && $unit) ? ['kind' => 'adsense', 'client' => $client, 'unit' => $unit] : null;
 
+        // A PAID booking takes the slot `ad_paid_share` percent of the time (owner: "แบ่งกันตาม
+        // เปอร์เซ็นต์ที่ตั้ง"). Resolved first because it is the only inventory someone has actually
+        // been charged for — but it still shares, so the network keeps earning on the rest.
+        $paid = self::paidSlot($slot);
+        if ($paid !== null && random_int(1, 100) <= self::paidShare()) {
+            return $paid;
+        }
+
         // No network unit for this slot → the house banner is the only candidate. Otherwise it gets
         // the slot `house_ads_fill` percent of the time. Picked at most ONCE: in rotate mode the pick
         // advances a cursor, so calling it twice would skip a banner in the cycle.
         $wantHouse = $network === null || random_int(1, 100) <= self::houseFill();
         $house = $wantHouse ? self::houseSlot($slot) : null;
 
-        return $house ?? $network ?? ($wantHouse ? null : self::houseSlot($slot));
+        // Paid inventory is also the LAST resort: if nothing else is configured, the advertiser we
+        // charged must still get their impression rather than the slot rendering empty.
+        return $house ?? $network ?? ($wantHouse ? null : self::houseSlot($slot)) ?? $paid;
     }
 
     /** Percentage of impressions house banners take when a network unit IS configured (0–100). */

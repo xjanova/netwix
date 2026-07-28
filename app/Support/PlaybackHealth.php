@@ -228,6 +228,10 @@ class PlaybackHealth
         Log::warning('playback: auto-suspended un-playable title', [
             'content_id' => $content->id, 'title' => $content->title, 'reason' => $reason, 'fails' => $fails,
         ]);
+
+        // Collected, not pushed: this fires per TITLE, and one dead source produces thousands of
+        // them. [LineNotifier::flushDigest] sends the hour's worth as a single message.
+        LineNotifier::noteSuspended($content->id, (string) $content->title, (string) $content->source);
     }
 
     private static function setKey(int $id): string

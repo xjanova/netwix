@@ -110,6 +110,11 @@ Schedule::command('netwix:recheck-playable 9nung --limit=3000 --sleep=250')
 Schedule::command('netwix:source-canary')
     ->everyTwoHours()->withoutOverlapping()->runInBackground();
 
+// Hourly: one LINE message summarising the titles that went un-playable, instead of one per title.
+// Self-gates when LINE alerts are off, so it is always safe to schedule.
+Schedule::command('netwix:alert-digest')
+    ->hourly()->withoutOverlapping()->runInBackground();
+
 // Covers heal ON-DEMAND now (a card pings content.heal-cover when its poster fails to load — see
 // [App\Http\Controllers\PosterHealController]), so no nightly sweep. The netwix:backfill-posters
 // command is kept for manual bulk runs only.

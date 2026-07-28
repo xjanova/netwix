@@ -390,6 +390,12 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('google-ads', [Admin\GoogleAdsController::class, 'index'])->name('google-ads.index');
     Route::put('google-ads', [Admin\GoogleAdsController::class, 'update'])->name('google-ads.update');
 
+    // Problem alerts to the owner's LINE OA ("แจ้งเตือนปัญหาเข้า LINE").
+    Route::get('line-alerts', [Admin\LineAlertController::class, 'index'])->name('line-alerts.index');
+    Route::put('line-alerts', [Admin\LineAlertController::class, 'update'])->name('line-alerts.update');
+    Route::post('line-alerts/test', [Admin\LineAlertController::class, 'test'])->name('line-alerts.test');
+    Route::delete('line-alerts/token', [Admin\LineAlertController::class, 'forget'])->name('line-alerts.forget');
+
     // House banners ("โฆษณาสำรอง") — our own uploaded creatives for the same slots.
     Route::get('house-banners', [Admin\HouseBannerController::class, 'index'])->name('house-banners.index');
     Route::put('house-banners/settings', [Admin\HouseBannerController::class, 'settings'])->name('house-banners.settings');

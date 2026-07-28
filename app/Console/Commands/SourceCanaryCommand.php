@@ -6,6 +6,7 @@ use App\Models\Content;
 use App\Models\Episode;
 use App\Models\Setting;
 use App\Services\Import\SourceRegistry;
+use App\Support\LineNotifier;
 use App\Support\SourceHealth;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -98,6 +99,15 @@ class SourceCanaryCommand extends Command
             Log::error('source-canary: majority of sources reported down — verdicts discarded as implausible', [
                 'down' => $downNow, 'checked' => array_keys($verdicts),
             ]);
+            // Worth waking the owner for: either our server lost the internet, or this watchdog is
+            // itself broken — and a broken watchdog is the failure that hides every other failure.
+            LineNotifier::alert(
+                'canary-implausible',
+                "❗ ระบบตรวจสอบแหล่งหนังรายงานว่า ".count($downNow)."/".count($verdicts)." แหล่งล่มพร้อมกัน\n"
+                ."ไม่น่าเป็นไปได้ จึงไม่บันทึกผล — น่าจะเป็นฝั่งเซิร์ฟเวอร์เราเอง (เน็ต/DNS) หรือตัวระบบตรวจสอบเสียเอง\n\n"
+                .'กรุณาเข้าไปตรวจสอบ: '.url('/admin'),
+                throttleMinutes: 120,
+            );
             $this->newLine();
             $this->error('มี '.count($downNow).'/'.count($verdicts).' แหล่งรายงานว่าล่มพร้อมกัน — ไม่น่าเป็นไปได้ จึงไม่บันทึกผล (น่าจะเป็นฝั่งเราเอง)');
 
@@ -114,6 +124,21 @@ class SourceCanaryCommand extends Command
             $this->newLine();
             $this->error('แหล่งที่ดึงลิ้งค์ไม่ได้: '.implode(', ', $downNow)
                 .' — อาจล่มจริง หรือเปลี่ยนรูปแบบ URL/เพลเยอร์ ต้องเข้าไปดู · auto-suspend ของแหล่งนี้ถูกพักไว้แล้ว');
+
+            // One LINE message per source, at most once every 6h — a source stays broken for hours or
+            // days, and re-reporting it every 2h canary run is how an alert channel gets muted.
+            foreach ($downNow as $id) {
+                $affected = Content::withoutGlobalScopes()->where('source', $id)->where('is_published', true)->count();
+                LineNotifier::alert(
+                    'source-down:'.$id,
+                    "🚨 ดึงลิ้งค์จากแหล่ง \"{$id}\" ไม่ได้เลย\n"
+                    ."กระทบหนัง {$affected} เรื่อง\n\n"
+                    ."อาจเป็นเว็บต้นทางล่ม หรือเขาเปลี่ยนรูปแบบ URL/เพลเยอร์\n"
+                    ."ระบบพักการหยุดเผยแพร่อัตโนมัติของแหล่งนี้ไว้แล้ว หนังจะไม่ถูกปิดทิ้ง\n\n"
+                    .url('/admin'),
+                    throttleMinutes: 360,
+                );
+            }
         }
 
         return self::SUCCESS;
