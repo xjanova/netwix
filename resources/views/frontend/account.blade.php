@@ -56,8 +56,8 @@
     </div>
 
     {{-- ============ ลงโฆษณา ============ --}}
-    {{-- Block form, not @php(...): the inline directive mis-compiled this expression to an unclosed
-         "<?php(" and swallowed the markup after it, 500-ing the whole page. --}}
+    {{-- Block form: the inline php directive mis-compiled this expression into an unclosed open-tag
+         and swallowed the markup after it, 500-ing the page. --}}
     @php
         $myAds = \App\Models\AdBooking::where('user_id', auth()->id())->count();
     @endphp

@@ -10,9 +10,11 @@
       house   → one of our OWN uploaded banners (see [App\Models\HouseBanner])
       custom  → raw markup from another network, pasted by an admin (see the note on trust in Ads.php)
 --}}
-{{-- Block form on purpose. The inline @php(...) directive has mis-compiled a nested-call expression
-     into an unclosed "<?php(" before (it 500-ed /account on 2026-07-28), and this component renders
-     on every page — the blast radius of that failure here is the entire site. --}}
+{{-- Block form on purpose: the INLINE php directive mis-compiled a nested-call expression into an
+     unclosed open-tag on 2026-07-28 and took /account down. This component renders on every page,
+     so the same slip here would be a site-wide outage.
+     NB: never name that directive literally inside a Blade comment — directives are compiled BEFORE
+     comments are stripped, so writing it here executes it. That is what broke this file once. --}}
 @php
     $nxAd = \App\Support\Ads::slot($name, auth()->user(), $content);
 @endphp
