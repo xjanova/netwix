@@ -61,7 +61,8 @@ class GoogleAdsController extends Controller
         foreach (['admob_android_app_id', 'admob_ios_app_id', 'admob_unit_banner',
             'admob_unit_interstitial', 'admob_unit_native', 'admob_unit_rewarded'] as $key) {
             $v = trim((string) ($data[$key] ?? ''));
-            if ($v !== '' && ! preg_match('~^ca-app-pub-\d{10,20}[~/]\d{6,20}$~', $v)) {
+            // # delimiter — "~" is part of an AdMob app id, see [Ads::admobId].
+            if ($v !== '' && ! preg_match('#^ca-app-pub-\d{10,20}[~/]\d{6,20}$#', $v)) {
                 return back()->withInput()->withErrors([
                     $key => 'รหัส AdMob ต้องอยู่ในรูปแบบ ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY (แอป) หรือ .../YYYYYYYYYY (หน่วยโฆษณา)',
                 ]);

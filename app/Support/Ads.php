@@ -138,11 +138,16 @@ class Ads
         ];
     }
 
-    /** AdMob ids are "ca-app-pub-<16>~<10>" (app) or "…/<10>" (unit); anything else is dropped. */
+    /**
+     * AdMob ids are "ca-app-pub-<digits>~<digits>" (app) or "…/<digits>" (unit); anything else is
+     * dropped. Delimiter is # rather than ~ on purpose: the separator "~" is part of the id itself and
+     * inside the character class it would close the pattern early ("Unknown modifier '/'"), silently
+     * matching nothing — which reads exactly like "the admin hasn't configured AdMob yet".
+     */
     private static function admobId(string $key): ?string
     {
         $v = trim((string) Setting::get($key, ''));
 
-        return preg_match('~^ca-app-pub-\d{10,20}[~/]\d{6,20}$~', $v) ? $v : null;
+        return preg_match('#^ca-app-pub-\d{10,20}[~/]\d{6,20}$#', $v) ? $v : null;
     }
 }
