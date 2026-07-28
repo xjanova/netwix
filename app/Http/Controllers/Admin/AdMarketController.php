@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\AdBooking;
 use App\Models\AdPlacement;
 use App\Models\Setting;
+use App\Models\User;
+use App\Support\AdCreative;
 use App\Support\Ads;
 use App\Support\AdMarketplace;
 use Carbon\CarbonImmutable;
@@ -88,6 +90,8 @@ class AdMarketController extends Controller
     public function review(): View
     {
         return view('admin.ad-market.review', [
+            'placements' => AdPlacement::active()->orderBy('sort')->get(),
+            'users' => User::orderBy('name')->limit(200)->get(['id', 'name', 'email']),
             'bookings' => AdBooking::whereIn('status', ['paid', 'approved', 'rejected'])
                 ->with(['placement', 'user'])
                 ->orderByRaw("FIELD(status,'paid','rejected','approved')")
@@ -130,6 +134,105 @@ class AdMarketController extends Controller
         ])->save();
 
         return back()->with('status', 'ปฏิเสธโฆษณา '.$booking->reference.' แล้ว');
+    }
+
+    /**
+     * Place an ad by hand. Needed because not every sale happens on-chain: a customer may pay by
+     * bank transfer or LINE, or the owner may comp a slot. Screening is skipped deliberately — an
+     * admin typing the URL themselves IS the review — and the booking lands already approved.
+     */
+    public function storeBooking(Request $request, AdCreative $creative): RedirectResponse
+    {
+        $data = $request->validate([
+            'ad_placement_id' => ['required', 'exists:ad_placements,id'],
+            'user_id' => ['required', 'exists:users,id'],
+            'title' => ['nullable', 'string', 'max:120'],
+            'link_url' => ['required', 'url:http,https', 'max:2048'],
+            'starts_at' => ['required', 'date'],
+            'days' => ['required', 'integer', 'min:1', 'max:365'],
+            'price_usdt' => ['required', 'numeric', 'min:0'],
+            'image_file' => ['required', 'file', 'max:5000', 'mimes:jpg,jpeg,png,gif,webp'],
+        ]);
+
+        $placement = AdPlacement::findOrFail($data['ad_placement_id']);
+        $from = CarbonImmutable::parse($data['starts_at'])->startOfDay();
+
+        try {
+            $path = $creative->store($request->file('image_file'), $placement, null);
+        } catch (\RuntimeException $e) {
+            return back()->withInput()->withErrors(['image_file' => $e->getMessage()]);
+        }
+
+        AdBooking::create([
+            'reference' => AdBooking::newReference(),
+            'user_id' => $data['user_id'],
+            'ad_placement_id' => $placement->id,
+            'title' => $data['title'] ?? null,
+            'image_path' => $path,
+            'link_url' => $data['link_url'],
+            'starts_at' => $from->toDateString(),
+            'ends_at' => $from->addDays((int) $data['days'] - 1)->toDateString(),
+            'days' => (int) $data['days'],
+            'price_usdt' => (float) $data['price_usdt'],
+            'status' => 'approved',
+            'reviewed_at' => now(),
+            'reviewed_by' => auth()->id(),
+            'terms_accepted_at' => now(),
+        ]);
+
+        return back()->with('status', 'เพิ่มโฆษณาให้ลูกค้าแล้ว (ขึ้นแสดงตามวันที่กำหนด)');
+    }
+
+    /**
+     * Edit any booking — swap the creative a customer sent over chat, correct a typo'd link, shift
+     * dates. This is the tool that makes "ไม่ผ่านให้แก้แล้วส่งใหม่" workable from the staff side too.
+     */
+    public function updateBooking(Request $request, AdBooking $booking, AdCreative $creative): RedirectResponse
+    {
+        $data = $request->validate([
+            'title' => ['nullable', 'string', 'max:120'],
+            'link_url' => ['required', 'url:http,https', 'max:2048'],
+            'starts_at' => ['required', 'date'],
+            'days' => ['required', 'integer', 'min:1', 'max:365'],
+            'image_file' => ['nullable', 'file', 'max:5000', 'mimes:jpg,jpeg,png,gif,webp'],
+        ]);
+
+        $from = CarbonImmutable::parse($data['starts_at'])->startOfDay();
+        $path = $booking->image_path;
+
+        if ($request->hasFile('image_file')) {
+            try {
+                $new = $creative->store($request->file('image_file'), $booking->placement, null);
+            } catch (\RuntimeException $e) {
+                return back()->withErrors(['image_file' => $e->getMessage()]);
+            }
+            $creative->delete($path);
+            $path = $new;
+        }
+
+        $booking->forceFill([
+            'title' => $data['title'] ?? null,
+            'image_path' => $path,
+            'link_url' => $data['link_url'],
+            'starts_at' => $from->toDateString(),
+            'ends_at' => $from->addDays((int) $data['days'] - 1)->toDateString(),
+            'days' => (int) $data['days'],
+        ])->save();
+
+        return back()->with('status', 'แก้ไขโฆษณา '.$booking->reference.' แล้ว');
+    }
+
+    /** Take a booking off the air. Kept (not deleted) so the money and the history stay auditable. */
+    public function cancelBooking(AdBooking $booking): RedirectResponse
+    {
+        $booking->forceFill([
+            'status' => 'finished',
+            'review_note' => 'ยกเลิกโดยแอดมิน',
+            'reviewed_at' => now(),
+            'reviewed_by' => auth()->id(),
+        ])->save();
+
+        return back()->with('status', 'ยกเลิกโฆษณา '.$booking->reference.' แล้ว');
     }
 
     /** Full booking calendar WITH advertiser identity — admin-only by design. */

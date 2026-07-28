@@ -12,6 +12,59 @@
 
 <a href="{{ route('admin.ad-market.index') }}" class="text-[13px] text-cream/50 hover:text-cream">← กลับไปตั้งค่าตลาดโฆษณา</a>
 
+{{-- Manual placement: for sales that didn't come through the on-chain checkout (โอนธนาคาร / LINE /
+     แถมให้) — screening is skipped because the admin typing the URL IS the review. --}}
+<details class="nx-card mt-4 p-5">
+    <summary class="cursor-pointer text-[15px] font-bold">+ ลงโฆษณาให้ลูกค้าเอง (ไม่ผ่านระบบชำระเงิน)</summary>
+    <div class="mt-1.5 text-[12.5px] text-cream/45">ใช้กรณีลูกค้าโอนผ่านช่องทางอื่น หรือแถมให้ — จะขึ้นแสดงตามวันที่กำหนดทันที ไม่ต้องรออนุมัติ</div>
+    <form method="POST" action="{{ route('admin.ad-market.bookings.store') }}" enctype="multipart/form-data" class="mt-4 space-y-3">
+        @csrf
+        <div class="grid gap-3 sm:grid-cols-2">
+            <div>
+                <label class="mb-1 block text-[12px] text-cream/50">ลูกค้า (สมาชิก)</label>
+                <select name="user_id" required class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-[13px]">
+                    @foreach ($users as $u)
+                        <option value="{{ $u->id }}">{{ $u->name }} — {{ $u->email }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div>
+                <label class="mb-1 block text-[12px] text-cream/50">ตำแหน่ง</label>
+                <select name="ad_placement_id" required class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-[13px]">
+                    @foreach ($placements as $pl)
+                        <option value="{{ $pl->id }}">{{ $pl->name }} ({{ $pl->width }}×{{ $pl->height }})</option>
+                    @endforeach
+                </select>
+            </div>
+            <div>
+                <label class="mb-1 block text-[12px] text-cream/50">ชื่อแคมเปญ</label>
+                <input type="text" name="title" maxlength="120" class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-[13px]">
+            </div>
+            <div>
+                <label class="mb-1 block text-[12px] text-cream/50">ลิงก์ปลายทาง</label>
+                <input type="url" name="link_url" required placeholder="https://…" class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-[13px]">
+            </div>
+            <div>
+                <label class="mb-1 block text-[12px] text-cream/50">วันเริ่ม</label>
+                <input type="date" name="starts_at" required value="{{ now()->toDateString() }}" class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-[13px]">
+            </div>
+            <div>
+                <label class="mb-1 block text-[12px] text-cream/50">จำนวนวัน</label>
+                <input type="number" name="days" required min="1" max="365" value="7" class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-[13px]">
+            </div>
+            <div>
+                <label class="mb-1 block text-[12px] text-cream/50">ยอดที่เก็บได้ (USDT — ใส่ 0 ถ้าแถม)</label>
+                <input type="number" name="price_usdt" required step="0.01" min="0" value="0" class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-[13px]">
+            </div>
+            <div>
+                <label class="mb-1 block text-[12px] text-cream/50">แบนเนอร์</label>
+                <input type="file" name="image_file" required accept="image/*" class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-[13px] file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-3 file:py-1 file:text-cream">
+            </div>
+        </div>
+        <button class="rounded-lg bg-brand px-5 py-2.5 text-[14px] font-semibold text-white hover:bg-brand/90">เพิ่มโฆษณา</button>
+    </form>
+</details>
+
 @if ($bookings->total() === 0)
     <div class="nx-card mt-4 p-10 text-center text-cream/55">
         <div class="text-4xl">✅</div>
@@ -79,6 +132,50 @@
                         </form>
                     </div>
                 @endif
+
+                {{-- Staff-side edit: swap a creative the customer sent over chat, fix a link, shift dates,
+                     or pull it off the air — without making them redo checkout. --}}
+                <details class="mt-3 border-t border-white/5 pt-3">
+                    <summary class="cursor-pointer text-[13px] text-cream/55">แก้ไข / ยกเลิกโฆษณานี้</summary>
+                    <form method="POST" action="{{ route('admin.ad-market.bookings.update', $b) }}" enctype="multipart/form-data" class="mt-3 space-y-3">
+                        @csrf @method('PUT')
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <div>
+                                <label class="mb-1 block text-[12px] text-cream/50">ชื่อแคมเปญ</label>
+                                <input type="text" name="title" maxlength="120" value="{{ $b->title }}"
+                                       class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-[13px]">
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-[12px] text-cream/50">ลิงก์ปลายทาง</label>
+                                <input type="url" name="link_url" required value="{{ $b->link_url }}"
+                                       class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-[13px]">
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-[12px] text-cream/50">วันเริ่ม</label>
+                                <input type="date" name="starts_at" required value="{{ $b->starts_at?->toDateString() }}"
+                                       class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-[13px]">
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-[12px] text-cream/50">จำนวนวัน</label>
+                                <input type="number" name="days" required min="1" max="365" value="{{ $b->days }}"
+                                       class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-[13px]">
+                            </div>
+                            <div class="sm:col-span-2">
+                                <label class="mb-1 block text-[12px] text-cream/50">เปลี่ยนแบนเนอร์ (เว้นว่าง = ใช้รูปเดิม)</label>
+                                <input type="file" name="image_file" accept="image/*"
+                                       class="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-[13px] file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-3 file:py-1 file:text-cream">
+                            </div>
+                        </div>
+                        <button class="rounded-lg bg-white/10 px-4 py-2 text-[13px] font-semibold hover:bg-white/15">บันทึกการแก้ไข</button>
+                    </form>
+
+                    @if ($b->status !== 'finished')
+                        <form method="POST" action="{{ route('admin.ad-market.bookings.cancel', $b) }}" class="mt-2"
+                              onsubmit="return confirm('ยกเลิกโฆษณานี้? จะหยุดแสดงทันที')">@csrf
+                            <button class="rounded-lg bg-brand/10 px-4 py-2 text-[13px] text-brand hover:bg-brand/20">ยกเลิกโฆษณา (หยุดแสดง)</button>
+                        </form>
+                    @endif
+                </details>
             </div>
         @endforeach
     </div>

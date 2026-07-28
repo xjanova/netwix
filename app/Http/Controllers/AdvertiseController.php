@@ -168,6 +168,112 @@ class AdvertiseController extends Controller
         ]);
     }
 
+    /**
+     * Fix a REJECTED booking. This is the other half of "ไม่ผ่านไม่คืนเงิน แต่แก้แล้วส่งใหม่ได้": without
+     * it, a rejection would be a dead end for money already taken, which would make the no-refund
+     * rule indefensible rather than merely strict.
+     */
+    public function edit(AdBooking $booking): View
+    {
+        abort_unless($booking->user_id === auth()->id(), 403);
+        abort_unless($booking->status === 'rejected', 404);
+
+        return view('frontend.advertise.edit', [
+            'booking' => $booking->load('placement'),
+            'p' => $booking->placement,
+            'calendar' => $this->market->calendar($booking->placement),
+            'rules' => $this->rules(),
+        ]);
+    }
+
+    /**
+     * Resubmit. The PLACEMENT and the number of DAYS are fixed — those are what was paid for, and
+     * letting them change would turn a rejection into a free upgrade. The creative, the link and the
+     * start date may change: the last one because a rejection can easily outlive the original window,
+     * and burning the purchase on a scheduling technicality would be its own kind of unfair.
+     */
+    public function resubmit(Request $request, AdBooking $booking, AdScreening $screen, AdCreative $creative): RedirectResponse
+    {
+        abort_unless($booking->user_id === auth()->id(), 403);
+        abort_unless($booking->status === 'rejected', 404);
+
+        $placement = $booking->placement;
+
+        $data = $request->validate([
+            'title' => ['nullable', 'string', 'max:120'],
+            'link_url' => ['required', 'url:http,https', 'max:2048'],
+            'starts_at' => ['required', 'date', 'after_or_equal:today'],
+            'image_file' => ['nullable', 'file', 'max:'.max(1, (int) $placement->max_upload_kb), 'mimes:jpg,jpeg,png,gif,webp'],
+            'crop' => ['nullable', 'string', 'max:200'],
+        ]);
+
+        $from = CarbonImmutable::parse($data['starts_at'])->startOfDay();
+        $to = $from->addDays((int) $booking->days - 1);
+
+        // Its own row still holds capacity for the old window, so exclude it from the check.
+        if (! $this->hasRoomExcluding($placement, $from, $to, $booking->id)) {
+            return back()->withInput()->withErrors(['starts_at' => 'ช่วงวันที่เลือกเต็มแล้ว — ลองเลื่อนวันเริ่ม']);
+        }
+
+        $verdict = $screen->check($data['link_url']);
+        if (! $verdict['ok']) {
+            return back()->withInput()->withErrors(['link_url' => $verdict['reason'] ?? 'ลิงก์ไม่ผ่านการตรวจสอบ']);
+        }
+
+        $path = $booking->image_path;
+        if ($request->hasFile('image_file')) {
+            try {
+                $new = $creative->store($request->file('image_file'), $placement, $this->crop($data['crop'] ?? null));
+            } catch (RuntimeException $e) {
+                return back()->withInput()->withErrors(['image_file' => $e->getMessage()]);
+            }
+            $creative->delete($path);
+            $path = $new;
+        }
+
+        $booking->forceFill([
+            'title' => $data['title'] ?? null,
+            'image_path' => $path,
+            'link_url' => $data['link_url'],
+            'link_final_url' => $verdict['final_url'] ?? null,
+            'starts_at' => $from->toDateString(),
+            'ends_at' => $to->toDateString(),
+            'screen_result' => $verdict,
+            // Back into the queue, NOT live — a resubmission is reviewed like any other.
+            'status' => 'paid',
+            'review_note' => null,
+            'reviewed_at' => null,
+            'reviewed_by' => null,
+        ])->save();
+
+        return redirect()->route('advertise.mine')
+            ->with('status', 'ส่งตรวจใหม่แล้ว — ทีมงานจะตรวจอีกครั้ง ไม่มีค่าใช้จ่ายเพิ่ม');
+    }
+
+    /** Capacity check that ignores one booking's own hold (used when rescheduling it). */
+    private function hasRoomExcluding(AdPlacement $placement, CarbonImmutable $from, CarbonImmutable $to, int $ignoreId): bool
+    {
+        $cap = max(1, (int) $placement->max_concurrent);
+
+        $overlapping = AdBooking::where('ad_placement_id', $placement->id)
+            ->whereKeyNot($ignoreId)
+            ->holdingCapacity()
+            ->whereDate('ends_at', '>=', $from->toDateString())
+            ->whereDate('starts_at', '<=', $to->toDateString())
+            ->get(['starts_at', 'ends_at']);
+
+        for ($d = $from; $d->lte($to); $d = $d->addDay()) {
+            $taken = $overlapping->filter(fn ($b) => $d->betweenIncluded(
+                CarbonImmutable::parse($b->starts_at), CarbonImmutable::parse($b->ends_at)
+            ))->count();
+            if ($taken >= $cap) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /** The advertiser's own campaigns, with the admin's rejection note when there is one. */
     public function mine(): View
     {

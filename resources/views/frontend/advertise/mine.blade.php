@@ -48,7 +48,10 @@
                                 @if ($b->status === 'rejected' && $b->review_note)
                                     <div class="mt-2 rounded-lg border border-brand/30 bg-brand/5 p-3 text-[12.5px] text-cream/75">
                                         <b class="text-brand">เหตุผลที่ไม่ผ่าน:</b> {{ $b->review_note }}
-                                        <div class="mt-1 text-cream/50">แก้ไขรูปหรือลิงก์แล้วติดต่อทีมงานเพื่อส่งตรวจใหม่ได้ โดยไม่ต้องจ่ายเพิ่ม</div>
+                                        <a href="{{ route('advertise.edit', $b) }}"
+                                           class="mt-2 inline-block rounded-lg bg-brand px-4 py-2 text-[13px] font-bold text-white hover:bg-brand/90">
+                                            แก้ไขแล้วส่งตรวจใหม่ (ไม่มีค่าใช้จ่ายเพิ่ม)
+                                        </a>
                                     </div>
                                 @endif
                             </div>

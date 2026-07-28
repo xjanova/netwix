@@ -188,6 +188,11 @@ Route::middleware(['auth', 'profile'])->group(function () {
     Route::get('/advertise/{placement}', [\App\Http\Controllers\AdvertiseController::class, 'create'])->name('advertise.create');
     Route::post('/advertise/{placement}', [\App\Http\Controllers\AdvertiseController::class, 'store'])
         ->middleware('throttle:10,1')->name('advertise.store');
+    // Fix + resubmit a REJECTED ad. The other half of "ไม่ผ่านไม่คืนเงิน แต่แก้แล้วส่งใหม่ได้" —
+    // without it a rejection would strand money already taken.
+    Route::get('/advertise/order/{booking}/edit', [\App\Http\Controllers\AdvertiseController::class, 'edit'])->name('advertise.edit');
+    Route::put('/advertise/order/{booking}', [\App\Http\Controllers\AdvertiseController::class, 'resubmit'])
+        ->middleware('throttle:10,1')->name('advertise.resubmit');
     Route::get('/advertise/order/{booking}', [\App\Http\Controllers\AdvertiseController::class, 'checkout'])->name('advertise.checkout');
     Route::get('/advertise/order/{booking}/status', [\App\Http\Controllers\AdvertiseController::class, 'status'])
         ->middleware('throttle:60,1')->name('advertise.status');
@@ -428,6 +433,11 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('ad-market/review', [Admin\AdMarketController::class, 'review'])->name('ad-market.review');
     Route::post('ad-market/review/{booking}/approve', [Admin\AdMarketController::class, 'approve'])->name('ad-market.approve');
     Route::post('ad-market/review/{booking}/reject', [Admin\AdMarketController::class, 'reject'])->name('ad-market.reject');
+    // Admin-placed / admin-edited bookings — for sales that didn't happen on-chain, and for fixing
+    // a customer's creative on their behalf.
+    Route::post('ad-market/bookings', [Admin\AdMarketController::class, 'storeBooking'])->name('ad-market.bookings.store');
+    Route::put('ad-market/bookings/{booking}', [Admin\AdMarketController::class, 'updateBooking'])->name('ad-market.bookings.update');
+    Route::post('ad-market/bookings/{booking}/cancel', [Admin\AdMarketController::class, 'cancelBooking'])->name('ad-market.bookings.cancel');
     Route::get('ad-market/calendar', [Admin\AdMarketController::class, 'calendar'])->name('ad-market.calendar');
 
     // House banners ("โฆษณาสำรอง") — our own uploaded creatives for the same slots.
