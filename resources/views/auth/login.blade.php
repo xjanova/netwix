@@ -25,7 +25,12 @@
         <button type="submit" class="btn-brand mt-5 w-full py-3.5 text-base">เข้าสู่ระบบ</button>
 
         <div class="mt-4 flex items-center justify-between text-[13.5px] text-cream/50">
-            <label class="flex cursor-pointer items-center gap-2"><input type="checkbox" name="remember" class="accent-brand"> จดจำฉันไว้</label>
+            {{-- Ticked by default; the hidden twin means an UNticked box still posts a value,
+                 so a failed login re-renders the member's actual choice instead of re-ticking it. --}}
+            <label class="flex cursor-pointer items-center gap-2">
+                <input type="hidden" name="remember" value="0">
+                <input type="checkbox" name="remember" value="1" class="accent-brand" @checked(old('remember', '1'))> จดจำฉันไว้
+            </label>
             <span class="cursor-pointer">ลืมรหัสผ่าน?</span>
         </div>
 

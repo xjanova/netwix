@@ -69,7 +69,9 @@ class RegisterController extends Controller
             $membership->redeem($user, $data['ref']);
         }
 
-        Auth::login($user);
+        // remember: brand-new members shouldn't be the ones asked to sign in again
+        // first (social sign-up already does this).
+        Auth::login($user, remember: true);
         $request->session()->regenerate();
 
         return redirect()->route('profiles.index');

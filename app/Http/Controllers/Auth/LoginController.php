@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Support\ActiveProfile;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -49,6 +50,9 @@ class LoginController extends Controller
     public function logout(Request $request): RedirectResponse
     {
         Auth::logout();
+        // Signing out is a deliberate "I'm done on this device" — let go of the
+        // remembered profile too, so the next person here starts at the picker.
+        ActiveProfile::forget($request);
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 

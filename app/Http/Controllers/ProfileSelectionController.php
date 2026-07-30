@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Profile;
+use App\Support\ActiveProfile;
 use App\Support\ImageStore;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -28,7 +29,7 @@ class ProfileSelectionController extends Controller
     {
         abort_unless($profile->user_id === $request->user()->id, 403);
 
-        $request->session()->put('profile_id', $profile->id);
+        ActiveProfile::remember($request, $profile);
 
         return redirect()->route('browse');
     }
@@ -101,8 +102,10 @@ class ProfileSelectionController extends Controller
         abort_unless($profile->user_id === $request->user()->id, 403);
         abort_if($request->user()->profiles()->count() <= 1, 422, 'ต้องมีอย่างน้อย 1 โปรไฟล์');
 
-        if ($request->session()->get('profile_id') === $profile->id) {
-            $request->session()->forget('profile_id');
+        // Drop the pointer from wherever it lives, so the picker isn't the next stop.
+        if ((int) $request->session()->get('profile_id') === $profile->id
+            || (int) $request->cookie(ActiveProfile::COOKIE) === $profile->id) {
+            ActiveProfile::forget($request);
         }
         $profile->delete();
 

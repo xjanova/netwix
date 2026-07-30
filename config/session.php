@@ -32,7 +32,10 @@ return [
     |
     */
 
-    'lifetime' => (int) env('SESSION_LIFETIME', 120),
+    // 30 days. This is a streaming site, not a bank: being asked to sign in again
+    // because you left the tab alone over a weekend reads as a bug, not security.
+    // Laravel treats this as an IDLE window — every request pushes it back.
+    'lifetime' => (int) env('SESSION_LIFETIME', 43200),
 
     'expire_on_close' => env('SESSION_EXPIRE_ON_CLOSE', false),
 

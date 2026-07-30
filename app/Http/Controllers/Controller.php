@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Profile;
+use App\Support\ActiveProfile;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\View;
 
@@ -18,12 +19,7 @@ abstract class Controller
      */
     protected function activeMemberProfile(Request $request): ?Profile
     {
-        if (! $request->user()) {
-            return null;
-        }
-
-        $profileId = $request->session()->get('profile_id');
-        $profile = $profileId ? $request->user()->profiles()->find($profileId) : null;
+        $profile = ActiveProfile::resolve($request);
         if (! $profile) {
             return null;
         }
