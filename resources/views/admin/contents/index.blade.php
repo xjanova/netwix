@@ -46,7 +46,8 @@
     </select>
     <select name="min_rating" onchange="this.form.submit()" class="rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-sm outline-none focus:border-brand">
         <option value="">ทุกคะแนน</option>
-        @foreach ([9, 8, 7, 6, 5] as $r)
+        {{-- Member stars are 1-5, not the old invented 0-10 score. --}}
+        @foreach ([5, 4, 3, 2] as $r)
             <option value="{{ $r }}" @selected((string) $minRating === (string) $r)>★ {{ $r }}+ ขึ้นไป</option>
         @endforeach
     </select>
@@ -95,7 +96,9 @@
                                                   title="มีคอนเทนต์ชื่อคล้ายกันในระบบ — ตรวจสอบว่าซ้ำหรือไม่">ซ้ำ?</span>
                                         @endif
                                     </div>
-                                    <div class="text-xs text-cream/40">{{ $c->year }} · {{ $c->maturity }} · <span class="text-gold">★ {{ $c->rating }}</span> @if ($c->is_original)· <span class="text-brand">Original</span>@endif</div>
+                                    {{-- The old "★ rating" was the invented import score; the real member
+                                         average already shows in the stats line below. --}}
+                                    <div class="text-xs text-cream/40">{{ $c->year }} · {{ $c->maturity }} @if ($c->is_original)· <span class="text-brand">Original</span>@endif</div>
                                 </div>
                             </div>
                         </td>

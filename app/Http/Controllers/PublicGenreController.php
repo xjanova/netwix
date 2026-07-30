@@ -44,7 +44,8 @@ class PublicGenreController extends Controller
         if ($sort === 'views') {
             $q->orderBy('views', $dir);
         } elseif ($sort === 'rating') {
-            $q->orderBy('rating', $dir);
+            // Real member stars, unrated titles last (the old column was an import-time random score).
+            $q->withMemberRating()->orderByRaw('ratings_avg_stars IS NULL, ratings_avg_stars '.($dir === 'asc' ? 'ASC' : 'DESC'));
         } elseif ($sort === 'latest') {
             $q->orderBy('id', $dir);
         } else {

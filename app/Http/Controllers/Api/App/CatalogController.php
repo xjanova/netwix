@@ -33,7 +33,10 @@ class CatalogController extends Controller
      */
     private function viewable(): Builder
     {
-        return request()->user() ? Content::published() : Content::publicListing();
+        // withMemberRating here so ContentResource can report real star averages on every
+        // list endpoint without firing a query per row.
+        return (request()->user() ? Content::published() : Content::publicListing())
+            ->withMemberRating();
     }
 
     /** GET /api/app/home — hero + rails (public). Mirrors the web BrowseController:

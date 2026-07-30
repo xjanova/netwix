@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Content;
 use App\Models\Genre;
 use App\Models\Profile;
+use App\Models\Rating;
+use App\Models\UsdtOrder;
 use App\Models\User;
 use App\Models\WatchProgress;
 use Illuminate\Support\Carbon;
@@ -14,23 +16,48 @@ use Illuminate\View\View;
 
 class DashboardController extends Controller
 {
-    /** Monthly price per plan (THB). */
-    private const PLAN_PRICE = ['basic' => 99, 'standard' => 199, 'premium' => 349];
-
     public function index(): View
     {
         $usersTotal = User::count();
         $contentTotal = Content::count();
 
-        $revenue = collect(self::PLAN_PRICE)
-            ->map(fn ($price, $plan) => $price * User::where('plan', $plan)->count())
-            ->sum();
+        // Revenue = money that actually arrived. Every paid route on the site (gold top-ups, Pro,
+        // ad bookings) mints a UsdtOrder and AdvertiseController links each booking to one, so
+        // summing paid orders is the whole picture with nothing double-counted.
+        //
+        // This card used to multiply a hardcoded ฿99/199/349 table by the number of users on each
+        // plan — but `users.plan` DEFAULTS to 'premium', so every signup counted as a ฿349
+        // subscriber and the dashboard reported revenue nobody had paid.
+        $revenuePaid = (float) UsdtOrder::whereNotNull('paid_at')->sum('amount_usdt');
+        $revenue30d = (float) UsdtOrder::whereNotNull('paid_at')
+            ->where('paid_at', '>=', now()->subDays(30))->sum('amount_usdt');
+        $payingUsers = UsdtOrder::whereNotNull('paid_at')->distinct()->count('user_id');
+
+        // Pro split. `plan` can't be trusted (see above), so "paid" means the member has actually
+        // paid for something; everyone else holding Pro is on a free/promo grant.
+        $proTotal = User::where(fn ($q) => $q->whereIn('plan', ['standard', 'premium'])->orWhere('pro_until', '>', now()))->count();
+        $proFree = max(0, $proTotal - $payingUsers);
 
         $stats = [
             ['label' => 'สมาชิกทั้งหมด', 'value' => number_format($usersTotal), 'delta' => '▲ สมาชิกใหม่ '.User::whereDate('created_at', today())->count().' วันนี้', 'positive' => true, 'glow' => '#ff2d55'],
             ['label' => 'โปรไฟล์ผู้ชม', 'value' => number_format(Profile::count()), 'delta' => 'เฉลี่ย '.($usersTotal ? round(Profile::count() / $usersTotal, 1) : 0).' /บัญชี', 'positive' => null, 'glow' => '#b026ff'],
             ['label' => 'คอนเทนต์', 'value' => number_format($contentTotal), 'delta' => '+'.Content::whereDate('created_at', '>=', now()->subWeek())->count().' เรื่องใหม่สัปดาห์นี้', 'positive' => null, 'glow' => '#ff2d55'],
-            ['label' => 'รายได้ (ประมาณ/เดือน)', 'value' => '฿'.number_format($revenue), 'delta' => 'จากแพ็กเกจสมาชิก', 'positive' => true, 'glow' => '#b026ff'],
+            [
+                'label' => 'รายได้จริง (รับแล้วทั้งหมด)',
+                'value' => '$'.number_format($revenuePaid, 2),
+                'delta' => $revenuePaid > 0
+                    ? '$'.number_format($revenue30d, 2).' ใน 30 วัน · ผู้จ่าย '.number_format($payingUsers).' คน'
+                    : 'ยังไม่มีออเดอร์ที่ชำระเข้ามา',
+                'positive' => $revenuePaid > 0,
+                'glow' => '#b026ff',
+            ],
+            [
+                'label' => 'สมาชิก Pro',
+                'value' => number_format($proTotal),
+                'delta' => 'จ่ายเงินจริง '.number_format($payingUsers).' · แจกฟรี/โปรโมชัน '.number_format($proFree),
+                'positive' => null,
+                'glow' => '#f5c518',
+            ],
         ];
 
         // Platform split of watches (web vs app). views_web/views_app accumulate from the day the
@@ -39,15 +66,22 @@ class DashboardController extends Controller
         $viewsWeb = (int) Content::sum('views_web');
         $viewsApp = (int) Content::sum('views_app');
 
+        // Real member stars (1–5). The old tile averaged `contents.rating`, which was a random
+        // number assigned at import — 23k titles, none outside the generator's 7.8–9.6 window.
+        $ratingCount = Rating::count();
+        $ratingAvg = $ratingCount ? round((float) Rating::avg('stars'), 1) : null;
+
         $miniMetrics = [
-            ['label' => 'กำลังดูอยู่', 'value' => number_format(WatchProgress::whereBetween('percent', [1, 94])->count())],
+            // "Now" has to mean now: this used to count every unfinished progress row ever, so a
+            // title someone abandoned months ago still read as a live viewer.
+            ['label' => 'กำลังดูอยู่ (30 นาที)', 'value' => number_format(WatchProgress::where('last_watched_at', '>=', now()->subMinutes(30))->count())],
             ['label' => 'วิวจากเว็บ', 'value' => number_format($viewsWeb)],
             ['label' => 'วิวจากแอป', 'value' => number_format($viewsApp)],
             ['label' => 'สมัครใหม่วันนี้', 'value' => number_format(User::whereDate('created_at', today())->count())],
             ['label' => 'ตอนทั้งหมด', 'value' => number_format(DB::table('episodes')->count())],
             ['label' => 'ดูจบเฉลี่ย', 'value' => (WatchProgress::count() ? round(WatchProgress::avg('percent')) : 0).'%'],
-            ['label' => 'NetWix Originals', 'value' => number_format(Content::where('is_original', true)->count())],
-            ['label' => 'คะแนนเฉลี่ย', 'value' => number_format((float) (Content::avg('rating') ?? 0), 1).' / 10'],
+            ['label' => 'ค้างดูไม่จบ', 'value' => number_format(WatchProgress::whereBetween('percent', [1, 94])->count())],
+            ['label' => 'คะแนนจากสมาชิก', 'value' => $ratingAvg !== null ? $ratingAvg.' / 5' : '—', 'hint' => $ratingCount ? number_format($ratingCount).' รายการ' : 'ยังไม่มีใครให้คะแนน'],
         ];
 
         // 14-day watch activity → SVG area chart
@@ -72,7 +106,16 @@ class DashboardController extends Controller
             'pct' => round(($g->contents_count / $genreTotal) * 100).'%',
         ]);
 
-        $topContent = Content::orderByDesc('views')->with('genres')->take(5)->get();
+        // Ranked by views earned ON NetWix. `views` is seeded from the source site's own counter at
+        // import (ImportService: 'views' => $st->view_count), so ordering by it ranked titles by how
+        // popular they were somewhere else — 31M "views" on a site with a handful of members.
+        $topContent = Content::orderByRaw('(views_web + views_app) DESC')
+            ->orderByDesc('id')
+            ->withCount('ratings')
+            ->withAvg('ratings', 'stars')
+            ->with('genres')
+            ->take(5)
+            ->get();
 
         $storage = \App\Support\MediaUsage::summary();
 

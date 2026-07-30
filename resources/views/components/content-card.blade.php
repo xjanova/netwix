@@ -159,7 +159,9 @@
                             class="flex h-7 w-7 items-center justify-center rounded-full border border-cream/60 text-[13px]"
                             :style="liked ? 'color:#ff2d55' : ''" title="ถูกใจ">♥</button>
                 </div>
-                <span class="text-[11px] font-bold text-success">{{ $content->match_score }}% ตรงใจ</span>
+                {{-- The "% ตรงใจ" badge lived here. It was random_int(90,99) stamped on at import —
+                     an invented personalisation score on a card the viewer had never interacted with.
+                     Removed rather than relabelled: there is no real match signal to put in its place. --}}
             </div>
         </div>
     </div>

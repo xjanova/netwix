@@ -35,7 +35,6 @@
         <div class="nx-gradient mb-4 inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[11.5px] font-bold tracking-widest" x-show="cur.original" x-cloak>NETWIX ORIGINAL</div>
         <h1 class="mb-4 text-[clamp(30px,5.2vw,64px)] font-extrabold leading-[1.05] drop-shadow-lg" x-text="cur.title">{{ $s0['title'] }}</h1>
         <div class="mb-4 flex flex-wrap items-center gap-3 text-[14.5px] text-cream/75">
-            <span class="font-bold text-success" x-text="cur.match + '% ตรงใจ'">{{ $s0['match'] }}% ตรงใจ</span>
             <span x-text="cur.year">{{ $s0['year'] }}</span>
             <span class="rounded border border-cream/40 px-1.5 py-px text-[12.5px]" x-text="cur.maturity">{{ $s0['maturity'] }}</span>
             <span x-text="cur.meta">{{ $s0['meta'] }}</span>

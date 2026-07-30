@@ -331,7 +331,9 @@ class BrowseController extends Controller
         if ($sort === 'views') {
             $q->orderBy('views', $dir);
         } elseif ($sort === 'rating') {
-            $q->orderBy('rating', $dir);
+            // Real member stars, unrated titles last. Was `orderBy('rating')` — an import-time
+            // random_int() score, so "เรียงตามคะแนน" was shuffling.
+            $q->withMemberRating()->orderByRaw('ratings_avg_stars IS NULL, ratings_avg_stars '.($dir === 'asc' ? 'ASC' : 'DESC'));
         } elseif ($sort === 'likes') {
             $q->withCount('likedBy')->orderBy('liked_by_count', $dir);
         } elseif ($sort === 'latest') {

@@ -22,8 +22,12 @@ class ContentResource extends JsonResource
             'synopsis' => $this->synopsis,
             'year' => $this->year,
             'maturity' => $this->maturity,
-            'rating' => (float) $this->rating,     // editorial score 0-10
-            'match_score' => (int) $this->match_score,
+            // Real member stars (1-5 scale), null when nobody has rated it. This used to send
+            // `contents.rating`, a random_int() score stamped on at import. `match_score` was
+            // invented the same way; the key stays so the JSON shape holds, but it is always null.
+            'rating' => $this->resource->memberRating(),
+            'rating_count' => $this->resource->memberRatingCount(),
+            'match_score' => null,
             'is_original' => (bool) $this->is_original,
             'is_featured' => (bool) $this->is_featured,
             'poster_url' => $this->poster_url,

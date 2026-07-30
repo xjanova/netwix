@@ -30,12 +30,17 @@ class ContentController extends Controller
             ->when($q !== '', fn ($w) => $w->where('title', 'like', "%{$q}%"))
             ->when($genre, fn ($w) => $w->whereHas('genres', fn ($g) => $g->where('genres.id', $genre)))
             ->when($maturity, fn ($w) => $w->where('maturity', $maturity))
-            ->when($minRating !== null && $minRating !== '', fn ($w) => $w->where('rating', '>=', (float) $minRating))
+            // Filter and sort on REAL member stars (1-5). Both used to work off `contents.rating`,
+            // which was a random_int() score — "★ 9+ ขึ้นไป" returned a random third of the catalogue.
+            ->when($minRating !== null && $minRating !== '', fn ($w) => $w->whereRaw(
+                '(select avg(stars) from ratings where ratings.content_id = contents.id) >= ?', [(float) $minRating]
+            ))
             ->with('genres')
             ->withCount(['episodes', 'likedBy', 'comments'])
             ->withAvg('ratings', 'stars')
             ->when($sort === 'views', fn ($w) => $w->orderByDesc('views'))
-            ->when($sort === 'rating', fn ($w) => $w->orderByDesc('rating'))
+            // Unrated titles sink to the bottom instead of leading a "highest rated" list.
+            ->when($sort === 'rating', fn ($w) => $w->orderByRaw('ratings_avg_stars IS NULL, ratings_avg_stars DESC'))
             ->when($sort === 'likes', fn ($w) => $w->orderByDesc('liked_by_count'))
             ->when(! in_array($sort, ['views', 'rating', 'likes'], true), fn ($w) => $w->latest())
             ->paginate(12)
@@ -101,7 +106,7 @@ class ContentController extends Controller
     public function create(): View
     {
         return view('admin.contents.form', [
-            'content' => new Content(['type' => 'series', 'maturity' => '13+', 'match_score' => 96, 'rating' => 8.5, 'is_published' => true]),
+            'content' => new Content(['type' => 'series', 'maturity' => '13+', 'is_published' => true]),
             'genres' => Genre::orderBy('sort')->get(),
             'selectedGenres' => [],
         ]);
@@ -184,8 +189,8 @@ class ContentController extends Controller
             'synopsis' => ['nullable', 'string'],
             'year' => ['nullable', 'integer', 'between:1950,2100'],
             'maturity' => ['required', 'string', 'max:8'],
-            'match_score' => ['required', 'integer', 'between:0,100'],
-            'rating' => ['required', 'numeric', 'between:0,10'],
+            // No match_score / rating: both were invented at import and are now always null.
+            // Star ratings belong to members (the `ratings` table), not to an admin field.
             'is_original' => ['sometimes', 'boolean'],
             'is_featured' => ['sometimes', 'boolean'],
             'is_published' => ['sometimes', 'boolean'],

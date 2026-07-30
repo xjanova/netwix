@@ -21,7 +21,7 @@ class LibraryController extends Controller
     public function myList(Request $request): JsonResponse
     {
         $items = $this->profile($request)->myList()->published()
-            ->with('genres')->withCount('episodes')
+            ->with('genres')->withCount('episodes')->withMemberRating()
             ->orderByPivot('created_at', 'desc')->get();
 
         return $this->ok(['items' => ContentResource::collection($items)]);

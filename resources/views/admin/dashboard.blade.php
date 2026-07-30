@@ -25,7 +25,7 @@
 @endif
 
 {{-- Stat cards --}}
-<div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
     @foreach ($stats as $s)
         <div class="nx-card relative overflow-hidden p-5">
             <div class="absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-50 blur-2xl" style="background:{{ $s['glow'] }}"></div>
@@ -42,6 +42,7 @@
         <div class="bg-panel-2 p-4">
             <div class="whitespace-nowrap text-[12px] text-cream/50">{{ $m['label'] }}</div>
             <div class="mt-1.5 text-xl font-bold">{{ $m['value'] }}</div>
+            @isset($m['hint'])<div class="mt-0.5 text-[11px] text-cream/40">{{ $m['hint'] }}</div>@endisset
         </div>
     @endforeach
 </div>
@@ -203,7 +204,10 @@
 {{-- Top content --}}
 <div class="nx-card mt-6 p-5">
     <div class="mb-4 flex items-center justify-between">
-        <h3 class="text-base font-semibold">คอนเทนต์ยอดนิยม</h3>
+        <div>
+            <h3 class="text-base font-semibold">คอนเทนต์ยอดนิยม</h3>
+            <div class="mt-0.5 text-[11px] text-cream/40">เรียงตามวิวที่เกิดบน NetWix จริง (ไม่รวมยอดที่ติดมาจากเว็บต้นทาง)</div>
+        </div>
         <a href="{{ route('admin.contents.index', ['sort' => 'views']) }}" class="text-[13px] text-brand hover:underline">ดูทั้งหมด →</a>
     </div>
     <div class="flex flex-col gap-0.5">
@@ -220,8 +224,19 @@
                     <div class="truncate text-sm font-semibold">{{ $c->title }}</div>
                     <div class="text-xs text-cream/45">{{ $c->primaryGenre()?->name }} · {{ ['series' => 'ซีรี่ส์', 'movie' => 'ภาพยนตร์', 'vertical' => 'แนวตั้ง'][$c->type] ?? $c->type }}</div>
                 </div>
-                <div class="w-28 text-right"><div class="text-[13.5px] font-semibold">{{ number_format($c->views) }}</div><div class="text-[11px] text-cream/40">เว็บ {{ number_format($c->views_web) }} · แอป {{ number_format($c->views_app) }}</div></div>
-                <div class="w-14 text-right"><div class="text-[13.5px] font-semibold text-gold">★ {{ $c->rating }}</div><div class="text-[11px] text-cream/40">คะแนน</div></div>
+                <div class="w-32 text-right">
+                    <div class="text-[13.5px] font-semibold">{{ number_format($c->views_web + $c->views_app) }}</div>
+                    <div class="text-[11px] text-cream/40">เว็บ {{ number_format($c->views_web) }} · แอป {{ number_format($c->views_app) }}</div>
+                </div>
+                <div class="w-16 text-right">
+                    @if ($c->memberRating() !== null)
+                        <div class="text-[13.5px] font-semibold text-gold">★ {{ $c->memberRating() }}</div>
+                        <div class="text-[11px] text-cream/40">{{ number_format($c->memberRatingCount()) }} คน</div>
+                    @else
+                        <div class="text-[13.5px] font-semibold text-cream/25">—</div>
+                        <div class="text-[11px] text-cream/40">ยังไม่มีคะแนน</div>
+                    @endif
+                </div>
             </a>
         @empty
             <div class="py-8 text-center text-sm text-cream/45">ยังไม่มีคอนเทนต์ — <a href="{{ route('admin.contents.create') }}" class="text-brand">เพิ่มเรื่องแรก</a></div>

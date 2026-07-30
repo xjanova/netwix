@@ -80,7 +80,8 @@ class HeroBillboard
             'meta' => $c->type === 'movie'
                 ? (($c->duration_minutes ?: 0).' นาที')
                 : (($c->seasons_count ?: 1).' ซีซั่น'),
-            'match' => $c->match_score,
+            // No 'match': match_score was a random_int() stamped on at import, so the hero's
+            // "94% ตรงใจ" was invented. Nothing personalises the hero yet.
             'dub' => $c->dub_label,
             'synopsis' => $c->synopsis,
             'backdrop' => $c->backdrop_url,

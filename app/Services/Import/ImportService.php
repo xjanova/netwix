@@ -108,8 +108,10 @@ class ImportService
                 'maturity' => $maturity,
                 'is_vip' => $isVip,
                 'dub_type' => $st->dub_type ?: Content::guessDubType($title),
-                'match_score' => random_int(90, 99),
-                'rating' => round(random_int(78, 96) / 10, 1),
+                // No rating / match_score here. Both used to be random_int() calls, which meant
+                // every title carried an invented score that the site then showed as fact —
+                // "★ 8.7" and "94% ตรงใจ" on titles nobody had rated. Ratings now come only from
+                // members (the `ratings` table); a title with none simply shows none.
                 'is_original' => (bool) ($opts['is_original'] ?? false),
                 'is_published' => $publish,
                 'poster_path' => $st->poster_url,

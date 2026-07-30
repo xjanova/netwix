@@ -102,6 +102,41 @@ class Content extends Model
         return $this->hasMany(Rating::class);
     }
 
+    /**
+     * Average of real member stars (1–5), or null when nobody has rated this title.
+     *
+     * The `rating` column is NOT this — it used to hold an invented import-time score and is
+     * now always null (see the null_out_invented_content_scores migration). Anything showing a
+     * score to a viewer must come through here, so an unrated title shows nothing rather than
+     * a number we made up. Uses a loaded `ratings_avg_stars` when the caller pre-aggregated
+     * (`withAvg`), so listings don't fire a query per card.
+     */
+    public function memberRating(): ?float
+    {
+        $avg = array_key_exists('ratings_avg_stars', $this->attributes)
+            ? $this->attributes['ratings_avg_stars']
+            : $this->ratings()->avg('stars');
+
+        return $avg === null ? null : round((float) $avg, 1);
+    }
+
+    /**
+     * Pre-aggregate member stars so a listing can call memberRating() per row without a query each.
+     * Any builder that feeds ContentResource or a card grid should chain this.
+     */
+    public function scopeWithMemberRating(Builder $q): Builder
+    {
+        return $q->withCount('ratings')->withAvg('ratings', 'stars');
+    }
+
+    /** How many members have rated this title — shown next to the average so 1 vote isn't read as consensus. */
+    public function memberRatingCount(): int
+    {
+        return array_key_exists('ratings_count', $this->attributes)
+            ? (int) $this->attributes['ratings_count']
+            : $this->ratings()->count();
+    }
+
     /** Profiles that liked this title (inverse of Profile::likes). */
     public function likedBy(): BelongsToMany
     {
@@ -169,12 +204,12 @@ class Content extends Model
 
     /**
      * "มาแรง" ranking — hottest by raw VIEW COUNT first (owner: หนังมาแรงดูจากยอดวิวเป็นหลัก).
-     * Rating then id only break ties, so a brand-new 0-view title still orders by its star rating
-     * rather than insertion order. (Was an engagement composite; views now lead outright.)
+     * id breaks ties so ordering stays stable. The old `rating` tiebreaker is gone: that column
+     * held an import-time random_int() score, so ties were being broken at random.
      */
     public function scopeTrending(Builder $q): Builder
     {
-        return $q->orderByDesc('views')->orderByDesc('rating')->orderByDesc('id');
+        return $q->orderByDesc('views')->orderByDesc('id');
     }
 
     // ---- Accessors -----------------------------------------------------
@@ -248,9 +283,14 @@ class Content extends Model
         return mb_substr($t, 0, 191, 'UTF-8');
     }
 
-    public function getMatchLabelAttribute(): string
+    /**
+     * Kept only so nothing that still reads `match_label` fatals. `match_score` was invented at
+     * import and is now always null, and there is no real personalisation behind a "% ตรงใจ"
+     * figure, so this deliberately yields nothing for callers to render.
+     */
+    public function getMatchLabelAttribute(): ?string
     {
-        return $this->match_score.'% ตรงใจ';
+        return null;
     }
 
     /**
