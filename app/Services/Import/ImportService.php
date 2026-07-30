@@ -116,7 +116,13 @@ class ImportService
                 'is_published' => $publish,
                 'poster_path' => $st->poster_url,
                 'backdrop_path' => $st->poster_url,
-                'views' => $st->view_count ?? 0,
+                // No 'views' either. It used to seed the source site's own counter, so a card could
+                // read "501,123 ครั้ง" for a title 33 people here had actually watched. Worse, sitting
+                // in updateOrCreate's value list meant every re-sync OVERWROTE the column — 3,242
+                // titles had ended up with views_web+views_app greater than views, i.e. 45,120 real
+                // NetWix views destroyed. `views` now only ever moves via increment() on a real watch
+                // (WatchController / app CatalogController). Omitted rather than set to null: the
+                // column is NOT NULL, and an explicit null overrides the 0 default (that broke CI once).
             ],
         );
 

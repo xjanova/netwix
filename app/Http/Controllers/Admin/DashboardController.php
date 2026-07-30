@@ -60,9 +60,8 @@ class DashboardController extends Controller
             ],
         ];
 
-        // Platform split of watches (web vs app). views_web/views_app accumulate from the day the
-        // split shipped, so together they're ≤ the all-time `views` grand total (older views are
-        // un-attributed) — the dashboard shows them side by side so the owner sees where people watch.
+        // Platform split of watches (web vs app), shown side by side so the owner sees where people
+        // watch. Since `views` was rebased onto this pair, the two now add up to the grand total.
         $viewsWeb = (int) Content::sum('views_web');
         $viewsApp = (int) Content::sum('views_app');
 
@@ -106,9 +105,9 @@ class DashboardController extends Controller
             'pct' => round(($g->contents_count / $genreTotal) * 100).'%',
         ]);
 
-        // Ranked by views earned ON NetWix. `views` is seeded from the source site's own counter at
-        // import (ImportService: 'views' => $st->view_count), so ordering by it ranked titles by how
-        // popular they were somewhere else — 31M "views" on a site with a handful of members.
+        // Ranked by views earned ON NetWix. Import no longer seeds `views` from the source site and
+        // the column has been rebased onto this sum, so the two now agree — but the explicit form
+        // stays, because web+app is the counter import can never touch.
         $topContent = Content::orderByRaw('(views_web + views_app) DESC')
             ->orderByDesc('id')
             ->withCount('ratings')
