@@ -29,7 +29,10 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         // Log human page views for the admin SEO/traffic dashboard (best-effort, self-pruning).
+        // RefreshRememberCookie keeps "จดจำฉันไว้" perpetual — it needs the session
+        // started, hence appended to the group rather than prepended.
         $middleware->web(append: [
+            \App\Http\Middleware\RefreshRememberCookie::class,
             \App\Http\Middleware\TrackPageView::class,
         ]);
 
