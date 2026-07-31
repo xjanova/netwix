@@ -136,16 +136,15 @@
 
     {{-- ================= LIVE STATS + DOWNLOAD APP ================= --}}
     @php
-        // Real DB totals (from HomeController). Each card animates 0→value on scroll,
-        // then keeps ticking up: views drift the fastest (most alive), members creep
-        // up occasionally, the catalogue count stays put (drift 0) — a title count that
-        // randomly jumps would read as broken, not impressive.
+        // Real DB totals (from HomeController). Each card animates 0→value on scroll and stops
+        // there. No 'drift' any more — the cards used to keep inventing growth in the browser —
+        // and no '+' suffix, which claimed "more than" an exact count.
         $statCards = [
-            ['value' => $stats['titles'], 'label' => 'หนังและซีรีส์', 'suffix' => '+', 'drift' => 0, 'every' => 0,
+            ['value' => $stats['titles'], 'label' => 'หนังและซีรีส์',
              'icon' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5M16 4v5M8 20v-5M16 20v-5"/></svg>'],
-            ['value' => $stats['members'], 'label' => 'สมาชิกที่ร่วมสนุก', 'suffix' => '+', 'drift' => 1, 'every' => 9000,
+            ['value' => $stats['members'], 'label' => 'สมาชิกที่ร่วมสนุก',
              'icon' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>'],
-            ['value' => $stats['views'], 'label' => 'ครั้งการรับชม', 'suffix' => '', 'drift' => 6, 'every' => 1300,
+            ['value' => $stats['views'], 'label' => 'ครั้งการรับชม',
              'icon' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>'],
         ];
     @endphp
@@ -158,12 +157,11 @@
             {{-- live social-proof stats (real totals · animated count-up + gentle live growth) --}}
             <div class="relative grid gap-3 sm:grid-cols-3">
                 @foreach ($statCards as $s)
-                    <div x-data="nxCounter({{ $s['value'] }}, { drift: {{ $s['drift'] }}, every: {{ $s['every'] }} })"
+                    <div x-data="nxCounter({{ $s['value'] }})"
                          class="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 text-center backdrop-blur transition hover:border-white/20 hover:bg-white/[0.05]">
                         <div class="nx-gradient mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl text-white" style="box-shadow:0 8px 22px rgba(176,38,255,0.35)">{!! $s['icon'] !!}</div>
                         <div class="flex items-baseline justify-center gap-0.5">
                             <span class="text-3xl font-extrabold tabular-nums tracking-tight sm:text-4xl" x-text="formatted">{{ number_format($s['value']) }}</span>
-                            @if ($s['suffix'] && $s['value'] > 0)<span class="nx-gradient-text text-2xl font-extrabold sm:text-3xl">{{ $s['suffix'] }}</span>@endif
                         </div>
                         <div class="mt-1.5 text-[13px] font-medium text-cream/60">{{ $s['label'] }}</div>
                     </div>
