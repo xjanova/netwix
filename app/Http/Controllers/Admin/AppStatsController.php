@@ -21,7 +21,11 @@ class AppStatsController extends Controller
         return view('admin.app-stats.index', [
             'total' => AppDevice::count(),
             'active7' => AppDevice::where('last_seen_at', '>=', now()->subDays(7))->count(),
-            'active30' => AppDevice::where('last_seen_at', '>=', now()->subDays(30))->count(),
+            // "Still installed" and "presumed gone" are the two halves of the same line in the
+            // sand, so they are read through the model's scopes and always add up to `total`.
+            'stillHere' => AppDevice::stillHere()->count(),
+            'gone' => AppDevice::gone()->count(),
+            'goneAfterDays' => AppDevice::GONE_AFTER_DAYS,
             'linked' => AppDevice::whereNotNull('user_id')->count(),
             'byPlatform' => $breakdown('platform'),
             'byVersion' => $breakdown('app_version'),

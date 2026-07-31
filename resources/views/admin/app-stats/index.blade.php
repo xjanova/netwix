@@ -4,11 +4,26 @@
 @section('action')<span></span>@endsection
 
 @section('content')
-<div class="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-    <div class="nx-card p-5"><div class="text-[13px] text-cream/45">อุปกรณ์ทั้งหมด</div><div class="mt-1 text-3xl font-extrabold">{{ number_format($total) }}</div></div>
+<div class="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+    <div class="nx-card p-5"><div class="text-[13px] text-cream/45">อุปกรณ์ทั้งหมด</div><div class="mt-1 text-3xl font-extrabold">{{ number_format($total) }}</div><div class="mt-0.5 text-[11px] text-cream/35">นับสะสมตั้งแต่เปิดใช้</div></div>
     <div class="nx-card p-5"><div class="text-[13px] text-cream/45">ใช้งานใน 7 วัน</div><div class="mt-1 text-3xl font-extrabold">{{ number_format($active7) }}</div></div>
-    <div class="nx-card p-5"><div class="text-[13px] text-cream/45">ใช้งานใน 30 วัน</div><div class="mt-1 text-3xl font-extrabold">{{ number_format($active30) }}</div></div>
+    <div class="nx-card p-5"><div class="text-[13px] text-cream/45">คาดว่ายังติดตั้งอยู่</div><div class="mt-1 text-3xl font-extrabold text-success">{{ number_format($stillHere) }}</div><div class="mt-0.5 text-[11px] text-cream/35">เปิดแอปภายใน {{ $goneAfterDays }} วัน</div></div>
+    <div class="nx-card p-5"><div class="text-[13px] text-cream/45">คาดว่าถอนไปแล้ว</div><div class="mt-1 text-3xl font-extrabold text-[#ff6b81]">{{ number_format($gone) }}</div><div class="mt-0.5 text-[11px] text-cream/35">เงียบเกิน {{ $goneAfterDays }} วัน</div></div>
     <div class="nx-card p-5"><div class="text-[13px] text-cream/45">ผูกกับบัญชีสมาชิก</div><div class="mt-1 text-3xl font-extrabold">{{ number_format($linked) }}</div></div>
+</div>
+
+{{-- Say plainly what this number is and is not. A real uninstall cannot be observed:
+     Android tells an app nothing when it is being removed, the APK is sideloaded so there
+     is no Play Console report, and push goes to FCM topics so no per-device token can come
+     back UNREGISTERED. Silence is the only signal there is. --}}
+<div class="mb-6 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-[12.5px] leading-relaxed text-cream/55">
+    <b class="text-cream/80">"คาดว่าถอนไปแล้ว" เป็นค่าประมาณ ไม่ใช่ยอดถอนจริง</b> — แอนดรอยด์ไม่แจ้งแอปตอนถูกถอน
+    และแอปไม่ได้อยู่บน Play Store จึงไม่มีทางรู้ตอนถอนจริงๆ ตัวเลขนี้จึงนับจาก
+    <b class="text-cream/80">เครื่องที่ไม่ได้เปิดแอปเลยเกิน {{ $goneAfterDays }} วัน</b>
+    <br>เครื่องที่แค่ปิดเน็ตยาว หรือวางแอปไว้เฉยๆ ก็จะถูกนับรวมมาด้วย
+    — และ<b class="text-cream/80">ถ้าเปิดแอปอีกครั้งเมื่อไหร่ ระบบย้ายกลับไปเป็น "ยังติดตั้งอยู่" ให้เองทันที</b>
+    (คิดจากเวลาเปิดล่าสุดสดๆ ทุกครั้งที่เข้าหน้านี้ ไม่ได้ติดธงค้างไว้)
+    <br>อนึ่ง ถอนแล้วติดตั้งใหม่จะนับเป็นเครื่องใหม่ เพราะรหัสเครื่องถูกล้างไปพร้อมกับแอป
 </div>
 
 <div class="grid gap-6 lg:grid-cols-2">
@@ -40,7 +55,7 @@
     <div class="overflow-x-auto">
         <table class="w-full text-left text-[13px]">
             <thead class="text-xs uppercase text-cream/40">
-                <tr><th class="py-2 pr-4">รุ่นเครื่อง</th><th class="py-2 pr-4">OS</th><th class="py-2 pr-4">เวอร์ชันแอป</th><th class="py-2 pr-4">ภาษา</th><th class="py-2 pr-4">เปิดแอป (ครั้ง)</th><th class="py-2 pr-4">สมาชิก</th><th class="py-2">ล่าสุด</th></tr>
+                <tr><th class="py-2 pr-4">รุ่นเครื่อง</th><th class="py-2 pr-4">OS</th><th class="py-2 pr-4">เวอร์ชันแอป</th><th class="py-2 pr-4">ภาษา</th><th class="py-2 pr-4">เปิดแอป (ครั้ง)</th><th class="py-2 pr-4">สมาชิก</th><th class="py-2 pr-4">ล่าสุด</th><th class="py-2">สถานะ</th></tr>
             </thead>
             <tbody class="divide-y divide-white/5">
                 @forelse ($recent as $d)
@@ -51,10 +66,17 @@
                         <td class="py-2 pr-4">{{ $d->locale ?: '—' }}</td>
                         <td class="py-2 pr-4">{{ number_format($d->launches) }}</td>
                         <td class="py-2 pr-4">{{ $d->user_id ? '#'.$d->user_id : 'ผู้เยี่ยมชม' }}</td>
-                        <td class="py-2 text-cream/50">{{ $d->last_seen_at?->diffForHumans() }}</td>
+                        <td class="py-2 pr-4 text-cream/50">{{ $d->last_seen_at?->diffForHumans() }}</td>
+                        <td class="py-2">
+                            @if ($d->isPresumedGone())
+                                <span class="rounded-full bg-[#ff6b81]/12 px-2 py-0.5 text-[11.5px] font-semibold text-[#ff6b81]">คาดว่าถอนแล้ว</span>
+                            @else
+                                <span class="rounded-full bg-success/12 px-2 py-0.5 text-[11.5px] font-semibold text-success">ยังติดตั้งอยู่</span>
+                            @endif
+                        </td>
                     </tr>
                 @empty
-                    <tr><td colspan="7" class="py-8 text-center text-cream/40">ยังไม่มีข้อมูล</td></tr>
+                    <tr><td colspan="8" class="py-8 text-center text-cream/40">ยังไม่มีข้อมูล</td></tr>
                 @endforelse
             </tbody>
         </table>
