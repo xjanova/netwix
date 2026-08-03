@@ -6,6 +6,7 @@ use App\Models\Genre;
 use App\Models\SourceTitle;
 use App\Services\Import\ImportService;
 use App\Services\Import\SourceRegistry;
+use App\Support\CatalogSyncAlert;
 use Illuminate\Console\Command;
 
 class ImportContentCommand extends Command
@@ -32,8 +33,17 @@ class ImportContentCommand extends Command
 
         if ($this->option('sync') || SourceTitle::where('source', $sourceId)->count() === 0) {
             $this->info("Syncing {$source->displayName()} catalogue…");
-            $n = $importer->sync($sourceId, 30);
-            $this->info("  synced {$n} titles.");
+            try {
+                $n = $importer->sync($sourceId, 30);
+                $this->info("  synced {$n} titles.");
+            } catch (\Throwable $e) {
+                // A scheduled run reaches nobody: this used to die straight into laravel.log and the
+                // nightly wow-drama sync failed there every night for three weeks unseen.
+                CatalogSyncAlert::failed($sourceId, $source->displayName(), $e);
+                $this->error('  sync failed: '.$e->getMessage());
+
+                return self::FAILURE;
+            }
         }
 
         $limit = (int) $this->option('limit');

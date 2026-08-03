@@ -6,6 +6,7 @@ use App\Models\Setting;
 use App\Models\SourceTitle;
 use App\Services\Import\ImportService;
 use App\Services\Import\SourceRegistry;
+use App\Support\CatalogSyncAlert;
 use Illuminate\Console\Command;
 use Throwable;
 
@@ -68,7 +69,11 @@ class AutoImportCommand extends Command
         try {
             $synced = $importer->sync($sid, 4); // first pages = newest releases
         } catch (Throwable $e) {
+            // Import still proceeds on whatever is already synced, but the failure no longer
+            // vanishes here: swallowing it is how wow-drama's dead catalogue went unnoticed for
+            // three weeks while playback (and therefore the source canary) stayed green.
             $synced = 0;
+            CatalogSyncAlert::failed($sid, $source?->displayName() ?? $sid, $e);
         }
 
         $ids = SourceTitle::where('source', $sid)->notImported()
