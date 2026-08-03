@@ -295,7 +295,12 @@ class WowDramaSource implements MediaSource, ProvidesSynopsis
         $html = $this->http()->get(self::BASE.'/'.$series->sourceKey.'/')->body();
 
         $out = [];
-        if (preg_match_all('~<button class="mp-ep-btn[^"]*"\s+data-id="(\d+)"~', $html, $m)) {
+        // Whitespace-tolerant on purpose. The theme emits a NEWLINE between the tag name and its
+        // attributes — "<button\nclass=\"mp-ep-btn mp-active\" data-id=\"91643\">" — so the old
+        // literal '<button class="mp-ep-btn' stopped matching anything the day the site's markup
+        // changed. It failed silently: zero episodes for EVERY wow-drama title, so new imports
+        // arrived as empty shells and netwix:refresh-episodes found nothing to add.
+        if (preg_match_all('~<button[^>]*class="[^"]*mp-ep-btn[^"]*"[^>]*data-id="(\d+)"~s', $html, $m)) {
             foreach ($m[1] as $i => $postId) {
                 $out[] = ['number' => $i + 1, 'ref' => (string) $postId];
             }
