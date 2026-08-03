@@ -11,13 +11,16 @@ Artisan::command('inspire', function () {
 // ---- Automatic catalogue pipeline -----------------------------------------
 // Requires ONE cron line on the server:
 //   * * * * * cd <app> && php artisan schedule:run >> /dev/null 2>&1
-// Sync + import new titles from the sources. withoutOverlapping() means a slow
-// run never stacks up.
-Schedule::command('netwix:import rongyok --limit=12 --sync')
-    ->everySixHours()->withoutOverlapping()->runInBackground();
-
-Schedule::command('netwix:import wowdrama --limit=8 --sync')
-    ->dailyAt('04:10')->withoutOverlapping()->runInBackground();
+//
+// NB: rongyok + wowdrama were ALSO imported here by two hardcoded `netwix:import` lines (added
+// 2026-07-03, two days before `netwix:auto-import` existed). Removed 2026-08-03: they imported both
+// sources a SECOND time on their own cadence, and being hardcoded they were invisible to
+// /admin/import — turning a source off there did not stop them. They also ignored the
+// `auto_import_enabled` master toggle, wrote no ImportLog (so their runs never showed in the import
+// history), and assigned a ROUND-ROBIN genre, which pre-empted ImportService::ensureGuessedGenre and
+// left every new rongyok/wowdrama title filed under an arbitrary genre instead of a guessed one.
+// The per-source table below is now the single source of truth. `netwix:import` is still the right
+// command for a manual/one-off run.
 
 // DISABLED — auto ep1 mirroring turned off (owner: unnecessary + eats disk). ep1 now streams
 // on demand like every other episode / other sites. The mirror system is intact and can be
