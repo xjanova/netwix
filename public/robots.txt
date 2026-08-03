@@ -2,6 +2,10 @@ User-agent: *
 Allow: /$
 Allow: /title
 Allow: /genre
+Allow: /movies
+Allow: /series
+Allow: /anime
+Allow: /vertical
 Allow: /download
 Allow: /help
 Allow: /privacy
@@ -15,8 +19,16 @@ Disallow: /browse
 Disallow: /watch
 Disallow: /stream
 Disallow: /account
+# /search is Turnstile-gated, so a crawler only ever gets a 403 there. Blocking it stops Google
+# burning crawl budget on the gate (it was fetching the literal JSON-LD SearchAction template
+# "/search?q={search_term_string}" and collecting 403s).
+Disallow: /search
 Disallow: /*?sort=
-Disallow: /*?page=
+
+# NOTE: "Disallow: /*?page=" used to live here and it was quietly strangling discovery. The hub
+# pages (/movies /series /anime /vertical /genre/*) paginate with ?page=N, so blocking it meant a
+# crawler could only ever reach page 1 of each hub — roughly 350 of 18,000+ titles. Pagination is
+# open on purpose now; the sitemaps remain the primary discovery path.
 
 # AI answer engines are welcome to read the public catalog + marketing pages.
 User-agent: GPTBot

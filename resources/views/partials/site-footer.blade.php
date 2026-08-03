@@ -65,7 +65,46 @@
             <div aria-hidden="true" class="mt-8 h-px"
                  style="background:linear-gradient(90deg, transparent, rgba(255,255,255,.14) 30%, rgba(255,255,255,.14) 70%, transparent)"></div>
 
-            <p class="mt-5 text-xs text-cream/40" style="text-shadow:0 1px 1px rgba(0,0,0,.5)">© {{ date('Y') }} NetWix — บริการสตรีมมิ่งภาพยนตร์และซีรีส์ · netwix.online</p>
+            {{-- Crawlable category links. Before this, a crawler landing anywhere on the site found
+                 ~10 internal links total (the homepage rows and every card rail are JS-rendered), so
+                 the 18k-title catalog had no on-page path into it at all. These chips give every
+                 public page a static route into all four type hubs and every populated genre.
+                 Cached: the genre set barely moves and this partial renders on every page. --}}
+            @php
+                $footerHubs = [
+                    ['ภาพยนตร์', route('browse.movies')],
+                    ['ซีรีส์', route('browse.series')],
+                    ['อนิเมะ', route('browse.anime')],
+                    ['ซีรีส์แนวตั้ง', route('browse.vertical')],
+                ];
+                $footerGenres = \Illuminate\Support\Facades\Cache::remember(
+                    'footer:genres', now()->addHours(6),
+                    fn () => \App\Models\Genre::whereHas('contents', fn ($q) => $q->publicListing())
+                        ->orderBy('sort')->orderBy('name')
+                        ->get(['name', 'slug'])
+                        ->map(fn ($g) => ['name' => $g->name, 'url' => route('browse.genre', $g->slug)])
+                        ->all()
+                );
+            @endphp
+            <nav aria-label="หมวดหมู่" class="mt-7">
+                <span class="mb-2.5 inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-cream/75"
+                      style="background:linear-gradient(180deg, rgba(255,255,255,.17) 0%, rgba(255,255,255,.035) 100%);
+                             box-shadow: inset 0 1px 0 rgba(255,255,255,.5), inset 0 -1px 0 rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.3);">เลือกดูตามหมวด</span>
+                <div class="flex flex-wrap gap-x-2 gap-y-2 text-[13px]">
+                    @foreach ($footerHubs as [$text, $href])
+                        <a href="{{ $href }}"
+                           class="rounded-lg px-2.5 py-1 text-cream/75 transition-all duration-150 hover:bg-white/[0.08] hover:text-cream"
+                           style="background:rgba(255,255,255,.05); text-shadow:0 1px 1px rgba(0,0,0,.5)">{{ $text }}</a>
+                    @endforeach
+                    @foreach ($footerGenres as $g)
+                        <a href="{{ $g['url'] }}"
+                           class="rounded-lg px-2.5 py-1 text-cream/55 transition-all duration-150 hover:bg-white/[0.06] hover:text-cream"
+                           style="text-shadow:0 1px 1px rgba(0,0,0,.5)">{{ $g['name'] }}</a>
+                    @endforeach
+                </div>
+            </nav>
+
+            <p class="mt-6 text-xs text-cream/40" style="text-shadow:0 1px 1px rgba(0,0,0,.5)">© {{ date('Y') }} NetWix — บริการสตรีมมิ่งภาพยนตร์และซีรีส์ · netwix.online</p>
         </div>
     </div>
 </footer>

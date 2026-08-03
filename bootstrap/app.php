@@ -13,6 +13,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Fold the www alias onto the APP_URL host before anything else runs — see CanonicalHost.
+        // Global (not web-only) so the API and stream surfaces canonicalise too.
+        $middleware->prepend(\App\Http\Middleware\CanonicalHost::class);
+
         $middleware->alias([
             'profile' => \App\Http\Middleware\EnsureProfileSelected::class,
             'profile.optional' => \App\Http\Middleware\OptionalProfile::class,

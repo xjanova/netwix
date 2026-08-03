@@ -7,7 +7,18 @@
         ?: 'NetWix — ดูหนัง ซีรีส์ และซีรีส์แนวตั้งออนไลน์ สตรีมไม่จำกัด ดูได้ทุกอุปกรณ์ ทั้งมือถือ แท็บเล็ต และทีวี ปลอดโฆษณาเว็บพนัน ไม่มีป๊อปอัปกวนใจ ไม่ใช่เว็บพนัน';
     $seoImage = trim($__env->yieldContent('meta_image')) ?: asset('assets/netwix-logo-full.png');
     $seoRobots = trim($__env->yieldContent('meta_robots')) ?: 'index,follow,max-image-preview:large,max-snippet:-1';
-    $seoCanonical = trim($__env->yieldContent('meta_canonical')) ?: url()->current();
+    // Canonical = the current URL, but ?page=N is kept: page 2+ of a hub/genre listing must be its
+    // own canonical. Pointing it back at page 1 (which url()->current() alone does, since it drops
+    // the query string) tells Google the deeper pages are duplicates and wastes the crawl path into
+    // the catalog. Only `page` survives — tracking params must never end up in a canonical.
+    $seoCanonical = trim($__env->yieldContent('meta_canonical'));
+    if ($seoCanonical === '') {
+        $seoCanonical = url()->current();
+        $seoPage = (int) request()->query('page', 1);
+        if ($seoPage > 1) {
+            $seoCanonical .= '?page='.$seoPage;
+        }
+    }
     $ogType = trim($__env->yieldContent('og_type')) ?: 'website';
     $seoFullTitle = $seoTitle.' · NetWix';
     // Keyword set grounded in real Thai streaming search demand (both ซีรี่ย์/ซีรีส์ spellings

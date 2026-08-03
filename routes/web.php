@@ -60,8 +60,13 @@ Route::get('/ads.txt', function () {
 // ---- SEO: sitemap index + typed children -------------------------------
 Route::get('/sitemap.xml', [SitemapController::class, 'index'])->name('sitemap');
 Route::get('/sitemap-pages.xml', [SitemapController::class, 'pages'])->name('sitemap.pages');
-Route::get('/sitemap-titles.xml', [SitemapController::class, 'titles'])->name('sitemap.titles');
 Route::get('/sitemap-genres.xml', [SitemapController::class, 'genres'])->name('sitemap.genres');
+Route::get('/sitemap-titles-{page}.xml', [SitemapController::class, 'titles'])
+    ->whereNumber('page')->name('sitemap.titles.page');
+// The catalog outgrew a single titles file (18k+ URLs, ~1 MB). Keep the old URL working — Ahrefs
+// and Bing already know it — by pointing it at the first chunk.
+Route::get('/sitemap-titles.xml', fn () => redirect()->route('sitemap.titles.page', 1, 301))
+    ->name('sitemap.titles');
 
 // ---- Public catalog (crawlable; playback stays login-gated) ------------
 // The title + genre pages are the SEO surface: guests + Googlebot can read synopsis, poster, episode
