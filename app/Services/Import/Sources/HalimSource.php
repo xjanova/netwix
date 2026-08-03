@@ -11,6 +11,7 @@ use App\Services\Import\RemoteStream;
 use App\Support\PosterScraper;
 use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -81,14 +82,31 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
         $total = 0;
 
         for ($page = 1; $page <= $maxPages; $page++) {
-            $resp = $this->http()->get($this->config->base.'/wp-json/wp/v2/posts', [
-                'per_page' => 100,
-                'page' => $page,
-                '_fields' => 'id,slug,title,featured_media,categories,date',
-            ]);
+            try {
+                $resp = $this->http()->get($this->config->base.'/wp-json/wp/v2/posts', [
+                    'per_page' => 100,
+                    'page' => $page,
+                    '_fields' => 'id,slug,title,featured_media,categories,date',
+                ]);
+            } catch (RequestException $e) {
+                // http() ends in ->retry(), and Laravel calls $response->throw() on an unsuccessful
+                // response whenever tries > 1 so the retry loop can catch it. A blocked or
+                // out-of-range page therefore arrives HERE as an exception and never reaches the
+                // `! $resp->ok()` check below — which is why the RSS fallback, written for exactly
+                // this Cloudflare challenge, sat unreachable while 24-hdx's catalogue went 15 days
+                // stale (playback kept working, so the canary stayed green). Same trap as
+                // [[wow-drama.com locked its WP REST API]].
+                if ($page === 1 && $this->config->rssCatalogFallback) {
+                    return $this->fetchCatalogViaRss($onBatch, $maxPages);
+                }
+                // WP answers 400 rest_post_invalid_page_number once we walk off the end.
+                if ($page > 1 && $e->response?->status() === 400) {
+                    break;
+                }
+
+                throw $e;   // a real failure — the caller alerts (CatalogSyncAlert)
+            }
             if (! $resp->ok()) {
-                // Page 1 failing means the REST route itself is gone/blocked (24-hdx: Cloudflare
-                // challenge) — not "past the last page" — so switch to the RSS crawl if configured.
                 if ($page === 1 && $this->config->rssCatalogFallback) {
                     return $this->fetchCatalogViaRss($onBatch, $maxPages);
                 }
