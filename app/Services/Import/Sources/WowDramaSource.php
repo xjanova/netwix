@@ -272,12 +272,13 @@ class WowDramaSource implements MediaSource, ProvidesSynopsis
 
     private function cleanTitle(string $raw): string
     {
-        // "ละคร" and the ">>" separator only started showing up in titles posted after the REST API
-        // went dark, so they were never stripped before; ">>" is in 121 older titles too and this
-        // tidies those on the next sync. Everything else here is unchanged on purpose — widening the
-        // cleaner further would rewrite the display title of ~2,500 already-imported rows.
+        // "ละคร" was never in the prefix list, so titles posted as "ดูละคร …" kept the whole prefix.
+        // The separator strip matters more than it looks: the source writes "ดูซีรี่ย์จีน | (1985) …"
+        // and "ดูละคร >> …", and once the prefix goes the leftover punctuation LEADS the title —
+        // 306 titles are live on the site right now reading "| สยบชะตาท้าลิขิตรัก …". Everything else
+        // here is left alone deliberately; widening it further would churn ~2,500 display titles.
         $t = preg_replace('~^\s*ดู(ซีรี่ส์|ซีรี่ย์|ซีรีส์|ละคร|หนัง)(จีน|เกาหลี|ญี่ปุ่น|ไทย|ฝรั่ง)?\s*~u', '', $raw) ?? $raw;
-        $t = preg_replace('~^\s*(?:>>|»)\s*~u', '', $t) ?? $t;
+        $t = preg_replace('~^\s*(?:>>|»|\|)\s*~u', '', $t) ?? $t;
         for ($i = 0; $i < 3; $i++) {
             $next = trim(preg_replace('~\s*(เต็มเรื่อง|จบเรื่อง|ครบทุกตอน|ทุกตอน|พากย์ไทย|ซับไทย|ซับ|พากย์|HD|ครบ)\s*$~u', '', $t) ?? $t);
             if ($next === $t) {
