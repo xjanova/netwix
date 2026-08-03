@@ -3,11 +3,16 @@
 @php
     $sortOpts = ['random' => 'สุ่ม', 'views' => 'ยอดวิว', 'rating' => 'คะแนน', 'latest' => 'ใหม่ล่าสุด'];
     $total = $items->total();
+    // Page 2+ canonicalises to ITSELF. Pointing every page back at page 1 (what a bare
+    // route($routeName) does) tells Google the deeper pages are duplicates — which throws away the
+    // crawl path into the catalog that pagination exists to provide. Sort variants are left out on
+    // purpose: they are robots-blocked and must not be the canonical of anything.
+    $canonicalUrl = route($routeName).($items->currentPage() > 1 ? '?page='.$items->currentPage() : '');
 @endphp
 
 @section('title', 'ดู'.$heading.'ออนไลน์ '.$headingEn)
 @section('meta_description', $intro.' รวม'.number_format($total).'เรื่องบน NetWix')
-@section('meta_canonical', route($routeName))
+@section('meta_canonical', $canonicalUrl)
 @if ($total === 0)
     @section('meta_robots', 'noindex,follow')
 @endif

@@ -8,12 +8,14 @@
         'latest' => 'ใหม่ล่าสุด',
     ];
     $total = $items->total();
+    // Page 2+ canonicalises to ITSELF — see the same note in public/hub.blade.php.
+    $canonicalUrl = route('browse.genre', $genre).($items->currentPage() > 1 ? '?page='.$items->currentPage() : '');
 @endphp
 
 @section('title', 'ดู'.$genre->name.'ออนไลน์'.($genre->name_en ? ' '.$genre->name_en : ''))
 @section('meta_description', 'ดู'.$genre->name.'ออนไลน์ที่ NetWix รวม'.number_format($total).'เรื่อง — ซีรีส์ หนัง อนิเมะ '.$genre->name.' พากย์ไทย/ซับไทย ดูฟรีชัด HD ทุกอุปกรณ์')
 @section('meta_keywords', $genre->seo_keywords)
-@section('meta_canonical', route('browse.genre', $genre))
+@section('meta_canonical', $canonicalUrl)
 
 @push('head')
 <script type="application/ld+json">
