@@ -35,30 +35,54 @@ class ImportService
         }
 
         $running = 0;
+        $skipped = 0;
 
-        return $source->fetchCatalog(function (array $batch) use ($sourceId, $onProgress, &$running) {
+        $source->fetchCatalog(function (array $batch) use ($sourceId, $onProgress, &$running, &$skipped) {
             foreach ($batch as $rs) {
                 /** @var RemoteSeries $rs */
-                SourceTitle::updateOrCreate(
-                    ['source' => $sourceId, 'source_key' => $rs->sourceKey],
-                    [
-                        'title' => $rs->title,
-                        'clean_title' => $rs->cleanTitle,
-                        'description' => $rs->description,
-                        'poster_url' => $rs->posterUrl,
-                        'year' => $rs->year,
-                        'dub_type' => $rs->dubType,
-                        'view_count' => $rs->viewCount,
-                        'extra' => $rs->extra,
-                        'synced_at' => now(),
-                    ],
-                );
-                $running++;
+                try {
+                    SourceTitle::updateOrCreate(
+                        ['source' => $sourceId, 'source_key' => $rs->sourceKey],
+                        [
+                            'title' => $rs->title,
+                            'clean_title' => $rs->cleanTitle,
+                            'description' => $rs->description,
+                            'poster_url' => $rs->posterUrl,
+                            'year' => $rs->year,
+                            'dub_type' => $rs->dubType,
+                            'view_count' => $rs->viewCount,
+                            'extra' => $rs->extra,
+                            'synced_at' => now(),
+                        ],
+                    );
+                    $running++;
+                } catch (\Throwable $e) {
+                    // One unusable remote row must not cost the whole catalogue. A 277-character
+                    // Thai slug (WordPress percent-encodes them, so one Thai letter costs nine
+                    // characters) overflowed source_key on 2026-08-03 and aborted a 2,340-title
+                    // wow-drama sync at item ~1,525 — every title behind it was lost for that run.
+                    $skipped++;
+                    Log::warning('sync: title skipped', [
+                        'source' => $sourceId,
+                        'source_key' => Str::limit($rs->sourceKey, 80),
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
             if ($onProgress) {
                 $onProgress($running);
             }
         }, $maxPages);
+
+        if ($skipped > 0) {
+            Log::error('sync finished with skipped titles', [
+                'source' => $sourceId, 'synced' => $running, 'skipped' => $skipped,
+            ]);
+        }
+
+        // The PERSISTED count, not the number fetchCatalog emitted — a run that quietly stored
+        // fewer rows than it read is exactly the thing worth surfacing.
+        return $running;
     }
 
     /**
