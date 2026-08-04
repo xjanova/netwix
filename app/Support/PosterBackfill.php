@@ -74,7 +74,12 @@ class PosterBackfill
         return null;
     }
 
-    /** True if a stored poster URL still loads a real image (used by the --check sweep). */
+    /**
+     * True if a stored poster URL still loads a real image THE WAY A BROWSER LOADS IT — no Referer,
+     * because the cards render with referrerpolicy=no-referrer. Deliberately does NOT use download()'s
+     * same-origin-Referer retry: a cover that only answers to its own site's Referer is dead to our
+     * visitors even though we can still fetch it, and that's exactly the case worth healing.
+     */
     public function urlAlive(?string $url): bool
     {
         if (! is_string($url) || $url === '') {
@@ -85,17 +90,35 @@ class PosterBackfill
             return true;
         }
 
-        return $this->download($url) !== null;
+        return $this->fetch($url) !== null;
     }
 
-    /** Download an image URL server-side → bytes, or null (non-2xx, not an image, or too small). */
+    /**
+     * Download an image URL server-side → bytes, or null. Two attempts: first bare (mirrors the
+     * browser), then with the image host's own URL as Referer. Some sources (anifume.com behind
+     * Cloudflare) do the INVERSE of ordinary hotlink protection — they 403 an empty Referer and only
+     * serve their own site — so the bare attempt that a browser makes can never succeed there. Pulling
+     * the bytes down once, server-side, and storing them locally is what permanently fixes those.
+     */
     private function download(string $url): ?string
     {
+        if (($bytes = $this->fetch($url)) !== null) {
+            return $bytes;
+        }
+        $origin = self::originOf($url);
+
+        return $origin !== null ? $this->fetch($url, $origin) : null;
+    }
+
+    /** One HTTP attempt → image bytes, or null (non-2xx, not an image, or too small). */
+    private function fetch(string $url, ?string $referer = null): ?string
+    {
+        $headers = ['User-Agent' => self::UA, 'Accept' => 'image/*,*/*'];
+        if ($referer !== null) {
+            $headers['Referer'] = $referer;
+        }
         try {
-            // No Referer — mirrors the browser's referrerpolicy=no-referrer, which bypasses most
-            // referer-based hotlink protection (the same reason cards load these images at all).
-            $resp = Http::withHeaders(['User-Agent' => self::UA, 'Accept' => 'image/*,*/*'])
-                ->connectTimeout(8)->timeout(25)->get($url);
+            $resp = Http::withHeaders($headers)->connectTimeout(8)->timeout(25)->get($url);
         } catch (\Throwable) {
             return null;
         }
@@ -110,6 +133,14 @@ class PosterBackfill
         }
 
         return $body;
+    }
+
+    /** "https://host/" for a URL — used as the same-origin Referer on the retry. */
+    private static function originOf(string $url): ?string
+    {
+        $p = parse_url($url);
+
+        return isset($p['host']) ? ($p['scheme'] ?? 'https').'://'.$p['host'].'/' : null;
     }
 
     /** Magic-byte sniff for the common image formats (when Content-Type is missing/wrong). */
