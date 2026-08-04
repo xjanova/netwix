@@ -75,6 +75,22 @@ class PosterBackfill
     }
 
     /**
+     * Persist a recovered cover. The backdrop follows it whenever it was the SAME image — import seeds
+     * both fields from one source URL (23,702 of 23,761 titles), so a poster that just turned out to be
+     * dead means the backdrop behind the hero and the title modal is the identical dead URL. Healing
+     * only the poster would leave those rendering a bare gradient.
+     */
+    public function apply(Content $content, string $path): void
+    {
+        $old = (string) $content->poster_path;
+        $updates = ['poster_path' => $path];
+        if (blank($content->backdrop_path) || (string) $content->backdrop_path === $old) {
+            $updates['backdrop_path'] = $path;
+        }
+        $content->forceFill($updates)->save();
+    }
+
+    /**
      * True if a stored poster URL still loads a real image THE WAY A BROWSER LOADS IT — no Referer,
      * because the cards render with referrerpolicy=no-referrer. Deliberately does NOT use download()'s
      * same-origin-Referer retry: a cover that only answers to its own site's Referer is dead to our

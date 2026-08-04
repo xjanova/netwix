@@ -71,11 +71,7 @@ class BackfillPosters extends Command
         foreach ($targets as $c) {
             $path = $backfill->recover($c);
             if ($path !== null) {
-                $updates = ['poster_path' => $path];
-                if (blank($c->backdrop_path)) {
-                    $updates['backdrop_path'] = $path;   // also seed the backdrop if it's empty
-                }
-                $c->forceFill($updates)->save();
+                $backfill->apply($c, $path);
                 $fixed++;
             } else {
                 $unresolved++;   // no source poster → the branded fallback cover shows on the card

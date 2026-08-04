@@ -39,11 +39,7 @@ class PosterHealController extends Controller
             return response()->json(['ok' => true, 'url' => null]);   // no source poster → fallback stays
         }
 
-        $updates = ['poster_path' => $path];
-        if (blank($content->backdrop_path)) {
-            $updates['backdrop_path'] = $path;
-        }
-        $content->forceFill($updates)->save();
+        $backfill->apply($content, $path);
 
         return response()->json(['ok' => true, 'url' => $content->poster_url]);
     }

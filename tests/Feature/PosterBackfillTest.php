@@ -82,6 +82,32 @@ class PosterBackfillTest extends TestCase
         $this->assertFalse($this->backfill()->urlAlive('https://anifume.com/images/07/Takopii.jpg'));
     }
 
+    /**
+     * Import seeds poster_path and backdrop_path from one source URL — 23,702 of 23,761 titles hold
+     * the identical string. So a poster we've just proved dead means the backdrop behind the hero and
+     * the title modal is the same dead URL, and healing only the poster leaves those a bare gradient.
+     */
+    public function test_the_backdrop_follows_the_poster_when_it_was_the_same_dead_image(): void
+    {
+        $c = $this->content('https://anifume.com/images/07/Takopii.jpg');
+        $c->forceFill(['backdrop_path' => 'https://anifume.com/images/07/Takopii.jpg'])->save();
+
+        $this->backfill()->apply($c, 'media/posters/9-abc.webp');
+
+        $this->assertSame('media/posters/9-abc.webp', $c->fresh()->backdrop_path);
+    }
+
+    /** A backdrop that is its own image (an admin-set one, say) is not overwritten by a cover heal. */
+    public function test_a_distinct_backdrop_is_left_alone(): void
+    {
+        $c = $this->content('https://anifume.com/images/07/Takopii.jpg');
+        $c->forceFill(['backdrop_path' => 'media/backdrops/9-own.webp'])->save();
+
+        $this->backfill()->apply($c, 'media/posters/9-abc.webp');
+
+        $this->assertSame('media/backdrops/9-own.webp', $c->fresh()->backdrop_path);
+    }
+
     /** A hotlink-blocked host that answers 200 with an HTML "denied" page is not a cover. */
     public function test_an_html_denial_page_is_not_accepted_as_an_image(): void
     {
