@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Scopes\MaturityScope;
 use App\Support\Maturity;
+use App\Support\MediaUrl;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -250,13 +251,18 @@ class Content extends Model
         return null;
     }
 
+    /**
+     * Stored path → public URL. A hotlinked URL is percent-encoded on the way out: ~2,000 of our
+     * covers have Thai filenames and the sources 400 a raw-UTF-8 path, which browsers hide by
+     * encoding for us but the mobile app's HTTP client does not (see [App\Support\MediaUrl]).
+     */
     private function resolveMedia(?string $path): ?string
     {
         if (! $path) {
             return null;
         }
 
-        return str_starts_with($path, 'http') ? $path : Storage::url($path);
+        return str_starts_with($path, 'http') ? MediaUrl::encodePath($path) : Storage::url($path);
     }
 
     /** Deterministic gradient used for poster/backdrop placeholders (mirrors the theme). */

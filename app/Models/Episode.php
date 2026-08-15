@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\MediaUrl;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
@@ -63,8 +64,10 @@ class Episode extends Model
     public function getThumbnailUrlAttribute(): ?string
     {
         if ($this->thumbnail_path) {
+            // Same encoding rule as Content::resolveMedia — a raw-UTF-8 path is a 400 to every
+            // client that isn't a browser, and episode thumbs inherit the sources' Thai filenames.
             return str_starts_with($this->thumbnail_path, 'http')
-                ? $this->thumbnail_path
+                ? MediaUrl::encodePath($this->thumbnail_path)
                 : Storage::url($this->thumbnail_path);
         }
 
