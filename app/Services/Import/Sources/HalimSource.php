@@ -30,6 +30,17 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
 {
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
+    /** Posts per page on each catalogue route — callers budget pages in REST terms. */
+    private const REST_PAGE_SIZE = 100;
+
+    private const RSS_PAGE_SIZE = 5;
+
+    /** Ceiling on the RSS walk (≈10,000 posts) so a large page budget can't turn into a runaway crawl. */
+    private const RSS_MAX_PAGES = 2000;
+
+    /** Politeness gap between feed pages. */
+    private const RSS_PAGE_SLEEP_US = 150_000;
+
     public function __construct(private HalimSiteConfig $config) {}
 
     public function config(): HalimSiteConfig
@@ -142,6 +153,14 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
      */
     private function fetchCatalogViaRss(callable $onBatch, int $maxPages): int
     {
+        // The caller's page budget is written for WP REST, where a page is 100 posts — a feed page is
+        // 5. Taking $maxPages literally silently shrinks netwix:auto-import's "4 pages of newest
+        // releases" from 400 titles to 20, and 24-hdx publishes 3-5 a day against a twice-weekly
+        // schedule, so any busy stretch (they batch-publish — 5 inside 43 minutes on 2026-08-15)
+        // quietly falls off the end of the window. Honour the number of POSTS asked for, not the
+        // number of pages, and keep a hard ceiling so a full-catalogue request can't run away.
+        $maxPages = (int) min(self::RSS_MAX_PAGES, max(1, $maxPages) * intdiv(self::REST_PAGE_SIZE, self::RSS_PAGE_SIZE));
+
         $total = 0;
         $seen = [];
 
@@ -154,6 +173,11 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
             }
             if (! preg_match_all('~<item>(.*?)</item>~s', $body, $m)) {
                 break;   // past the last page (or the feed is blocked too)
+            }
+            // 5 posts a page means a real budget is now dozens of requests, not a handful — pace them.
+            // The site is behind Cloudflare and this is the one route it still answers for us.
+            if ($page > 1) {
+                usleep(self::RSS_PAGE_SLEEP_US);
             }
 
             $items = [];
