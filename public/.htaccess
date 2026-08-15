@@ -36,9 +36,15 @@
 # files (logos, app icons) under stable names, and freezing those for a year would mean the owner
 # swapping a logo could not see it change. Both directives are module-guarded so a host without
 # mod_headers/mod_setenvif ignores the block instead of 500-ing the site.
+#
+# The optional `/public` prefix is NOT decoration. On prod the DocumentRoot is public_html/ and the
+# root .htaccess rewrites every request into public/ (RewriteRule ^(.*)$ public/$1), so by the time
+# Apache evaluates THIS file the URI SetEnvIf tests reads `/public/storage/media/...`, not
+# `/storage/media/...`. Anchoring on the bare path matched nothing on the only server that matters
+# and the header silently never appeared — verified by probe, not assumed.
 <IfModule mod_setenvif.c>
-    SetEnvIf Request_URI "^/storage/media/" NX_IMMUTABLE=1
-    SetEnvIf Request_URI "^/build/" NX_IMMUTABLE=1
+    SetEnvIf Request_URI "^(/public)?/storage/media/" NX_IMMUTABLE=1
+    SetEnvIf Request_URI "^(/public)?/build/" NX_IMMUTABLE=1
 </IfModule>
 <IfModule mod_headers.c>
     Header set Cache-Control "public, max-age=31536000, immutable" env=NX_IMMUTABLE
