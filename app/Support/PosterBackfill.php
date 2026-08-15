@@ -20,6 +20,17 @@ class PosterBackfill
 {
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
+    /**
+     * Encode target for a cover. A browse card paints the poster at ~200-260 CSS px wide — about
+     * 600 px on the long side of its 2:3 crop even at 3x DPR — so ImageStore's generic 1600 default
+     * stores ~3x more pixels than any screen we serve will ask for. 900/q80 WebP measured ~25 KB
+     * against 54 KB at 1600, and against a 217 KB average for the hotlinked originals it replaces,
+     * with no visible difference on a card or in the title modal.
+     */
+    public const COVER_MAX_DIM = 900;
+
+    public const COVER_QUALITY = 80;
+
     public function __construct(private SourceRegistry $registry) {}
 
     /**
@@ -60,7 +71,8 @@ class PosterBackfill
             if ($bytes === null) {
                 continue;
             }
-            $path = ImageStore::putCover($bytes, 'media/posters', (string) $content->id, $content->poster_path);
+            $path = ImageStore::putCover($bytes, 'media/posters', (string) $content->id, $content->poster_path,
+                self::COVER_MAX_DIM, self::COVER_QUALITY);
             if ($path !== null) {
                 // Remember the working remote URL on the source title too (cheap next-time recovery).
                 if ($st && $url !== $st->poster_url) {
@@ -72,6 +84,39 @@ class PosterBackfill
         }
 
         return null;
+    }
+
+    /**
+     * Pull a title's CURRENT, still-working hotlinked cover down into our own storage.
+     *
+     * This is the bulk cache path, and it is deliberately not [self::recover]: recover() exists for a
+     * cover that is missing or dead and pays for a fresh source scrape to find a replacement URL.
+     * Here the stored URL loads fine and there is nothing to find — we only want to stop serving it
+     * from someone else's server. Measured 2026-08-15, that is worth doing even when the hotlink
+     * works: 24-hdx (our largest source) answers its covers with `Cache-Control: no-store`, so a
+     * browser is forbidden to keep them and re-downloads ~9.7 MB of covers on EVERY page view, and
+     * the originals are full-size WordPress uploads averaging 217 KB for a card that renders at 200 px.
+     * Stored locally they become ~25 KB WebP behind our own CDN, cached like any other static asset.
+     *
+     * Falls through to the full recover() when the stored URL turns out not to load after all, so a
+     * localize sweep also heals whatever it finds broken on the way.
+     */
+    public function localize(Content $content): ?string
+    {
+        $url = (string) $content->poster_path;
+        if ($url === '' || ! str_starts_with($url, 'http')) {
+            return null;   // already ours — nothing to pull down
+        }
+
+        if (($bytes = $this->download($url)) !== null) {
+            $path = ImageStore::putCover($bytes, 'media/posters', (string) $content->id, $url,
+                self::COVER_MAX_DIM, self::COVER_QUALITY);
+            if ($path !== null) {
+                return $path;
+            }
+        }
+
+        return $this->recover($content);
     }
 
     /**

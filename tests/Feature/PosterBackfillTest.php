@@ -108,6 +108,60 @@ class PosterBackfillTest extends TestCase
         $this->assertSame('media/backdrops/9-own.webp', $c->fresh()->backdrop_path);
     }
 
+    /**
+     * The bulk cache sweep. A hotlink that WORKS still has to come down to our storage: 24-hdx serves
+     * its covers with `Cache-Control: no-store`, so a browser is forbidden to keep them and refetches
+     * ~9.7 MB of covers on every page view. localize() must therefore not ask whether the URL is
+     * healthy — and it must cost exactly one request, because paying recover()'s source scrape across
+     * 17,000 titles that have nothing wrong with them is the difference between a sweep that finishes
+     * and one that hammers eight sites for a day.
+     */
+    public function test_localize_stores_a_working_hotlink_in_one_request(): void
+    {
+        Http::fake(fn () => Http::response(self::image(), 200, ['Content-Type' => 'image/jpeg']));
+        $c = $this->content('https://www.24-hdx.com/wp-content/uploads/2022/09/Greenland-2020.jpg');
+
+        $path = $this->backfill()->localize($c);
+
+        $this->assertNotNull($path);
+        $this->assertStringStartsWith('media/posters/', $path);
+        Storage::disk('public')->assertExists($path);
+        Http::assertSentCount(1);   // no Referer retry, no source scrape — the URL was fine
+    }
+
+    /** Already ours → nothing to pull down, and above all no request back out to the source. */
+    public function test_localize_leaves_an_already_stored_cover_alone(): void
+    {
+        Http::fake();
+
+        $this->assertNull($this->backfill()->localize($this->content('media/posters/9-abc.webp')));
+        Http::assertNothingSent();
+    }
+
+    /**
+     * A sweep runs over the whole catalogue, so it WILL meet covers that died since import. Those must
+     * fall through to the full heal rather than be skipped — otherwise the one pass that touches every
+     * title is the pass that walks straight past the titles most in need of it.
+     */
+    public function test_localize_falls_back_to_a_full_recover_when_the_hotlink_is_dead(): void
+    {
+        $calls = 0;
+        Http::fake(function () use (&$calls) {
+            $calls++;
+
+            // Dead for the bare fetch AND its origin-Referer retry; the third call is recover()
+            // re-trying the candidate list, which is where the cover finally comes from.
+            return $calls <= 2
+                ? Http::response('gone', 404)
+                : Http::response(self::image(), 200, ['Content-Type' => 'image/jpeg']);
+        });
+
+        $path = $this->backfill()->localize($this->content('https://dead.test/p.jpg'));
+
+        $this->assertNotNull($path, 'a dead hotlink should still be healed, not skipped');
+        Storage::disk('public')->assertExists($path);
+    }
+
     /** A hotlink-blocked host that answers 200 with an HTML "denied" page is not a cover. */
     public function test_an_html_denial_page_is_not_accepted_as_an_image(): void
     {

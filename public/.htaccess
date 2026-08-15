@@ -23,3 +23,23 @@
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
 </IfModule>
+
+# Covers, episode frames and clip stills we store ourselves (/storage/media/*, symlinked to
+# storage/app/public), plus Vite's hashed bundles (/build/*). Every one of those filenames carries a
+# content hash or a random version suffix, and a regenerated image always writes a NEW path (see
+# App\Support\ImageStore::putCover), so a stored file can never change underneath a cached copy — it
+# is safe to cache forever, and it HAS to be, or pulling covers off the source sites buys nothing.
+# Without this the origin sends no Cache-Control at all and Cloudflare falls back to its 4-hour
+# default Browser Cache TTL, so every visitor re-downloads the same covers several times a day.
+#
+# Matched on the request path, NOT a bare <FilesMatch> on extension: /assets/* holds hand-replaced
+# files (logos, app icons) under stable names, and freezing those for a year would mean the owner
+# swapping a logo could not see it change. Both directives are module-guarded so a host without
+# mod_headers/mod_setenvif ignores the block instead of 500-ing the site.
+<IfModule mod_setenvif.c>
+    SetEnvIf Request_URI "^/storage/media/" NX_IMMUTABLE=1
+    SetEnvIf Request_URI "^/build/" NX_IMMUTABLE=1
+</IfModule>
+<IfModule mod_headers.c>
+    Header set Cache-Control "public, max-age=31536000, immutable" env=NX_IMMUTABLE
+</IfModule>
