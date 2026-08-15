@@ -49,14 +49,20 @@ class ImageStore
         $tmp = tempnam(sys_get_temp_dir(), 'nxwebp');
         $ok = @imagewebp($img, $tmp, $quality);
         imagedestroy($img);
-        if (! $ok) {
-            @unlink($tmp);
+        $encoded = $ok ? (string) @file_get_contents($tmp) : '';
+        @unlink($tmp);
 
+        // imagewebp can answer TRUE and still leave an empty or truncated file — GD does it for
+        // images WebP can't represent, and a failed read of $tmp lands here too. That used to be
+        // written straight out as a 0-byte .webp and RETURNED AS SUCCESS, so the caller stored the
+        // path and the card swapped its branded fallback for a broken image (2 such files were live
+        // on prod). Trust the bytes only once they really are a WebP; otherwise keep the original.
+        if (strlen($encoded) < 100 || substr($encoded, 0, 4) !== 'RIFF' || substr($encoded, 8, 4) !== 'WEBP') {
             return self::putRaw($bytes, $dir, $basename);
         }
+
         $path = "{$dir}/{$basename}.webp";
-        Storage::disk('public')->put($path, (string) file_get_contents($tmp));
-        @unlink($tmp);
+        Storage::disk('public')->put($path, $encoded);
 
         return $path;
     }

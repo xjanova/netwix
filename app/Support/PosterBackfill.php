@@ -21,15 +21,24 @@ class PosterBackfill
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
     /**
-     * Encode target for a cover. A browse card paints the poster at ~200-260 CSS px wide — about
-     * 600 px on the long side of its 2:3 crop even at 3x DPR — so ImageStore's generic 1600 default
-     * stores ~3x more pixels than any screen we serve will ask for. 900/q80 WebP measured ~25 KB
-     * against 54 KB at 1600, and against a 217 KB average for the hotlinked originals it replaces,
-     * with no visible difference on a card or in the title modal.
+     * Encode target for a cover, picked by measuring rather than by feel (2026-08-15, on real 24-hdx
+     * covers). A browse card is 146-182 px wide (content-card.blade), so 600 on the long side of a
+     * 2:3 poster — 400 px wide — still paints it at 2.2x on the widest card.
+     *
+     * Dimension is the lever here, not quality: our sources mostly serve 500x750, and re-encoding
+     * those at q80 vs q68 only moved 53 KB to 44 KB, because squeezing an already-compressed JPEG
+     * harder mostly buys generation loss. Capping the long side instead measured
+     *   native 53 KB · max600 37 KB · max540 30 KB · max480 26 KB
+     * so 600 takes ~30% off while staying above every card's pixel budget. Quality is nudged UP to
+     * 82 to spend some of that back on sharpness, which is what the smaller box is protecting.
+     *
+     * The one place a cover is painted big is the title-modal hero (16:9 crop, ~900 px wide). That
+     * already upscales — the sources themselves are only 500 px wide — so 400 px changes a decorative
+     * band behind a gradient by a fifth, and the locked-pro/vip backdrops using it are blur-2xl.
      */
-    public const COVER_MAX_DIM = 900;
+    public const COVER_MAX_DIM = 600;
 
-    public const COVER_QUALITY = 80;
+    public const COVER_QUALITY = 82;
 
     public function __construct(private SourceRegistry $registry) {}
 
