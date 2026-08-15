@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\App\BannerController;
 use App\Http\Controllers\Api\App\CatalogController;
 use App\Http\Controllers\Api\App\DebugController;
 use App\Http\Controllers\Api\App\FeedbackController;
+use App\Http\Controllers\Api\App\LegalController;
 use App\Http\Controllers\Api\App\LibraryController;
 use App\Http\Controllers\Api\App\MembershipController;
 use App\Http\Controllers\Api\App\MissionController;
@@ -83,6 +84,11 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
     // returns points at our own /download/apk (see AppDownloadController) — GitHub
     // is resolved server-side and never reaches the client.
     Route::get('version', [ReleaseController::class, 'version']);
+
+    // Legal text as blocks, so the app renders it natively instead of loading netwix.online/terms
+    // in a WebView — that page carries the site footer (28 internal links), and the WebView followed
+    // them straight into the website, stranding the viewer outside the app's own navigation.
+    Route::get('legal/{doc}', [LegalController::class, 'show']);
 
     // Diagnostics sink — public (must accept guest + failed-sign-in reports),
     // extra-throttled on top of the group limit.

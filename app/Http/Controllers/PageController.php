@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Setting;
 use App\Services\AppRelease;
+use App\Support\LegalDocs;
 use Illuminate\Support\HtmlString;
 use Illuminate\View\View;
 
@@ -24,21 +25,26 @@ class PageController extends Controller
         ]);
     }
 
-    /** Privacy policy (นโยบายความเป็นส่วนตัว). Admin override wins; built-in Blade is the fallback. */
+    /**
+     * Privacy policy / terms. Both render the SAME text the mobile app shows — it lives in
+     * [App\Support\LegalDocs], not in these Blades, so the two surfaces cannot drift apart and
+     * promise users different things. An admin override still wins for both (see LegalDocs::body).
+     */
     public function privacy(): View
     {
-        return view('frontend.legal.privacy', [
-            'updated' => Setting::get('legal_updated_at') ?: '3 กรกฎาคม 2568',
-            'custom' => self::renderLegalBody(Setting::get('legal_privacy_body')),
-        ]);
+        return $this->legal('privacy');
     }
 
-    /** Terms of service (ข้อตกลงและเงื่อนไขการใช้งาน). Admin override wins; built-in Blade is the fallback. */
     public function terms(): View
     {
-        return view('frontend.legal.terms', [
-            'updated' => Setting::get('legal_updated_at') ?: '3 กรกฎาคม 2568',
-            'custom' => self::renderLegalBody(Setting::get('legal_terms_body')),
+        return $this->legal('terms');
+    }
+
+    private function legal(string $doc): View
+    {
+        return view('frontend.legal.'.$doc, [
+            'updated' => LegalDocs::updated(),
+            'custom' => self::renderLegalBody(LegalDocs::body($doc)),
         ]);
     }
 
