@@ -63,6 +63,13 @@ php artisan config:cache
 php artisan route:cache
 php artisan view:cache
 
+echo "▶ Cron self-heal (scheduler line)…"
+# Everything scheduled — imports, queue workers, the source canary that brakes auto-suspend — hangs
+# off ONE crontab line, and this box has already lost it once across a reboot (2026-08-06, unnoticed
+# for nine days). Re-assert it on every deploy. Never fatal: a deploy must not fail because the
+# shell it runs in has no crontab access.
+bash "$(dirname "$0")/ensure-cron.sh" "$(pwd)" || echo "⚠ cron self-heal skipped"
+
 echo "▶ Restart PHP-FPM…"
 sudo systemctl restart php-fpm83.service || true
 
