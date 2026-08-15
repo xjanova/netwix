@@ -9,6 +9,8 @@ use App\Services\Import\SourceRegistry;
 use App\Support\LineNotifier;
 use App\Support\SourceHealth;
 use Illuminate\Console\Command;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -27,8 +29,10 @@ use Throwable;
  *  - most-WATCHED titles are probed, because those are the ones known to have played for real;
  *  - a single failure escalates to a wider sample before any verdict, so one genuinely dead film
  *    can't condemn its whole source;
- *  - an exception (network/DNS) is NOT a resolve failure — our own connectivity is the likelier
- *    culprit, and a false "down" would brake auto-suspend across the catalogue for no reason.
+ *  - a CONNECTION failure (DNS/TLS/timeout) is NOT a resolve failure — our own connectivity is the
+ *    likelier culprit, and a false "down" would brake auto-suspend across the catalogue for no
+ *    reason. An HTTP error status is the opposite: we reached them and they refused, which is
+ *    exactly the verdict this command exists to record (see [self::probe]).
  *
  *   php artisan netwix:source-canary            # every visible source
  *   php artisan netwix:source-canary 24hdx      # just one
@@ -210,7 +214,19 @@ class SourceCanaryCommand extends Command
                 if ($source->resolveByRef($p['key'], $p['ref']) !== null) {
                     $ok++;
                 }
+            } catch (ConnectionException $e) {
+                // We never reached them — DNS, TLS, timeout. Our own connectivity is the likelier
+                // culprit, so this must not become a verdict.
+                $threw = true;
+            } catch (RequestException $e) {
+                // We DID reach them and they answered with an error status. That is the source
+                // talking, not the network, and Laravel's retry() surfaces it as an exception rather
+                // than a response — so lumping it in with ConnectionException made a definitively
+                // broken source unverdictable. wow-drama sat exactly there: its player ajax action was
+                // renamed, WordPress answered every probe `0` + HTTP 400, and for weeks the canary
+                // reported "hit network errors — no verdict" instead of "unresolvable".
             } catch (Throwable $e) {
+                // A bug in a source class is ours, not theirs — same reasoning as ConnectionException.
                 $threw = true;
             }
             if ($sleepUs > 0) {

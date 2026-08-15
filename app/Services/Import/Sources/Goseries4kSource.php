@@ -5,6 +5,7 @@ namespace App\Services\Import\Sources;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesPoster;
 use App\Services\Import\Contracts\ProvidesSynopsis;
+use App\Services\Import\GetPlayerStream;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
 use App\Support\PosterScraper;
@@ -338,60 +339,14 @@ class Goseries4kSource implements MediaSource, ProvidesPoster, ProvidesSynopsis
     }
 
     /**
-     * Trade the embed id for a SIGNED manifest URL.
-     *
-     * torbo007 gated its streams around 2026-08-12: the unsigned
-     * `/api/stream/{embedId}/index.m3u8` this used to build now answers `403 Invalid Secure ID`, and
-     * every goseries4k title stopped resolving in the same stroke. Their player first POSTs the embed
-     * id to /api/tokenplay and gets back a DIFFERENT, 64-hex stream id plus a short-lived token; only
-     * that pair opens the manifest.
-     *
-     * Two details are easy to get wrong and both cost a 400:
-     *  - the request names the embed id **`md5`**. `stream_id` is what comes BACK, and posting the
-     *    embed id under that name just earns "Missing required parameters";
-     *  - `parent` is the hostname the embed is framed from and it is signed INTO the token, so the
-     *    same value has to be repeated on the manifest URL.
-     *
-     * `expires` runs ~2h out, comfortably longer than the 10-minute cache StreamController keeps the
-     * rewritten playlist in, so a viewer never meets a stale token. The tiktokcdn segment URLs carry
-     * their own far-future signatures and need no Referer at all.
+     * Trade the embed id for a SIGNED manifest URL. torbo007 gated its streams around 2026-08-12 —
+     * the unsigned `/api/stream/{embedId}/index.m3u8` this used to build answers `403 Invalid Secure
+     * ID` — and every goseries4k title stopped resolving in the same stroke. The handshake is the
+     * shared GetPlayer one; see [App\Services\Import\GetPlayerStream].
      */
     private function signedManifest(string $embedId): ?string
     {
-        try {
-            $resp = $this->http()->asJson()
-                ->withHeaders([
-                    'Referer' => self::PLAYER_ORIGIN.'/embed/'.$embedId,
-                    'Origin' => self::PLAYER_ORIGIN,
-                    'X-Requested-With' => 'XMLHttpRequest',
-                ])
-                ->post(self::PLAYER_ORIGIN.'/api/tokenplay', [
-                    'md5' => $embedId,
-                    'parent' => self::PLAYER_HOST,
-                ]);
-        } catch (\Throwable) {
-            return null;
-        }
-        if (! $resp->ok()) {
-            return null;
-        }
-
-        $d = $resp->json();
-        if (! is_array($d)) {
-            return null;
-        }
-        foreach (['stream_id', 'token', 'expires', 'session_id'] as $key) {
-            if (blank($d[$key] ?? null)) {
-                return null;   // stream purged, or they moved the handshake again
-            }
-        }
-
-        return self::PLAYER_ORIGIN.'/api/stream/'.$d['stream_id'].'/index.m3u8?'.http_build_query([
-            'token' => $d['token'],
-            'expires' => $d['expires'],
-            'parent' => self::PLAYER_HOST,
-            'sid' => $d['session_id'],
-        ]);
+        return GetPlayerStream::manifest($this->http(), self::PLAYER_ORIGIN, $embedId, self::PLAYER_HOST);
     }
 
     /** True if the torbo manifest returns a real HLS media playlist (needs the torbo Referer). */

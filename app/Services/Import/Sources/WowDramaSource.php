@@ -5,6 +5,7 @@ namespace App\Services\Import\Sources;
 use App\Models\SourceTitle;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesSynopsis;
+use App\Services\Import\GetPlayerStream;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
 use App\Support\SynopsisScraper;
@@ -16,8 +17,9 @@ use Illuminate\Support\Facades\Http;
  * CN/KR/JP series. Verified flow:
  *   1. catalog  → Yoast /sitemap_index.xml → /post-sitemap*.xml (slugs + featured image)
  *   2. episodes → GET /{slug}/  (parse the .mp-ep-btn buttons → wp post ids, in order)
- *   3. resolve  → POST /wp-admin/admin-ajax.php action=miru_custom_player&post_id={id}
- *                 → getplay-cdn embed hash → HLS at getplay-cdn.com/api/stream/{hash}/index.m3u8
+ *   3. resolve  → scrape `miruNonce` off /{slug}/, then POST /wp-admin/admin-ajax.php
+ *                 action=miru_get_api_player_url&ep_id={id}&server_idx=0&nonce={nonce}
+ *                 → getplay-cdn embed hash → signed HLS via [App\Services\Import\GetPlayerStream]
  * PHP port of the Hive Download WowDramaClient.
  *
  * Step 1 used to be WP REST (/wp-json/wp/v2/posts + /media). The site locked its REST API behind
@@ -33,7 +35,7 @@ class WowDramaSource implements MediaSource, ProvidesSynopsis
 {
     public const BASE = 'https://wow-drama.com';
     public const GETPLAY = 'https://getplay-cdn.com';
-    /** Host that embeds the getplay player — binds the playback token (see playToken). */
+    /** Host that embeds the getplay player — it is signed into the playback token. */
     private const PARENT = 'wow-drama.com';
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
@@ -326,67 +328,72 @@ class WowDramaSource implements MediaSource, ProvidesSynopsis
 
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream
     {
-        $resp = $this->http()->asForm()->withHeaders([
-            'Referer' => self::BASE.'/'.$sourceKey.'/',
-            'X-Requested-With' => 'XMLHttpRequest',
-        ])->post(self::BASE.'/wp-admin/admin-ajax.php', [
-            'action' => 'miru_custom_player',
-            'post_id' => $sourceRef,
-        ]);
-
-        if (! $resp->ok()) {
+        $embedUrl = $this->playerUrl($sourceKey, $sourceRef);
+        if ($embedUrl === null || ! preg_match('~getplay-cdn\.com/embed/([a-f0-9]{16,})~', $embedUrl, $m)) {
             return null;
         }
-        if (! preg_match('~getplay-cdn\.com/embed/([a-f0-9]{16,})~', $resp->body(), $m)) {
-            return null;
-        }
-        $hash = $m[1];
-        $embed = self::GETPLAY."/embed/{$hash}";
+        $embed = self::GETPLAY.'/embed/'.$m[1];
 
-        // getplay-cdn now hotlink-gates the playlist: /api/stream/{hash}/index.m3u8 answers 403 unless it
-        // carries a short-lived token. The embed player mints one via POST /api/tokenplay {md5,parent} and
-        // appends token+expires+parent to the m3u8 URL (verified 2026-07-15). We replicate that. The token
-        // guards only the *playlist* request (segments are TikTok-CDN links with their own long x-expires),
-        // and StreamController fetches the playlist immediately, while the token is still seconds old.
-        $m3u8 = self::GETPLAY."/api/stream/{$hash}/index.m3u8";
-        if (($tok = $this->playToken($hash, $embed)) !== null) {
-            $m3u8 .= '?'.http_build_query([
-                'token' => $tok['token'],
-                'expires' => $tok['expires'],
-                'parent' => self::PARENT,
-            ]);
+        // getplay-cdn is the same product as goseries4k's torbo007, and both now require the signed
+        // handshake in [App\Services\Import\GetPlayerStream]. Note the manifest is keyed on the
+        // stream id that handshake RETURNS, not on the embed hash this used to put in the path — that
+        // form now answers 403 Invalid Secure ID.
+        $m3u8 = GetPlayerStream::manifest($this->http(), self::GETPLAY, $m[1], self::PARENT);
+        if ($m3u8 === null) {
+            return null;   // no token → no stream; caller shows "preparing" / rotates to a backup link
         }
-        // On token failure we deliberately fall through to the bare URL: if getplay is merely down it
-        // answers 5xx and StreamController::manifest returns a clean 504 (no auto-suspend); if the token
-        // contract has drifted it answers 403 and the title is correctly flagged dead. Either is right.
 
         return new RemoteStream(RemoteStream::KIND_HLS, $m3u8, $embed);
     }
 
     /**
-     * Mint a getplay-cdn playback token for a stream hash. POST /api/tokenplay is a JSON endpoint
-     * (body {"md5","parent"}) that returns {"token","expires"} with a ~10-min TTL. `parent` is the
-     * embedding host and binds the token, so it must equal the `parent` on the m3u8 URL. Returns null
-     * on any failure so the caller can fall back to the bare (un-tokened) URL.
+     * Ask wow-drama for an episode's embed URL.
      *
-     * @return array{token:string,expires:int}|null
+     * Their theme changed under us around 2026-08: `admin-ajax action=miru_custom_player` is gone —
+     * WordPress answers an unregistered action with a bare `0` and HTTP 400, which our retry() turned
+     * into a thrown RequestException, which netwix:source-canary then read as "our own network
+     * wobbled" and declined to render any verdict on. So the source looked neither up nor down.
+     *
+     * The replacement is `miru_get_api_player_url`, it takes the episode post id plus a server index,
+     * and it is nonce-gated. The nonce is printed into the series page as `var miruNonce = "…"` and
+     * needs no cookie, so one page fetch per resolve is enough. The page also carries the empty
+     * `epData` map — episodes no longer ship their embed inline at all, which is why nothing can be
+     * scraped straight out of the HTML any more.
      */
-    private function playToken(string $hash, string $embed): ?array
+    private function playerUrl(string $sourceKey, string $sourceRef): ?string
     {
         try {
-            $resp = $this->http()->withHeaders(['Referer' => $embed])
-                ->post(self::GETPLAY.'/api/tokenplay', ['md5' => $hash, 'parent' => self::PARENT]);
+            $page = $this->http()->withHeaders(['Referer' => self::BASE.'/'])
+                ->get(self::BASE.'/'.$sourceKey.'/')->body();
+        } catch (\Throwable) {
+            return null;
+        }
+        if (! preg_match('~miruNonce\s*=\s*[\'"]([a-f0-9]+)[\'"]~i', $page, $n)) {
+            return null;
+        }
+
+        try {
+            $resp = $this->http()->asForm()->withHeaders([
+                'Referer' => self::BASE.'/'.$sourceKey.'/',
+                'X-Requested-With' => 'XMLHttpRequest',
+            ])->post(self::BASE.'/wp-admin/admin-ajax.php', [
+                'action' => 'miru_get_api_player_url',
+                'ep_id' => $sourceRef,
+                'server_idx' => 0,
+                'nonce' => $n[1],
+            ]);
         } catch (\Throwable) {
             return null;
         }
         if (! $resp->ok()) {
             return null;
         }
-        $j = $resp->json();
-        if (! is_array($j) || empty($j['token']) || empty($j['expires'])) {
-            return null;
-        }
 
-        return ['token' => (string) $j['token'], 'expires' => (int) $j['expires']];
+        $j = $resp->json();
+
+        return is_array($j) && ! empty($j['success']) && filled($j['data']['url'] ?? null)
+            ? (string) $j['data']['url']
+            : null;
     }
+
 }
