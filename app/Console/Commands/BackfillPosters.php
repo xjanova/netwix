@@ -45,7 +45,7 @@ class BackfillPosters extends Command
         // batch. Resumable by construction — a localized cover no longer matches `http%`, so the next
         // run picks up exactly where this one stopped, and re-running is never wasted work.
         if ($localize) {
-            return $this->run(
+            return $this->sweep(
                 $base()->where('poster_path', 'like', 'http%')->orderByDesc('views')->limit($limit)->get(),
                 fn (Content $c) => $backfill->localize($c),
                 $backfill, $sleepMs, 'left hotlinked (source gave us nothing)'
@@ -74,7 +74,7 @@ class BackfillPosters extends Command
             }
         }
 
-        return $this->run($targets, fn (Content $c) => $backfill->recover($c), $backfill, $sleepMs,
+        return $this->sweep($targets, fn (Content $c) => $backfill->recover($c), $backfill, $sleepMs,
             'left to the fallback cover');
     }
 
@@ -85,7 +85,7 @@ class BackfillPosters extends Command
      * @param  \Illuminate\Support\Collection<int,Content>  $targets
      * @param  callable(Content):?string  $heal
      */
-    private function run($targets, callable $heal, PosterBackfill $backfill, int $sleepMs, string $missLabel): int
+    private function sweep($targets, callable $heal, PosterBackfill $backfill, int $sleepMs, string $missLabel): int
     {
         $total = $targets->count();
         if ($total === 0) {
