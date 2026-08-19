@@ -124,9 +124,18 @@ Schedule::command('netwix:alert-digest')
 Schedule::command('netwix:ad-impressions')
     ->everyTenMinutes()->withoutOverlapping()->runInBackground();
 
-// Covers heal ON-DEMAND now (a card pings content.heal-cover when its poster fails to load — see
-// [App\Http\Controllers\PosterHealController]), so no nightly sweep. The netwix:backfill-posters
-// command is kept for manual bulk runs only.
+// Covers heal ON-DEMAND when they BREAK (a card pings content.heal-cover once its poster fails to
+// load — see [App\Http\Controllers\PosterHealController]). That covers dead hotlinks and nothing else.
+//
+// Nightly localize sweep — the gap on-demand healing cannot see. A source that answers a hotlinked
+// poster with its own advertising banner returns HTTP 200 and a perfectly valid image, so no card ever
+// reports it broken; the advert simply sits on our home page. That is exactly what rongyok started
+// doing (owner, 2026-08-19: 124 freshly-imported titles showing a green "rongyok.com ดูฟรีเต็มๆ"
+// banner, and 497 titles across six sources still hotlinked). Fetched from OUR server the same URL
+// returns the real artwork, so pulling every cover down is both the fix and the permanent defence.
+// Bounded + resumable: a localized cover no longer matches `http%`, so each run continues the last.
+Schedule::command('netwix:backfill-posters --localize --limit=400 --sleep=200')
+    ->dailyAt('03:50')->withoutOverlapping()->runInBackground();
 
 // Daily backup-link finder: re-source auto-suspended (un-playable) titles from another Halim pool
 // site and auto-republish. Self-gates on the admin toggle `backup_finder_enabled` (set on

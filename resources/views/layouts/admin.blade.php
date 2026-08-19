@@ -34,7 +34,7 @@
             ['route' => 'admin.thumbs.index', 'label' => 'สร้างปกตอน'],
             ['route' => 'admin.covers.index', 'label' => 'ปกที่หายไป'] + ($missingCovers > 0 ? ['badge' => $missingCovers, 'alert' => true] : []),
             ['route' => 'admin.watermark.index', 'label' => 'ลายน้ำบนปก'],
-            ['route' => 'admin.storage.index', 'label' => 'จัดเก็บสื่อ'],
+            ['route' => 'admin.storage.index', 'label' => 'ดูดคลิป & พื้นที่เก็บ'],
             ['route' => 'admin.comments.index', 'label' => 'ความคิดเห็น'],
         ]],
         ['key' => 'sources', 'label' => 'แหล่งหนัง & ลิ้งค์', 'icon' => '🔗', 'items' => [

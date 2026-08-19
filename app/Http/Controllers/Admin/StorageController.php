@@ -5,9 +5,13 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Content;
 use App\Models\Episode;
+use App\Models\MirrorJob;
+use App\Models\Setting;
 use App\Services\MediaMirror;
 use App\Support\ImageStore;
 use App\Support\MediaUsage;
+use App\Support\MirrorPlan;
+use App\Support\MirrorProbe;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,9 +20,13 @@ use Illuminate\View\View;
 
 class StorageController extends Controller
 {
+    /** Master switch. Off means the worker refuses to download no matter what the job rows say. */
+    public const SWITCH_KEY = 'mirror_enabled';
+
     public function index(): View
     {
         $summary = MediaUsage::summary();
+        $rows = MirrorPlan::rows();
 
         // Per-title breakdown for titles that have any mirrored episode.
         $titles = Content::query()
@@ -42,6 +50,10 @@ class StorageController extends Controller
 
         return view('admin.storage.index', [
             'summary' => $summary,
+            'rows' => $rows,
+            'totals' => MirrorPlan::totals($rows),
+            'switchOn' => Setting::flag(self::SWITCH_KEY, false),
+            'usdPerTb' => MirrorPlan::B2_USD_PER_TB_MONTH,
             'titles' => $titles,
             'mirrorableTotal' => $mirrorableTotal,
             'projectedBytes' => $projectedBytes,
@@ -53,6 +65,132 @@ class StorageController extends Controller
                 ->where('mirror_attempts', '>=', Episode::MIRROR_MAX_ATTEMPTS)
                 ->whereHas('content', $rongyok)->count(),
         ]);
+    }
+
+    /**
+     * Live numbers for the monitor, polled every few seconds while the page is open.
+     *
+     * Returns exactly what the page renders, so there is one shape of truth and no second code path
+     * that could drift from the first render.
+     */
+    public function monitor(): JsonResponse
+    {
+        $rows = MirrorPlan::rows();
+
+        return response()->json([
+            'rows' => $rows,
+            'totals' => MirrorPlan::totals($rows),
+            'switch' => Setting::flag(self::SWITCH_KEY, false),
+            'at' => now()->format('H:i:s'),
+        ]);
+    }
+
+    /**
+     * Master switch for the whole downloader.
+     *
+     * Nothing downloads while this is off — the worker checks it first and exits. It is separate from
+     * the per-source start buttons on purpose: the admin can lay out a plan (which sources, how many
+     * episodes) and review it before anything touches the network.
+     */
+    public function toggleSwitch(Request $request): JsonResponse
+    {
+        $on = $request->boolean('on');
+        Setting::write(self::SWITCH_KEY, $on ? '1' : '0');
+
+        if (! $on) {
+            // Turning the master switch off must also stand the sources down, otherwise flipping it
+            // back on would silently resume every run that was in flight days earlier.
+            MirrorJob::whereIn('status', [MirrorJob::STATUS_QUEUED, MirrorJob::STATUS_RUNNING])
+                ->update(['status' => MirrorJob::STATUS_PAUSED]);
+        }
+
+        return response()->json(['ok' => true, 'on' => $on]);
+    }
+
+    /**
+     * Measure real episode sizes for one source (see [App\Support\MirrorProbe]).
+     *
+     * Runs inline rather than on the queue: it is a handful of ranged requests, and the admin is
+     * standing in front of the page waiting for the number.
+     */
+    public function probe(Request $request, MirrorProbe $probe): JsonResponse
+    {
+        $data = $request->validate([
+            'source' => ['required', 'string', 'max:32'],
+            'count' => ['nullable', 'integer', 'min:1', 'max:5'],
+        ]);
+
+        @set_time_limit(180);
+        $result = $probe->run($data['source'], (int) ($data['count'] ?? 3));
+
+        return response()->json([
+            'ok' => $result['ok'] > 0,
+            'measured' => $result['ok'],
+            'failed' => $result['fail'],
+            'avg' => $result['avg'],
+            'errors' => $result['errors'],
+        ]);
+    }
+
+    /**
+     * Start / pause / resume / stop / reset one source.
+     *
+     * `start` only ever sets `queued`; it is [App\Console\Commands\MirrorRun] that moves a row to
+     * `running`. That distinction is the whole point of the heartbeat on the page — "queued but no
+     * worker" is a real state the admin needs to be able to see, not a spinner that hangs.
+     */
+    public function control(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'source' => ['required', 'string', 'max:32'],
+            'action' => ['required', 'in:start,pause,resume,stop,reset'],
+            'scope' => ['nullable', 'in:missing,all'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:200000'],
+        ]);
+
+        $job = MirrorJob::firstOrNew(['source' => $data['source']]);
+
+        if (in_array($data['action'], ['start', 'resume'], true)) {
+            $source = app(\App\Services\Import\SourceRegistry::class)->get($data['source']);
+            if (! $source?->isProgressive()) {
+                return response()->json([
+                    'ok' => false,
+                    'error' => 'แหล่งนี้เป็นสตรีม HLS — ตัวดาวน์โหลดยังรวมไฟล์ไม่ได้ (ต้องต่อ ffmpeg ก่อน)',
+                ], 422);
+            }
+            if (! Setting::flag(self::SWITCH_KEY, false)) {
+                return response()->json([
+                    'ok' => false,
+                    'error' => 'สวิตช์ระบบดูดยังปิดอยู่ — เปิดสวิตช์ด้านบนก่อน',
+                ], 422);
+            }
+        }
+
+        match ($data['action']) {
+            'start' => $job->fill([
+                'status' => MirrorJob::STATUS_QUEUED,
+                'scope' => $data['scope'] ?? 'missing',
+                'episode_limit' => $data['limit'] ?? null,
+                'done_count' => 0,
+                'fail_count' => 0,
+                'bytes_done' => 0,
+                'last_error' => null,
+                'started_at' => now(),
+                'finished_at' => null,
+            ]),
+            'resume' => $job->fill(['status' => MirrorJob::STATUS_QUEUED, 'finished_at' => null]),
+            'pause' => $job->fill(['status' => MirrorJob::STATUS_PAUSED]),
+            'stop' => $job->fill(['status' => MirrorJob::STATUS_IDLE, 'finished_at' => now()]),
+            'reset' => $job->fill([
+                'status' => MirrorJob::STATUS_IDLE,
+                'done_count' => 0, 'fail_count' => 0, 'bytes_done' => 0,
+                'last_error' => null, 'last_title' => null, 'started_at' => null, 'finished_at' => null,
+            ]),
+        };
+
+        $job->save();
+
+        return response()->json(['ok' => true, 'status' => $job->status, 'state' => $job->displayState()]);
     }
 
     /** Admin: download one episode onto our server (so it plays from our copy, no live link). */

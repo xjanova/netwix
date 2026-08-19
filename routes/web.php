@@ -399,6 +399,12 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('covers/{content}/localize', [Admin\CoverController::class, 'localize'])->name('covers.localize');
 
     Route::get('storage', [Admin\StorageController::class, 'index'])->name('storage.index');
+    // Download monitor: live per-source state, the master switch, real size measurement, and the
+    // start/พัก/หยุด controls the worker reads.
+    Route::get('storage/monitor', [Admin\StorageController::class, 'monitor'])->name('storage.monitor');
+    Route::post('storage/switch', [Admin\StorageController::class, 'toggleSwitch'])->name('storage.switch');
+    Route::post('storage/probe', [Admin\StorageController::class, 'probe'])->name('storage.probe');
+    Route::post('storage/control', [Admin\StorageController::class, 'control'])->name('storage.control');
     Route::post('episodes/{episode}/mirror', [Admin\StorageController::class, 'mirror'])->name('storage.mirror');
     Route::post('episodes/{episode}/thumb', [Admin\StorageController::class, 'setThumb'])->name('storage.set-thumb');
     Route::delete('episodes/{episode}/mirror', [Admin\StorageController::class, 'unmirror'])->name('storage.unmirror');
