@@ -77,6 +77,12 @@ class HalimSites
                 'Rate 18+' => '18',
                 '18+' => '18',
             ],
+            // The site's own header autocomplete, on the same un-challenged alias family as apiUrl.
+            // It is the only working way to look a 24-hdx title up by name: "?s=" and "/search/…" both
+            // answer 200 with a ZERO-byte body (measured 2026-08-19), while this returns JSON rows
+            // carrying the poster path — which is what heals the 37 24-hdx titles imported with no
+            // cover at all. See [App\Support\PosterSearch].
+            autocompleteUrl: 'https://stat.24-hds.com/search_autocomplete?site_id=1',
         );
     }
 

@@ -6,8 +6,11 @@ use App\Services\Import\Contracts\BackupPoolSource;
 use App\Services\Import\Contracts\EmbedPlayback;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesSynopsis;
+use App\Services\Import\Contracts\SearchesPosters;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\PosterCandidate;
+use App\Support\SiteSearchScraper;
 use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
@@ -29,7 +32,7 @@ use Illuminate\Support\Facades\Http;
  * Adult: the site's `erotic` genre ("R18+") is flagged `extra.adult` so [App\Services\Import\
  * ImportService] imports those titles as 18+ AND VIP-premium (is_vip) — owner rule 2026-07-06.
  */
-class NaayNungSource implements BackupPoolSource, EmbedPlayback, MediaSource, ProvidesSynopsis
+class NaayNungSource implements BackupPoolSource, EmbedPlayback, MediaSource, ProvidesSynopsis, SearchesPosters
 {
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
@@ -430,5 +433,17 @@ class NaayNungSource implements BackupPoolSource, EmbedPlayback, MediaSource, Pr
         }
 
         return $origin.rtrim(dirname($p['path'] ?? '/'), '/').'/'.$uri;
+    }
+
+    /**
+     * Look a title up by NAME on this site (see [SearchesPosters]) — WordPress's own "?s=" search,
+     * parsed by [SiteSearchScraper]. Used to find a cover for a title whose own source can no longer
+     * answer for it (a dead site, or a row imported with no poster URL at all).
+     *
+     * @return PosterCandidate[]
+     */
+    public function searchPosters(string $title, int $limit = 8): array
+    {
+        return SiteSearchScraper::searchWordPress($this->http(), self::BASE, $title, $limit);
     }
 }

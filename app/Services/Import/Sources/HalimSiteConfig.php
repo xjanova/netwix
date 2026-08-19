@@ -42,6 +42,12 @@ class HalimSiteConfig
      * @param  array<string,string>  $catNameToSlug  RSS-mode only: category NAME → category slug, for the
      *                                                names a slug can't be derived from (Thai names). The feed
      *                                                carries names, every other rule here is keyed by slug.
+     * @param  ?string  $autocompleteUrl  absolute live-search endpoint returning JSON rows of
+     *                                     {post_title, image_url, url_path} — the site's own header
+     *                                     autocomplete. Set it when the ordinary WordPress "?s=" search
+     *                                     is unusable (24-hdx answers ?s= with an EMPTY body, so this
+     *                                     endpoint is the ONLY way to look one of its titles up by name).
+     *                                     See [App\Services\Import\Contracts\SearchesPosters].
      */
     public function __construct(
         public string $id,
@@ -64,5 +70,6 @@ class HalimSiteConfig
         public ?string $adultCatSlug = null,
         public bool $rssCatalogFallback = false,
         public array $catNameToSlug = [],
+        public ?string $autocompleteUrl = null,
     ) {}
 }

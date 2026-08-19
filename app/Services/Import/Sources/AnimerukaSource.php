@@ -6,8 +6,11 @@ use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesGenres;
 use App\Services\Import\Contracts\ProvidesPoster;
 use App\Services\Import\Contracts\ProvidesSynopsis;
+use App\Services\Import\Contracts\SearchesPosters;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\PosterCandidate;
+use App\Support\SiteSearchScraper;
 use App\Support\PosterScraper;
 use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
@@ -35,7 +38,7 @@ use Illuminate\Support\Facades\Http;
  *      segments disguised as .webp but real MPEG-TS — [App\Support\HlsManifest] unwraps the envelope
  *      and [App\Support\HlsSegment] is a no-op on the already-clean TS. See the recon note in BrainX.
  */
-class AnimerukaSource implements MediaSource, ProvidesGenres, ProvidesPoster, ProvidesSynopsis
+class AnimerukaSource implements MediaSource, ProvidesGenres, ProvidesPoster, ProvidesSynopsis, SearchesPosters
 {
     public const BASE = 'https://animeruka.com';
 
@@ -430,5 +433,17 @@ class AnimerukaSource implements MediaSource, ProvidesGenres, ProvidesPoster, Pr
         }
 
         return $body !== '' ? $body : null;
+    }
+
+    /**
+     * Look a title up by NAME on this site (see [SearchesPosters]) — WordPress's own "?s=" search,
+     * parsed by [SiteSearchScraper]. Used to find a cover for a title whose own source can no longer
+     * answer for it (a dead site, or a row imported with no poster URL at all).
+     *
+     * @return PosterCandidate[]
+     */
+    public function searchPosters(string $title, int $limit = 8): array
+    {
+        return SiteSearchScraper::searchWordPress($this->http(), self::BASE, $title, $limit);
     }
 }

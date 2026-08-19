@@ -129,15 +129,48 @@ class PosterBackfill
     }
 
     /**
+     * Download a cover from an explicit list of URLs, best first, and store it locally.
+     *
+     * The entry point for a cover an ADMIN chose rather than one we derived: a candidate picked out of
+     * a by-name search ([PosterSearch]) or a URL pasted by hand. Same storage path as everything else
+     * — WebP at [self::COVER_MAX_DIM], unique filename, old file cleaned up — so an admin-supplied
+     * cover is indistinguishable from a healed one afterwards, and the same two-attempt download
+     * handles the hosts that refuse a blank Referer.
+     *
+     * @param  string[]  $urls  tried in order until one yields a real image
+     */
+    public function storeFrom(Content $content, array $urls): ?string
+    {
+        foreach ($urls as $url) {
+            if (! is_string($url) || ! str_starts_with($url, 'http')) {
+                continue;
+            }
+            if (($bytes = $this->download($url)) === null) {
+                continue;
+            }
+            $path = ImageStore::putCover($bytes, 'media/posters', (string) $content->id, $content->poster_path,
+                self::COVER_MAX_DIM, self::COVER_QUALITY);
+            if ($path !== null) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Persist a recovered cover. The backdrop follows it whenever it was the SAME image — import seeds
      * both fields from one source URL (23,702 of 23,761 titles), so a poster that just turned out to be
      * dead means the backdrop behind the hero and the title modal is the identical dead URL. Healing
      * only the poster would leave those rendering a bare gradient.
+     *
+     * Also clears `cover_missing_at`: the title now HAS a cover, so it must drop out of the admin's
+     * missing-covers queue no matter which route put one there.
      */
     public function apply(Content $content, string $path): void
     {
         $old = (string) $content->poster_path;
-        $updates = ['poster_path' => $path];
+        $updates = ['poster_path' => $path, 'cover_missing_at' => null];
         if (blank($content->backdrop_path) || (string) $content->backdrop_path === $old) {
             $updates['backdrop_path'] = $path;
         }

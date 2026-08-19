@@ -6,9 +6,12 @@ use App\Services\Import\Contracts\BackupPoolSource;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesPoster;
 use App\Services\Import\Contracts\ProvidesSynopsis;
+use App\Services\Import\Contracts\SearchesPosters;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\PosterCandidate;
 use App\Support\PosterScraper;
+use App\Support\SiteSearchScraper;
 use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
@@ -26,7 +29,7 @@ use Illuminate\Support\Facades\Http;
  *
  * Streams are HLS, played through NetWix's server-side proxy ([StreamController]).
  */
-class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, ProvidesSynopsis
+class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, ProvidesSynopsis, SearchesPosters
 {
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
@@ -601,6 +604,54 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
         }
 
         return PosterScraper::fromHtml($html);
+    }
+
+    /**
+     * Look a title up by NAME on this site (see [SearchesPosters]).
+     *
+     * Prefers the site's own live-search JSON when one is configured, because on 24-hdx — the site
+     * this matters most for — WordPress's own "?s=" search answers 200 with an empty body, so the
+     * ordinary HTML path finds nothing at all. Sites without such an endpoint fall through to it.
+     *
+     * @return PosterCandidate[]
+     */
+    public function searchPosters(string $title, int $limit = 8): array
+    {
+        if ($this->config->autocompleteUrl === null) {
+            return SiteSearchScraper::searchWordPress($this->http(), $this->config->base, $title, $limit);
+        }
+
+        try {
+            $resp = $this->http()->withHeaders(['Referer' => $this->config->base.'/'])
+                ->get($this->config->autocompleteUrl, ['SearchString' => $title]);
+        } catch (\Throwable) {
+            return [];
+        }
+        if (! $resp->ok() || ! is_array($rows = $resp->json())) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            $name = trim((string) ($row['post_title'] ?? ''));
+            $image = trim((string) ($row['image_url'] ?? ''));
+            if ($name === '' || $image === '') {
+                continue;
+            }
+            // image_url / url_path come back site-relative.
+            $out[] = new PosterCandidate(
+                title: $name,
+                image: SiteSearchScraper::absolute($image, $this->config->base),
+                page: ($p = trim((string) ($row['url_path'] ?? ''))) !== ''
+                    ? SiteSearchScraper::absolute($p, $this->config->base)
+                    : null,
+            );
+            if (count($out) >= $limit) {
+                break;
+            }
+        }
+
+        return $out;
     }
 
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream

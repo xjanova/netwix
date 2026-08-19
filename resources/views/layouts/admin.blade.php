@@ -11,6 +11,15 @@
     } catch (\Throwable $e) {
         $adPending = 0;   // pre-migrate — a nav badge must never break the whole admin
     }
+    try {
+        // Titles showing nothing but the branded fallback — no poster stored, or one a browser proved
+        // it can't load (see [App\Http\Controllers\Admin\CoverController]).
+        $missingCovers = \App\Models\Content::withoutGlobalScopes()
+            ->where(fn ($q) => $q->whereNull('poster_path')->orWhere('poster_path', '')->orWhereNotNull('cover_missing_at'))
+            ->count();
+    } catch (\Throwable $e) {
+        $missingCovers = 0;   // pre-migrate (no cover_missing_at column yet)
+    }
 
     /**
      * The menu grew to 33 flat entries, at which point finding anything meant reading the whole
@@ -23,6 +32,7 @@
             ['route' => 'admin.contents.index', 'label' => 'จัดการคอนเทนต์', 'badge' => \App\Models\Content::count()],
             ['route' => 'admin.genres.index', 'label' => 'หมวดหมู่'],
             ['route' => 'admin.thumbs.index', 'label' => 'สร้างปกตอน'],
+            ['route' => 'admin.covers.index', 'label' => 'ปกที่หายไป'] + ($missingCovers > 0 ? ['badge' => $missingCovers, 'alert' => true] : []),
             ['route' => 'admin.storage.index', 'label' => 'จัดเก็บสื่อ'],
             ['route' => 'admin.comments.index', 'label' => 'ความคิดเห็น'],
         ]],

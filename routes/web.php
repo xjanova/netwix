@@ -366,6 +366,17 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('preview/segment', [Admin\AdminPreviewController::class, 'segment'])->name('preview.segment');
     Route::get('preview/mp4', [Admin\AdminPreviewController::class, 'mp4'])->name('preview.mp4');
 
+    // "ปกที่หายไป" — titles with no usable cover, and the ways to give them one: upload a file, take a
+    // cover a by-name source search found, or pull a fragile hotlink down. Everything lands as a local
+    // WebP through [App\Support\ImageStore]. `scan` verifies a bounded batch of hotlinks per press.
+    Route::get('covers', [Admin\CoverController::class, 'index'])->name('covers.index');
+    Route::post('covers/scan', [Admin\CoverController::class, 'scan'])->name('covers.scan');
+    Route::get('covers/{content}/search', [Admin\CoverController::class, 'search'])->name('covers.search');
+    Route::post('covers/{content}/upload', [Admin\CoverController::class, 'upload'])->name('covers.upload');
+    Route::post('covers/{content}/url', [Admin\CoverController::class, 'fromUrl'])->name('covers.url');
+    Route::post('covers/{content}/auto', [Admin\CoverController::class, 'auto'])->name('covers.auto');
+    Route::post('covers/{content}/localize', [Admin\CoverController::class, 'localize'])->name('covers.localize');
+
     Route::get('storage', [Admin\StorageController::class, 'index'])->name('storage.index');
     Route::post('episodes/{episode}/mirror', [Admin\StorageController::class, 'mirror'])->name('storage.mirror');
     Route::post('episodes/{episode}/thumb', [Admin\StorageController::class, 'setThumb'])->name('storage.set-thumb');

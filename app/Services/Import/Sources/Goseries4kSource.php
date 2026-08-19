@@ -5,9 +5,12 @@ namespace App\Services\Import\Sources;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesPoster;
 use App\Services\Import\Contracts\ProvidesSynopsis;
+use App\Services\Import\Contracts\SearchesPosters;
 use App\Services\Import\GetPlayerStream;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\PosterCandidate;
+use App\Support\SiteSearchScraper;
 use App\Support\PosterScraper;
 use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
@@ -35,7 +38,7 @@ use Illuminate\Support\Facades\Http;
  * Old titles decay: torbo007 purges streams for long-idle series, so resolveByRef verifies the manifest
  * is live and returns null (→ "preparing" + backup fallback) when it's gone.
  */
-class Goseries4kSource implements MediaSource, ProvidesPoster, ProvidesSynopsis
+class Goseries4kSource implements MediaSource, ProvidesPoster, ProvidesSynopsis, SearchesPosters
 {
     public const BASE = 'https://goseries4k.com';
 
@@ -375,5 +378,17 @@ class Goseries4kSource implements MediaSource, ProvidesPoster, ProvidesSynopsis
         }
 
         return $body !== '' ? $body : null;
+    }
+
+    /**
+     * Look a title up by NAME on this site (see [SearchesPosters]) — WordPress's own "?s=" search,
+     * parsed by [SiteSearchScraper]. Used to find a cover for a title whose own source can no longer
+     * answer for it (a dead site, or a row imported with no poster URL at all).
+     *
+     * @return PosterCandidate[]
+     */
+    public function searchPosters(string $title, int $limit = 8): array
+    {
+        return SiteSearchScraper::searchWordPress($this->http(), self::BASE, $title, $limit);
     }
 }

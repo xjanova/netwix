@@ -5,9 +5,12 @@ namespace App\Services\Import\Sources;
 use App\Models\SourceTitle;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesSynopsis;
+use App\Services\Import\Contracts\SearchesPosters;
 use App\Services\Import\GetPlayerStream;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\PosterCandidate;
+use App\Support\SiteSearchScraper;
 use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
@@ -31,7 +34,7 @@ use Illuminate\Support\Facades\Http;
  * Steps 2 and 3 were never affected — the episode buttons and admin-ajax still answer 200, so
  * playback of everything already imported kept working the whole time.
  */
-class WowDramaSource implements MediaSource, ProvidesSynopsis
+class WowDramaSource implements MediaSource, ProvidesSynopsis, SearchesPosters
 {
     public const BASE = 'https://wow-drama.com';
     public const GETPLAY = 'https://getplay-cdn.com';
@@ -396,4 +399,15 @@ class WowDramaSource implements MediaSource, ProvidesSynopsis
             : null;
     }
 
+    /**
+     * Look a title up by NAME on this site (see [SearchesPosters]) — WordPress's own "?s=" search,
+     * parsed by [SiteSearchScraper]. Used to find a cover for a title whose own source can no longer
+     * answer for it (a dead site, or a row imported with no poster URL at all).
+     *
+     * @return PosterCandidate[]
+     */
+    public function searchPosters(string $title, int $limit = 8): array
+    {
+        return SiteSearchScraper::searchWordPress($this->http(), self::BASE, $title, $limit);
+    }
 }

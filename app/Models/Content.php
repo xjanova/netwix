@@ -33,7 +33,7 @@ class Content extends Model
         'title', 'dedupe_key', 'slug', 'source', 'source_key', 'type', 'synopsis', 'year', 'maturity', 'dub_type',
         'match_score', 'rating', 'is_original', 'is_featured', 'is_published', 'is_vip', 'vip_price_gold',
         'suspended_at', 'suspend_reason', 'playback_fail_count', 'review_flagged_at', 'review_ignored',
-        'poster_path', 'backdrop_path', 'trailer_youtube_id', 'video_url',
+        'poster_path', 'backdrop_path', 'cover_missing_at', 'trailer_youtube_id', 'video_url',
         'duration_minutes', 'intro_end_seconds', 'outro_seconds', 'views', 'sort',
     ];
 
@@ -46,6 +46,7 @@ class Content extends Model
             'is_vip' => 'boolean',
             'suspended_at' => 'datetime',
             'review_flagged_at' => 'datetime',
+            'cover_missing_at' => 'datetime',
             'review_ignored' => 'boolean',
             'rating' => 'decimal:1',
             'intro_end_seconds' => 'integer',

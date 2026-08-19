@@ -6,6 +6,7 @@ use App\Models\Content;
 use App\Support\PosterBackfill;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 /**
  * On-demand cover healing. A card whose poster fails to load pings this (the browser is the judge of
@@ -36,7 +37,19 @@ class PosterHealController extends Controller
 
         $path = $backfill->recover($content);
         if ($path === null) {
-            return response()->json(['ok' => true, 'url' => null]);   // no source poster → fallback stays
+            // Nothing to recover — but a real browser just proved this title's cover doesn't load, and
+            // that verdict is the only way a dead HOTLINK is ever distinguishable from a live one (the
+            // stored URL looks perfectly fine in the database either way). Record it so the title lands
+            // in the admin's missing-covers queue instead of showing the branded fallback forever.
+            //
+            // Written through the query builder on purpose: an Eloquent save would bump `updated_at`,
+            // which [SitemapController] publishes as each title's <lastmod>. A viewer opening a page
+            // with a broken card must not tell Google the title changed — nothing about it did.
+            if ($content->cover_missing_at === null) {
+                DB::table('contents')->where('id', $content->id)->update(['cover_missing_at' => now()]);
+            }
+
+            return response()->json(['ok' => true, 'url' => null]);   // fallback stays
         }
 
         $backfill->apply($content, $path);
