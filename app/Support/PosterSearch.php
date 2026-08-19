@@ -187,7 +187,11 @@ class PosterSearch
      */
     public static function titleKey(string $title): string
     {
-        $t = preg_replace('~^\s*ดู(?:หนัง|ซีรี่ย์|ซีรี่ส์|ซีรีส์|อนิเมะ|การ์ตูน)\s*~u', ' ', $title) ?? $title;
+        // Anywhere, not just at the front: hd432 stores its boilerplate as a SUFFIX ("American Siege
+        // (2021) ดูหนังออนไลน์ HD พากย์ไทย"), and since every one of its titles ends the same way, a
+        // score computed with it left in is mostly measuring the boilerplate — which is how three
+        // unrelated films came back as 0.5 matches for each other.
+        $t = preg_replace('~ดู(?:หนัง|ซีรี่ย์|ซีรี่ส์|ซีรีส์|อนิเมะ|การ์ตูน)(?:ออนไลน์)?|ออนไลน์|ฟรี~u', ' ', $title) ?? $title;
         $t = preg_replace('~\bEP\.?\s*\d+(?:\s*[-–]\s*\d+)?~iu', ' ', $t) ?? $t;
         // Only a PARENTHESISED year. Stripping any bare 4-digit run would erase the entire title of
         // "2012" or "1917", and both sides spell the year the same way anyway, so keeping it is free.

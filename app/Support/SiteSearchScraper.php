@@ -44,6 +44,12 @@ class SiteSearchScraper
             if ($host !== '' && ! str_contains($href, $host)) {
                 continue;
             }
+            // The header logo is an <img rel="home"> wrapped in a link to the site root, and on
+            // anime108 its filename ("anime108-e1713838624780.png") defeats the name-based check
+            // below — it was being offered as the top candidate, titled with the site's tagline.
+            if (str_contains($inner, 'rel="home"') || self::isRoot($href, $base)) {
+                continue;
+            }
             $image = self::imageIn($inner);
             if ($image === null) {
                 continue;
@@ -165,6 +171,14 @@ class SiteSearchScraper
         return preg_match('~\s'.preg_quote($name, '~').'=[\'"]([^\'"]*)[\'"]~i', $tag, $m) && trim($m[1]) !== ''
             ? $m[1]
             : null;
+    }
+
+    /** True when a link just points at the site's front page (so it can't be a title). */
+    private static function isRoot(string $href, string $base): bool
+    {
+        $path = trim((string) (parse_url(self::absolute($href, $base), PHP_URL_PATH) ?: ''), '/');
+
+        return $path === '';
     }
 
     /** Resolve a possibly-relative URL against the site origin. */
