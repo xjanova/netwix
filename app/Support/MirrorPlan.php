@@ -65,7 +65,7 @@ class MirrorPlan
 
             $rows[] = [
                 'source' => $key,
-                'label' => $source?->name() ?? $key,
+                'label' => $source?->displayName() ?? $key,
                 'known' => $source !== null,
                 'titles' => $c['titles'],
                 'episodes' => $c['episodes'],
