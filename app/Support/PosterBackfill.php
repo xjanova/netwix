@@ -8,6 +8,8 @@ use App\Services\Import\Contracts\ProvidesPoster;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\SourceRegistry;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Heals a title whose cover is missing or whose hotlinked poster has gone dead: re-fetches a fresh
@@ -82,7 +84,7 @@ class PosterBackfill
             }
             $path = ImageStore::putCover($bytes, 'media/posters', (string) $content->id, $content->poster_path,
                 self::COVER_MAX_DIM, self::COVER_QUALITY);
-            if ($path !== null) {
+            if (($path = $this->rejectIfPlaceholder($path, $content)) !== null) {
                 // Remember the working remote URL on the source title too (cheap next-time recovery).
                 if ($st && $url !== $st->poster_url) {
                     $st->forceFill(['poster_url' => $url])->save();
@@ -120,7 +122,7 @@ class PosterBackfill
         if (($bytes = $this->download($url)) !== null) {
             $path = ImageStore::putCover($bytes, 'media/posters', (string) $content->id, $url,
                 self::COVER_MAX_DIM, self::COVER_QUALITY);
-            if ($path !== null) {
+            if (($path = $this->rejectIfPlaceholder($path, $content)) !== null) {
                 return $path;
             }
         }
@@ -170,11 +172,88 @@ class PosterBackfill
     public function apply(Content $content, string $path): void
     {
         $old = (string) $content->poster_path;
-        $updates = ['poster_path' => $path, 'cover_missing_at' => null];
+        $updates = [
+            'poster_path' => $path,
+            'poster_hash' => self::hashOf($path),
+            'cover_missing_at' => null,
+        ];
         if (blank($content->backdrop_path) || (string) $content->backdrop_path === $old) {
             $updates['backdrop_path'] = $path;
         }
         $content->forceFill($updates)->save();
+    }
+
+    /**
+     * Reject a cover that is the SAME PICTURE we already stored for a different title.
+     *
+     * Sources have begun answering a hotlinked poster request with a house advert instead of the
+     * artwork — rongyok serves a green "rongyok.com ดูฟรีเต็มๆ" banner (2026-08-19). One banner reused
+     * across every title is exactly what a duplicate hash detects, and unlike a colour or text rule it
+     * needs no idea of what the next placeholder will look like: two different films never produce
+     * byte-identical covers, so a collision is always a placeholder of some kind.
+     *
+     * Returns the number of OTHER titles already wearing this picture — 0 means keep it.
+     */
+    public static function duplicateTitles(string $path, Content $content): int
+    {
+        $hash = self::hashOf($path);
+        if ($hash === null) {
+            return 0;
+        }
+
+        return Content::withoutGlobalScopes()
+            ->where('poster_hash', $hash)
+            ->whereKeyNot($content->getKey())
+            ->count();
+    }
+
+    /**
+     * Throw away a just-stored cover that turns out to be a placeholder, and return null so the caller
+     * treats it as "nothing found" — which leaves the branded fallback showing and puts the title in
+     * the admin's missing-covers queue, both better than wearing a rival's advert.
+     *
+     * Applied to the AUTOMATIC paths only ([self::recover], [self::localize]). A cover an admin picked
+     * or uploaded by hand goes through [self::storeFrom] and is left alone: they looked at it, and they
+     * are allowed to give two titles the same picture on purpose.
+     */
+    private function rejectIfPlaceholder(?string $path, Content $content): ?string
+    {
+        if ($path === null) {
+            return null;
+        }
+        $others = self::duplicateTitles($path, $content);
+        if ($others === 0) {
+            return $path;
+        }
+
+        Log::warning('cover rejected: same image already used by other titles', [
+            'content_id' => $content->id,
+            'source' => $content->source,
+            'other_titles' => $others,
+            'hash' => self::hashOf($path),
+        ]);
+        try {
+            Storage::disk('public')->delete($path);
+        } catch (\Throwable) {
+            // a leftover file is untidy, not harmful — never fail the heal over it
+        }
+
+        return null;
+    }
+
+    /** md5 of a stored image's bytes, or null when the file can't be read. */
+    public static function hashOf(?string $path): ?string
+    {
+        if (! is_string($path) || $path === '') {
+            return null;
+        }
+        try {
+            $disk = Storage::disk('public');
+
+            return $disk->exists($path) ? md5((string) $disk->get($path)) : null;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
