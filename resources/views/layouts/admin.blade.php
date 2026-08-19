@@ -75,6 +75,7 @@
         ]],
         ['key' => 'system', 'label' => 'ระบบ', 'icon' => '⚙️', 'items' => [
             ['route' => 'admin.settings.index', 'label' => 'ตั้งค่า / เชื่อมต่อ'],
+            ['route' => 'admin.security.index', 'label' => 'ความปลอดภัย / บอท'],
             ['route' => 'admin.line-alerts.index', 'label' => 'แจ้งเตือนปัญหาเข้า LINE'],
             ['route' => 'admin.legal.index', 'label' => 'นโยบาย / ข้อตกลง'],
         ]],

@@ -366,6 +366,15 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('preview/segment', [Admin\AdminPreviewController::class, 'segment'])->name('preview.segment');
     Route::get('preview/mp4', [Admin\AdminPreviewController::class, 'mp4'])->name('preview.mp4');
 
+    // "ความปลอดภัย" — the scraping-behaviour log, plus the controls over what is done about it:
+    // watch/record/refuse, whether blocks also go into .htaccess, and manual block + unblock. Every
+    // admin action is written back into the same log (see SecurityController::note).
+    Route::get('security', [Admin\SecurityController::class, 'index'])->name('security.index');
+    Route::post('security/mode', [Admin\SecurityController::class, 'setMode'])->name('security.mode');
+    Route::post('security/firewall', [Admin\SecurityController::class, 'toggleFirewall'])->name('security.firewall');
+    Route::post('security/block', [Admin\SecurityController::class, 'block'])->name('security.block');
+    Route::delete('security/blocked/{blockedIp}', [Admin\SecurityController::class, 'unblock'])->name('security.unblock');
+
     // "ลายน้ำบนปก" — where the mark sits, how heavy it is, and whether it is a logo or text. The
     // preview route renders a REAL cover with unsaved settings so dragging shows the true result.
     Route::get('watermark', [Admin\WatermarkController::class, 'index'])->name('watermark.index');
