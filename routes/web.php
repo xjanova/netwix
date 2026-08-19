@@ -366,6 +366,13 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('preview/segment', [Admin\AdminPreviewController::class, 'segment'])->name('preview.segment');
     Route::get('preview/mp4', [Admin\AdminPreviewController::class, 'mp4'])->name('preview.mp4');
 
+    // "ลายน้ำบนปก" — where the mark sits, how heavy it is, and whether it is a logo or text. The
+    // preview route renders a REAL cover with unsaved settings so dragging shows the true result.
+    Route::get('watermark', [Admin\WatermarkController::class, 'index'])->name('watermark.index');
+    Route::put('watermark', [Admin\WatermarkController::class, 'update'])->name('watermark.update');
+    Route::get('watermark/preview', [Admin\WatermarkController::class, 'preview'])->name('watermark.preview');
+    Route::post('watermark/logo', [Admin\WatermarkController::class, 'uploadLogo'])->name('watermark.logo');
+
     // "ปกที่หายไป" — titles with no usable cover, and the ways to give them one: upload a file, take a
     // cover a by-name source search found, or pull a fragile hotlink down. Everything lands as a local
     // WebP through [App\Support\ImageStore]. `scan` verifies a bounded batch of hotlinks per press.

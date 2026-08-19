@@ -33,6 +33,7 @@
             ['route' => 'admin.genres.index', 'label' => 'หมวดหมู่'],
             ['route' => 'admin.thumbs.index', 'label' => 'สร้างปกตอน'],
             ['route' => 'admin.covers.index', 'label' => 'ปกที่หายไป'] + ($missingCovers > 0 ? ['badge' => $missingCovers, 'alert' => true] : []),
+            ['route' => 'admin.watermark.index', 'label' => 'ลายน้ำบนปก'],
             ['route' => 'admin.storage.index', 'label' => 'จัดเก็บสื่อ'],
             ['route' => 'admin.comments.index', 'label' => 'ความคิดเห็น'],
         ]],

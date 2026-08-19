@@ -33,7 +33,7 @@ class Content extends Model
         'title', 'dedupe_key', 'slug', 'source', 'source_key', 'type', 'synopsis', 'year', 'maturity', 'dub_type',
         'match_score', 'rating', 'is_original', 'is_featured', 'is_published', 'is_vip', 'vip_price_gold',
         'suspended_at', 'suspend_reason', 'playback_fail_count', 'review_flagged_at', 'review_ignored',
-        'poster_path', 'poster_hash', 'backdrop_path', 'cover_missing_at', 'trailer_youtube_id', 'video_url',
+        'poster_path', 'poster_hash', 'poster_watermarked_at', 'backdrop_path', 'cover_missing_at', 'trailer_youtube_id', 'video_url',
         'duration_minutes', 'intro_end_seconds', 'outro_seconds', 'views', 'sort',
     ];
 
