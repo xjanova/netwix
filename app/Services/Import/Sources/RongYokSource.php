@@ -16,7 +16,12 @@ use Illuminate\Support\Facades\Http;
  * rongyok.com (โรงหยก) — Chinese short-drama. Three GET endpoints, no auth/captcha/ad-gate:
  *   1. /category?category=all           → embedded `seriesData = [...]` (whole catalogue)
  *   2. /watch/?series_id={id}           → embedded `"episodes":[...]` + episodes_count
- *   3. /watch/get_video.php?series_id&ep → {"ok":true,"video_url":"<discord mp4>"}
+ *   3. /watch/{rotating}.php?series_id&ep → {"ok":true,"video_url":"<discord mp4>"}
+ *      (the filename rotates — [self::discoverEndpoint] reads the current one out of watch.js;
+ *       it was get_video.php, is playseries.php as of 2026-08-19, and needs a Referer)
+ *
+ * ⚠️ Every request here MUST go through [self::http], which disables ALPN — without that the site
+ * answers 403 with its own block page. See that method for the full diagnosis.
  * Videos are plain MP4 on Discord's CDN — signed URLs that expire ~24h, so resolve on demand.
  * PHP port of the Hive Download RongYokClient.
  */
@@ -50,12 +55,30 @@ class RongYokSource implements MediaSource, SearchesPosters
         return null;
     }
 
+    /**
+     * rongyok's HTTP client — the ONE place that carries the ALPN workaround.
+     *
+     * Since ~2026-08-06 rongyok answered every dynamic path with HTTP 403 and its own branded block
+     * page ("ขออภัย คุณถูกบล็อก · โรงหยก"), which silently killed both the nightly catalogue sync and
+     * all playback for 2,664 titles. Measured 2026-08-19, the discriminator is the **ALPN extension in
+     * the TLS ClientHello**: offering it gets the block, omitting it gets HTTP 200. Everything else was
+     * ruled out first — the IP (a residential connection was blocked for curl while Chrome on that very
+     * connection loaded the site), the User-Agent (125 and 151 both blocked), the full byte-exact Chrome
+     * header set, cookies (a cookies-omitted fetch in Chrome still returned 200), and the HTTP version
+     * (h1, h1.0, h2 and h3 all blocked). Static assets were never affected because Cloudflare serves
+     * /images/*, .css and .js from its edge cache, so those requests are never evaluated.
+     *
+     * So this is not a header trick that will rot next week — it changes the TLS handshake itself, which
+     * is the thing being fingerprinted. If it ever stops working, the block page carries the site's own
+     * LINE (lin.ee/EQP22ad) and Facebook (facebook.com/seriesrongyok) contacts for an appeal.
+     */
     private function http(): PendingRequest
     {
         return Http::withHeaders([
             'User-Agent' => self::UA,
             'Accept-Language' => 'th,en;q=0.8',
-        ])->timeout(60)->retry(2, 400);
+        ])->withOptions(['curl' => [CURLOPT_SSL_ENABLE_ALPN => false]])
+            ->timeout(60)->retry(2, 400);
     }
 
     public function fetchCatalog(callable $onBatch, int $maxPages = 100): int
@@ -182,7 +205,13 @@ class RongYokSource implements MediaSource, SearchesPosters
     }
 
     private const ENDPOINT_CACHE_KEY = 'rongyok:video_endpoint';
-    private const ENDPOINT_FALLBACK = 'get_video.php';
+
+    /**
+     * Where to look when watch.js can't be read. `get_video.php` is GONE — it answers a 404 page now —
+     * so the fallback follows the rotation to the name in use on 2026-08-19. Note this endpoint refuses
+     * a request with no Referer (`{"ok":false,"error":"origin"}`), which [self::callResolve] sends.
+     */
+    private const ENDPOINT_FALLBACK = 'playseries.php';
 
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream
     {
