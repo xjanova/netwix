@@ -191,7 +191,7 @@ class PosterSearch
         // (2021) ดูหนังออนไลน์ HD พากย์ไทย"), and since every one of its titles ends the same way, a
         // score computed with it left in is mostly measuring the boilerplate — which is how three
         // unrelated films came back as 0.5 matches for each other.
-        $t = preg_replace('~ดู(?:หนัง|ซีรี่ย์|ซีรี่ส์|ซีรีส์|อนิเมะ|การ์ตูน)(?:ออนไลน์)?|ออนไลน์|ฟรี~u', ' ', $title) ?? $title;
+        $t = preg_replace('~ดู(?:หนัง|ซีรี่ย์|ซีรี่ส์|ซีรีส์|อนิเมะ|การ์ตูน)(?:ออนไลน์)?|ออนไลน์|ได้ก่อนใคร|ฟรี~u', ' ', $title) ?? $title;
         $t = preg_replace('~\bEP\.?\s*\d+(?:\s*[-–]\s*\d+)?~iu', ' ', $t) ?? $t;
         // Only a PARENTHESISED year. Stripping any bare 4-digit run would erase the entire title of
         // "2012" or "1917", and both sides spell the year the same way anyway, so keeping it is free.
@@ -236,24 +236,38 @@ class PosterSearch
     /**
      * The string to type into the source's search box.
      *
-     * Our titles are the whole import line — "Akhanda 2 (2026) อภินิหารทัณฑ์เทพล้างอธรรม" — and site
-     * search engines match it worse the longer it gets. The leading Latin name is what these sites
-     * index (verified against 24-hdx's autocomplete on 2026-08-19), so lead with that, falling back
-     * to the Thai text for the titles that have no Latin name at all.
+     * Our titles are the whole import line and site search engines match it worse the longer it gets,
+     * so this reduces it to the film's Latin name — what these sites actually index (verified against
+     * 24-hdx's autocomplete, 2026-08-19).
+     *
+     * The Latin name is NOT always at the front. It leads on 24-hdx ("Akhanda 2 (2026) อภินิหาร…") but
+     * sits in the middle on goseries4k, whose titles open with the site's own marketing ("ดูซีรี่ย์
+     * Gemini หวนแค้นคู่เคียงกาล", "ดูอนิเมะได้ก่อนใคร The Untamed ปรมาจารย์…"). Taking only a leading
+     * run left those searching on a Thai sentence, which is why they came back with weak guesses
+     * instead of the film. Take the LONGEST Latin run anywhere, and fall back to the Thai text for a
+     * title that has no Latin name at all.
      */
     private function queryFor(string $title): string
     {
         $t = preg_replace('~\(\s*\d{4}\s*\)~u', ' ', $title) ?? $title;   // drop the year
         $t = trim(preg_replace('~\s+~u', ' ', $t) ?? $t);
 
-        if (preg_match('~^[\x20-\x7E]{4,}~', $t, $m)) {
-            $latin = trim($m[0]);
-            if (mb_strlen($latin, 'UTF-8') >= 4) {
-                return mb_substr($latin, 0, 60, 'UTF-8');
+        $best = '';
+        if (preg_match_all('~[\x20-\x7E]{4,}~', $t, $m)) {
+            foreach ($m[0] as $run) {
+                // Trim the punctuation the run picked up at either edge, and require actual letters —
+                // "(2026)" and " - " are runs too, and neither is a name.
+                $run = trim($run, " \t.,:;|/\\-–—()[]{}\"'");
+                if (! preg_match('~[A-Za-z]{3,}~', $run)) {
+                    continue;
+                }
+                if (mb_strlen($run, 'UTF-8') > mb_strlen($best, 'UTF-8')) {
+                    $best = $run;
+                }
             }
         }
 
-        return mb_substr($t, 0, 60, 'UTF-8');
+        return mb_substr($best !== '' ? $best : $t, 0, 60, 'UTF-8');
     }
 
     /**
