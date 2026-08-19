@@ -593,7 +593,8 @@ window.syncer = () => ({
                              CDN, and it stops handing a rival site free impressions inside our admin.
                              A not-yet-imported title has no local copy, so it still falls back to the
                              source URL. --}}
-                        @php($cover = $t->content?->poster_url ?: $t->poster_url)
+                        {{-- ยังไม่นำเข้า = ไม่มีปกของเรา จึงต้องดึงผ่าน proxy ไม่งั้นเห็นแบนเนอร์โฆษณาของต้นทาง --}}
+                        @php($cover = $t->content?->poster_url ?: \App\Support\MediaUrl::adminPoster($t->poster_url))
                         @if ($cover)
                             <img src="{{ $cover }}" alt="" loading="lazy" referrerpolicy="no-referrer"
                                  class="absolute inset-0 h-full w-full object-cover"

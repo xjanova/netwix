@@ -241,6 +241,16 @@ class PosterBackfill
         return null;
     }
 
+    /**
+     * Download an image URL and hand back the raw bytes — the same two-attempt fetch the cover
+     * pipeline uses (bare, then with the host's own Referer), exposed for callers that need the
+     * bytes rather than a stored file, such as the admin image proxy.
+     */
+    public function fetchImage(string $url): ?string
+    {
+        return $this->download($url);
+    }
+
     /** md5 of a stored image's bytes, or null when the file can't be read. */
     public static function hashOf(?string $path): ?string
     {

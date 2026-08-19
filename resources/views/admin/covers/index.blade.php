@@ -66,7 +66,9 @@
                      search: @js(route('admin.covers.search', $c)),
                      auto: @js(route('admin.covers.auto', $c)),
                      localize: @js(route('admin.covers.localize', $c)),
-                     poster: @js($c->poster_url),
+                     {{-- ผ่าน proxy ของเราเมื่อปกยังอยู่ที่ต้นทาง ไม่งั้นจะเห็นแบนเนอร์โฆษณาของเขาแทนปกจริง --}}
+                     poster: @js(\App\Support\MediaUrl::adminPoster($c->poster_url)),
+                     proxy: @js(route('admin.img-proxy')),
                  })"
                  @dragover.prevent="drag = true" @dragleave.prevent="drag = false"
                  @drop.prevent="drag = false; fromFile($event.dataTransfer.files[0])"
@@ -131,7 +133,9 @@
                                 <button type="button" @click="take(cd)" x-bind:disabled="busy"
                                         class="group relative overflow-hidden rounded-md ring-1 ring-white/10 hover:ring-brand disabled:opacity-50"
                                         :title="cd.title + ' — ' + cd.source + ' (' + Math.round(cd.score * 100) + '%)'">
-                                    <img :src="cd.image" alt="" referrerpolicy="no-referrer" class="aspect-[2/3] w-full object-cover">
+                                    {{-- ผ่าน proxy เช่นกัน — รูปจากผลค้นหามาจากเว็บต้นทางโดยตรง --}}
+                                    <img :src="proxy + '?url=' + encodeURIComponent(cd.image)" alt=""
+                                         referrerpolicy="no-referrer" class="aspect-[2/3] w-full object-cover">
                                     <span class="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 text-[10px] text-cream/80"
                                           x-text="Math.round(cd.score * 100) + '%'"></span>
                                 </button>
@@ -155,7 +159,8 @@
      */
     function coverRow(cfg) {
         return {
-            cover: cfg.poster || '', busy: false, busyText: '', saved: false, via: '', err: '',
+            cover: cfg.poster || '', proxy: cfg.proxy || '',
+            busy: false, busyText: '', saved: false, via: '', err: '',
             drag: false, open: false, cands: [], searchMsg: '',
 
             /** Read a picked/dropped/pasted file and send it as a data URL (the existing upload shape). */

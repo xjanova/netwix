@@ -65,7 +65,7 @@ class ForceLinkController extends Controller
                     'type' => $c->type,
                     'type_label' => ['series' => 'ซีรี่ส์', 'movie' => 'ภาพยนตร์', 'vertical' => 'แนวตั้ง'][$c->type] ?? $c->type,
                     'year' => $c->year,
-                    'poster' => $c->poster_url,
+                    'poster' => \App\Support\MediaUrl::adminPoster($c->poster_url),
                     'source' => $c->source ?: '—',
                     'episodes' => $c->episodes_count,
                     'published' => (bool) $c->is_published,
@@ -105,7 +105,7 @@ class ForceLinkController extends Controller
                 'title' => $st->displayTitle(),
                 'raw_title' => $st->title,
                 'year' => $st->year,
-                'poster' => $st->poster_url,
+                'poster' => \App\Support\MediaUrl::adminPoster($st->poster_url),
                 'is_movie' => (bool) (is_array($st->extra) ? ($st->extra['is_movie'] ?? true) : true),
             ])->values();
 

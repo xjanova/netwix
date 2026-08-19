@@ -366,6 +366,11 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('preview/segment', [Admin\AdminPreviewController::class, 'segment'])->name('preview.segment');
     Route::get('preview/mp4', [Admin\AdminPreviewController::class, 'mp4'])->name('preview.mp4');
 
+    // Fetch a remote poster through our server so the admin sees the real artwork. Sources answer a
+    // hotlinked request with a house advert but serve this server the genuine image — see the
+    // controller. Admin-only and SafeUrl-guarded, since the address comes from the page.
+    Route::get('img-proxy', [Admin\ImageProxyController::class, 'show'])->name('img-proxy');
+
     // "ความปลอดภัย" — the scraping-behaviour log, plus the controls over what is done about it:
     // watch/record/refuse, whether blocks also go into .htaccess, and manual block + unblock. Every
     // admin action is written back into the same log (see SecurityController::note).

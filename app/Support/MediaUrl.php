@@ -29,6 +29,37 @@ class MediaUrl
      * because our sources are mixed — some feeds hand us encoded URLs and some raw ones — and this
      * runs on every render.
      */
+    /**
+     * The URL an ADMIN page should use for a poster.
+     *
+     * Our own stored covers are returned untouched. Anything still hosted by a source goes through
+     * the admin image proxy, because sources answer a hotlinked request from a browser with a house
+     * advert — rongyok serves a green "rongyok.com" banner — while the same URL fetched from our
+     * server returns the real artwork. Without this the admin grids fill with adverts and the
+     * catalogue cannot be reviewed at all.
+     *
+     * Only for admin surfaces. Public pages keep hotlinking, since a viewer's browser is served the
+     * real image, and proxying tens of thousands of covers would put that traffic on our own box.
+     */
+    public static function adminPoster(?string $url): ?string
+    {
+        $url = trim((string) $url);
+        if ($url === '') {
+            return null;
+        }
+        if (! str_starts_with($url, 'http')) {
+            return $url;   // relative → our own disk
+        }
+
+        $host = parse_url($url, PHP_URL_HOST) ?: '';
+        $ours = parse_url((string) config('app.url'), PHP_URL_HOST) ?: '';
+        if ($host !== '' && $ours !== '' && str_contains($host, $ours)) {
+            return $url;   // already ours
+        }
+
+        return route('admin.img-proxy', ['url' => $url]);
+    }
+
     public static function encodePath(string $url): string
     {
         $parts = parse_url($url);
