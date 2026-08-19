@@ -128,6 +128,10 @@ class MirrorProbe
             return ['bytes' => null, 'seconds' => null, 'kind' => 'mp4', 'error' => 'ต่อไม่ติด: '.mb_substr($e->getMessage(), 0, 100)];
         }
 
+        if (! $resp->successful()) {
+            return ['bytes' => null, 'seconds' => null, 'kind' => 'mp4', 'error' => 'ต้นทางตอบ HTTP '.$resp->status()];
+        }
+
         // 206 + Content-Range is the reliable answer; a 200 means the server ignored the range, in
         // which case Content-Length is the whole file and equally usable.
         $range = $resp->header('Content-Range');
@@ -232,6 +236,14 @@ class MirrorProbe
         } catch (Throwable) {
             return null;
         }
+
+        // A 404 page carries a Content-Range too. hd432's segments were being fetched at a wrong URL,
+        // and the error page's "bytes 0-0/1170" was read as the segment size — which is how a feature
+        // film came out at 1.4 MB. Nothing about a failed response is a measurement.
+        if (! $resp->successful()) {
+            return null;
+        }
+
         $range = $resp->header('Content-Range');
         if ($range && preg_match('~/(\d+)$~', $range, $m)) {
             return (int) $m[1];
@@ -274,6 +286,14 @@ class MirrorProbe
             return $line;
         }
         $parts = parse_url($base);
+
+        // Protocol-relative ("//host/path") points at a DIFFERENT host and must inherit only the
+        // scheme. Treating it as a path — as this did — silently rewrote hd432's segments onto the
+        // manifest's host and every fetch 404'd.
+        if (str_starts_with($line, '//')) {
+            return ($parts['scheme'] ?? 'https').':'.$line;
+        }
+
         $root = ($parts['scheme'] ?? 'https').'://'.($parts['host'] ?? '').(isset($parts['port']) ? ':'.$parts['port'] : '');
         if (str_starts_with($line, '/')) {
             return $root.$line;
