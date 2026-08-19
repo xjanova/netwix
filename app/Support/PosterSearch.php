@@ -26,8 +26,24 @@ use App\Services\Import\SourceRegistry;
  */
 class PosterSearch
 {
-    /** Below this the titles simply aren't the same film — don't waste a row on it. */
-    public const MIN_SCORE = 0.45;
+    /**
+     * Below this the titles simply aren't the same film.
+     *
+     * Raised from 0.45 to 0.85 on 2026-08-19 after the first real run on prod: `similar_text` over
+     * Thai text is far more generous than it looks, because [Content::dedupeKey] strips the spaces and
+     * Thai shares vowel and tone marks everywhere, so two unrelated films collect a lot of common
+     * characters. At 0.45 the admin was being offered "Child's Play แค้นฝังหุ่น" (the Chucky film) as
+     * the cover for "แค้นฝังรัก" (a Chinese drama) at 0.70, and "Her Blue Sky" for
+     * "ห้องลับส่วนตัวของท่านประธาน" at 0.56.
+     *
+     * The measured gap is wide and unambiguous — every genuinely correct match on that run scored
+     * 0.90-0.94 (Gemini 0.94, The Untamed 0.90, Flying Up 0.93, My Heroic Husband 0.94) while every
+     * wrong one topped out at 0.78. 0.85 sits in the empty middle.
+     *
+     * Showing nothing is the right answer when nothing matches: the admin uploads a cover by hand in
+     * seconds, whereas a plausible-looking wrong cover gets clicked and silently corrupts the title.
+     */
+    public const MIN_SCORE = 0.85;
 
     /** At or above this the normalised titles agree well enough to apply without a human looking. */
     public const AUTO_SCORE = 0.92;

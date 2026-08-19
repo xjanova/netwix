@@ -127,10 +127,14 @@ class RongYokSource implements MediaSource, SearchesPosters
             return $total;
         }
 
-        // The grid is newest-first too, so its first pages repeat what the homepage just gave us.
-        // Walking them anyway (and skipping by id) costs a handful of requests on a full sweep and is
-        // safer than assuming a fixed overlap that a layout change would silently invalidate.
-        for ($page = 1; $page <= self::GRID_MAX_PAGES; $page++) {
+        // The grid is newest-first too, so the pages the homepage already covered are pure repeats.
+        // Start just inside that overlap rather than at page 1: walking them cost ten requests and ten
+        // seconds during which no batch was emitted, so the admin's progress counter sat still and the
+        // "หยุด" button — which is only checked when a batch is emitted — did not respond either.
+        // One page of deliberate overlap absorbs anything published between the two requests.
+        $from = max(1, (int) floor(count($newest) / self::GRID_PAGE_SIZE));
+
+        for ($page = $from; $page <= self::GRID_MAX_PAGES; $page++) {
             if ($page > 1) {
                 usleep(self::GRID_SLEEP_US);
             }
@@ -155,10 +159,13 @@ class RongYokSource implements MediaSource, SearchesPosters
                     $batch[] = $s;
                 }
             }
-            if ($batch !== []) {
-                $onBatch($batch);
-                $total += count($batch);
-            }
+            // Emit EVERY page, even one that turned out to be all repeats. The caller's callback is
+            // what refreshes the admin's progress and what checks the stop flag ([App\Jobs\
+            // SyncCatalogJob]), so staying silent through a run of repeat pages looks exactly like a
+            // hung sync and leaves "หยุด" unanswered until the next page with something new on it.
+            $onBatch($batch);
+            $total += count($batch);
+
             if ($total >= $budget) {
                 break;
             }
@@ -509,17 +516,15 @@ class RongYokSource implements MediaSource, SearchesPosters
     /**
      * Look a title up by NAME on rongyok (see [SearchesPosters]).
      *
-     * rongyok is not WordPress and has no search route to call — but it does something better: the
-     * whole catalogue, with a poster URL per title, comes down in ONE request as the `seriesData`
-     * literal embedded in /category?category=all (the same page [self::fetchCatalog] reads). So the
-     * search is a local scan over that, and it is cached, because one lookup and forty lookups should
-     * cost the same single request.
+     * rongyok is not WordPress and has no search route to call, so the search is a local scan over the
+     * newest titles, cached — one lookup and forty lookups should cost the same single request.
      *
-     * ⚠️ As of 2026-08-19 this returns nothing in production: rongyok answers our server with its own
-     * branded block page ("ขออภัย คุณถูกบล็อก · โรงหยก", HTTP 403 through Cloudflare) and has since
-     * ~2026-08-06, which is also why its catalogue stopped syncing. The code is here so it starts
-     * working the moment access comes back; meanwhile rongyok covers are still reachable through the
-     * catalogue mirror layer of [App\Support\PosterSearch], which needs no access to the site at all.
+     * Deliberately scoped to the NEWEST titles rather than the whole catalogue. The full sweep is 93
+     * paginated requests (see [self::fetchCatalog]) which is far too heavy to run behind an admin
+     * clicking "หาปก", and it would be redundant: everything already synced is in `source_titles`, and
+     * [App\Support\PosterSearch] searches that mirror first without touching the network at all. What
+     * the mirror CANNOT know about is a title added since the last sync — which is exactly what this
+     * covers.
      *
      * @return PosterCandidate[]
      */
@@ -556,27 +561,15 @@ class RongYokSource implements MediaSource, SearchesPosters
      */
     private function catalogueIndex(): array
     {
-        return Cache::remember('rongyok:poster-index', now()->addMinutes(30), function (): array {
-            try {
-                $html = $this->http()->get(self::BASE.'/category', ['category' => 'all'])->body();
-            } catch (\Throwable) {
-                return [];
-            }
-            $json = JsonExtract::catalogArray($html);
-            $arr = $json ? json_decode($json, true) : null;
-            if (! is_array($arr)) {
-                return [];
-            }
-
+        // v2 key: the old one was filled from /category?category=all, which the site turned into an
+        // empty shell — a cached [] from that page would otherwise keep answering "not found" for half
+        // an hour after this fix shipped.
+        return Cache::remember('rongyok:poster-index:v2', now()->addMinutes(30), function (): array {
             $index = [];
-            foreach ($arr as $el) {
-                if (! is_array($el)) {
-                    continue;
-                }
-                $name = trim((string) ($el['title'] ?? ''));
-                // jpg_url is the display cover; poster_url is the Thai-named original. Either works.
-                $poster = $this->abs((string) ($el['jpg_url'] ?? '')) ?? $this->abs((string) ($el['poster_url'] ?? ''));
-                if ($name !== '' && $poster !== null) {
+            foreach ($this->fetchNewest() as $s) {
+                $name = trim($s->title);
+                $poster = (string) $s->posterUrl;
+                if ($name !== '' && $poster !== '') {
                     $index[] = [$name, $poster];
                 }
             }
