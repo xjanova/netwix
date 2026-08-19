@@ -45,7 +45,7 @@ class ForeignWatermark
      *
      * @return array{white:float,orange:float}|null
      */
-    public static function measure(string $absolutePath): ?array
+    public static function measure(string $absolutePath, ?float $from = null, ?float $to = null): ?array
     {
         if (! is_readable($absolutePath)) {
             return null;
@@ -57,14 +57,16 @@ class ForeignWatermark
 
         $w = imagesx($img);
         $h = imagesy($img);
-        $y0 = (int) ($h * (1 - self::BAND));
+        // Defaults to the bottom band; an explicit range lets the caller ask about the middle.
+        $y0 = (int) ($h * ($from ?? (1 - self::BAND)));
+        $yEnd = (int) ($h * ($to ?? 1.0));
         $white = 0;
         $orange = 0;
         $n = 0;
 
         // Every other pixel in both directions — a quarter of the work, and the mark is far larger
         // than the sampling step.
-        for ($y = $y0; $y < $h; $y += 2) {
+        for ($y = $y0; $y < $yEnd; $y += 2) {
             for ($x = 0; $x < $w; $x += 2) {
                 $rgb = imagecolorat($img, $x, $y);
                 $r = ($rgb >> 16) & 0xFF;
@@ -84,15 +86,29 @@ class ForeignWatermark
         return $n > 0 ? ['white' => $white / $n, 'orange' => $orange / $n] : null;
     }
 
-    /** True when the cover carries goseries4k's mark, judged conservatively. */
+    /** True when the cover carries goseries4k's mark along the bottom edge. */
     public static function detected(string $absolutePath): bool
     {
-        $s = self::measure($absolutePath);
-        if ($s === null) {
-            return false;
-        }
+        return self::inBand(self::measure($absolutePath));
+    }
 
-        return $s['orange'] >= self::ORANGE_MIN && $s['orange'] <= self::ORANGE_MAX
+    /**
+     * True when the mark sits over the MIDDLE of the artwork rather than the edge.
+     *
+     * This is the distinction that decides what can be done about it: an edge mark comes off with a
+     * trim, but one across the middle is over the faces, and the only honest fix is a different
+     * cover. Measured independently, roughly one in eight marked goseries4k covers is this kind.
+     */
+    public static function detectedInMiddle(string $absolutePath): bool
+    {
+        return self::inBand(self::measure($absolutePath, 0.30, 0.75));
+    }
+
+    /** @param array{white:float,orange:float}|null $s */
+    private static function inBand(?array $s): bool
+    {
+        return $s !== null
+            && $s['orange'] >= self::ORANGE_MIN && $s['orange'] <= self::ORANGE_MAX
             && $s['white'] >= self::WHITE_MIN && $s['white'] <= self::WHITE_MAX;
     }
 }
