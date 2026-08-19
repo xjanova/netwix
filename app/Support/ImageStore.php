@@ -29,7 +29,7 @@ class ImageStore
      * Decode image bytes, downscale to $maxDim on the long side, and save as WebP on the public disk.
      * Returns the relative path (e.g. "media/thumbs/12.webp") or null if the bytes aren't an image.
      */
-    public static function putWebp(string $bytes, string $dir, string $basename, int $maxDim = 1600, int $quality = 82): ?string
+    public static function putWebp(string $bytes, string $dir, string $basename, int $maxDim = 1600, int $quality = 82, bool $watermark = false): ?string
     {
         $dir = trim($dir, '/');
         if (! function_exists('imagecreatefromstring')) {
@@ -40,6 +40,14 @@ class ImageStore
             return null;   // not a decodable image
         }
         $img = self::downscale($img, $maxDim);
+
+        // Brand the cover AFTER downscaling, so the mark is sized against the image we actually keep
+        // rather than the original — and before encoding, so it becomes part of the stored pixels.
+        // Only ever for covers the caller asked to brand: episode thumbnails and marketing clips go
+        // through here too and must stay clean.
+        if ($watermark && PosterWatermark::enabled()) {
+            PosterWatermark::apply($img);
+        }
 
         if (! function_exists('imagewebp')) {
             imagedestroy($img);
@@ -101,10 +109,16 @@ class ImageStore
      * stale image. Pass the currently-stored value (relative path or a full URL) as $previous so the
      * old file is cleaned up. Returns the relative path to store, or null on failure.
      */
-    public static function putCover(string $bytes, string $dir, string $basename, ?string $previous = null, int $maxDim = 1600, int $quality = 82): ?string
+    public static function putCover(string $bytes, string $dir, string $basename, ?string $previous = null, int $maxDim = 1600, int $quality = 82, ?bool $watermark = null): ?string
     {
+        // Decide from the destination unless told otherwise. Every caller storing a title cover
+        // targets media/posters and every caller storing an episode still targets media/thumbs, so
+        // reading the intent off the path means a new cover route cannot forget to brand itself —
+        // and a thumbnail route cannot accidentally start.
+        $watermark ??= str_starts_with(trim($dir, '/'), 'media/posters');
+
         $version = bin2hex(random_bytes(4));   // 8 hex chars — unique per (re)generation
-        $path = self::putWebp($bytes, $dir, "{$basename}-{$version}", $maxDim, $quality);
+        $path = self::putWebp($bytes, $dir, "{$basename}-{$version}", $maxDim, $quality, $watermark);
         if ($path !== null && $previous !== null && $previous !== '') {
             self::deleteStored($previous, $dir);
         }
