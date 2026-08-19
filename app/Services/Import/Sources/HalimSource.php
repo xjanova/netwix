@@ -90,6 +90,27 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
         ])->timeout(60)->retry(2, 400);
     }
 
+    /**
+     * The client for `/wp-json/*` ONLY — same as [self::http] but with the ALPN extension left out of
+     * the TLS ClientHello.
+     *
+     * 24-hdx's WordPress layer sits behind a Cloudflare managed challenge that answers every REST
+     * request with 403 "Just a moment…", which is why the catalogue was pushed onto the RSS fallback
+     * (5 posts a page instead of 100) and why [self::search] — the lookup [App\Support\BackupFinder]
+     * uses to re-source a dead title — silently returned nothing. Measured 2026-08-19: omitting ALPN
+     * gets straight through. `?per_page=3` answered `200 application/json` with a post dated that same
+     * morning, so the catalogue had never been stale; only our way in was.
+     *
+     * Deliberately NOT applied to [self::http]. Everything else on these sites works today — the
+     * player ajax on the api.24-hds.com alias, the HLS host, the RSS feed, the title pages — and a
+     * TLS-level change to paths that are already fine is risk with no upside. See
+     * [App\Services\Import\Sources\RongYokSource::http] for the full diagnosis of this class of block.
+     */
+    private function restHttp(): PendingRequest
+    {
+        return $this->http()->withOptions(['curl' => [CURLOPT_SSL_ENABLE_ALPN => false]]);
+    }
+
     public function fetchCatalog(callable $onBatch, int $maxPages = 100): int
     {
         $cats = $this->fetchCategoryMap();   // id => ['name','slug'], best-effort
@@ -97,7 +118,7 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
 
         for ($page = 1; $page <= $maxPages; $page++) {
             try {
-                $resp = $this->http()->get($this->config->base.'/wp-json/wp/v2/posts', [
+                $resp = $this->restHttp()->get($this->config->base.'/wp-json/wp/v2/posts', [
                     'per_page' => 100,
                     'page' => $page,
                     '_fields' => 'id,slug,title,featured_media,categories,date',
@@ -295,7 +316,7 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
             return [];
         }
         try {
-            $resp = $this->http()->get($this->config->base.'/wp-json/wp/v2/posts', [
+            $resp = $this->restHttp()->get($this->config->base.'/wp-json/wp/v2/posts', [
                 'search' => $query,
                 'per_page' => max(1, min(20, $limit)),
                 '_fields' => 'id,slug,title,featured_media,categories,date',
@@ -445,7 +466,7 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
     {
         $map = [];
         try {
-            $json = $this->http()->get($this->config->base.'/wp-json/wp/v2/categories', [
+            $json = $this->restHttp()->get($this->config->base.'/wp-json/wp/v2/categories', [
                 'per_page' => 100,
                 '_fields' => 'id,name,slug',
             ])->json();
@@ -471,7 +492,7 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
     {
         $map = [];
         try {
-            $json = $this->http()->get($this->config->base.'/wp-json/wp/v2/media', [
+            $json = $this->restHttp()->get($this->config->base.'/wp-json/wp/v2/media', [
                 'include' => implode(',', $mediaIds),
                 'per_page' => 100,
                 '_fields' => 'id,source_url',

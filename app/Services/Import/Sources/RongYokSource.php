@@ -81,29 +81,202 @@ class RongYokSource implements MediaSource, SearchesPosters
             ->timeout(60)->retry(2, 400);
     }
 
+    /** Titles per page of the /category/all/page/N/ grid (fixed by the site — per_page is ignored). */
+    private const GRID_PAGE_SIZE = 30;
+
+    /** Ceiling on the sweep so a layout change can't turn it into an endless crawl (93 pages today). */
+    private const GRID_MAX_PAGES = 250;
+
+    /** rongyok's robots.txt asks Crawl-delay: 1 — honour it. */
+    private const GRID_SLEEP_US = 1_000_000;
+
+    /**
+     * Two ways in, cheapest first.
+     *
+     * The old single-request catalogue is gone: `/category?category=all` used to embed the whole
+     * `seriesData = [...]` literal and now serves a 6 KB shell with no data in it at all, which is why
+     * this returned 0 titles and the sync died quietly. What replaced it is a server-rendered grid at
+     * `/category/all/page/{N}/`, 30 cards a page, 404 past the end (93 pages ≈ 2,783 titles on
+     * 2026-08-19).
+     *
+     * The homepage still carries a `seriesData` array, but only the newest 300 — and it is the ONLY
+     * place that still exposes `view_count` and `created_at`, which the grid does not render. So the
+     * newest 300 come from there in one request, and the grid supplies everything older.
+     *
+     * $maxPages is honoured as a number of TITLES, not pages: callers budget it in WP-REST terms where
+     * a page is 100 posts (netwix:auto-import asks for "4 pages of newest releases"), and taking it
+     * literally against a 30-card grid would quietly shrink that by more than half — the same trap
+     * that shrank 24-hdx's RSS window (see [HalimSource::fetchCatalogViaRss]).
+     */
     public function fetchCatalog(callable $onBatch, int $maxPages = 100): int
     {
-        $html = $this->http()->get(self::BASE.'/category', ['category' => 'all'])->body();
-        $json = JsonExtract::catalogArray($html);
-        if (! $json) {
-            return 0;
+        $budget = max(1, $maxPages) * 100;
+
+        $seen = [];
+        $total = 0;
+
+        $newest = $this->fetchNewest();
+        foreach ($newest as $s) {
+            $seen[$s->sourceKey] = true;
         }
-        $arr = json_decode($json, true);
-        if (! is_array($arr)) {
-            return 0;
+        if ($newest !== []) {
+            $onBatch($newest);
+            $total = count($newest);
+        }
+        if ($total >= $budget) {
+            return $total;
         }
 
-        $batch = [];
-        foreach ($arr as $el) {
-            if (is_array($el) && ($s = $this->parseSeries($el))) {
-                $batch[] = $s;
+        // The grid is newest-first too, so its first pages repeat what the homepage just gave us.
+        // Walking them anyway (and skipping by id) costs a handful of requests on a full sweep and is
+        // safer than assuming a fixed overlap that a layout change would silently invalidate.
+        for ($page = 1; $page <= self::GRID_MAX_PAGES; $page++) {
+            if ($page > 1) {
+                usleep(self::GRID_SLEEP_US);
+            }
+            try {
+                $resp = $this->http()->get(self::BASE."/category/all/page/{$page}/");
+            } catch (\Throwable) {
+                break;   // network trouble — keep whatever is already synced
+            }
+            if (! $resp->ok()) {
+                break;   // 404 = walked off the end
+            }
+
+            $cards = $this->parseGrid($resp->body());
+            if ($cards === []) {
+                break;   // an empty page means the end, or a layout change we must not loop over
+            }
+
+            $batch = [];
+            foreach ($cards as $s) {
+                if (! isset($seen[$s->sourceKey])) {
+                    $seen[$s->sourceKey] = true;
+                    $batch[] = $s;
+                }
+            }
+            if ($batch !== []) {
+                $onBatch($batch);
+                $total += count($batch);
+            }
+            if ($total >= $budget) {
+                break;
             }
         }
-        if ($batch) {
-            $onBatch($batch);
+
+        return $total;
+    }
+
+    /**
+     * The newest ~300 titles from the homepage's `seriesData` literal — one request, and the only
+     * source that still carries view_count / created_at.
+     *
+     * @return RemoteSeries[]
+     */
+    private function fetchNewest(): array
+    {
+        try {
+            $html = $this->http()->get(self::BASE.'/')->body();
+        } catch (\Throwable) {
+            return [];
+        }
+        $json = JsonExtract::catalogArray($html);
+        $arr = $json ? json_decode($json, true) : null;
+        if (! is_array($arr)) {
+            return [];
         }
 
-        return count($batch);
+        $out = [];
+        foreach ($arr as $el) {
+            if (is_array($el) && ($s = $this->parseSeries($el))) {
+                $out[] = $s;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Parse one grid page into titles.
+     *
+     * Each card is flat markup (verified against the live page 2026-08-19):
+     *   <div class="movie-card"><a href="/series/8599/">
+     *     <div …><img src="/images/poster/รักสวยตามเวลา-พากย์ไทย-2026-8599.webp" alt="รักสวยตามเวลา" …>
+     *     <div class="lang-badge dub" …>พากย์ไทย</div></div>
+     *     <div class="movie-tag">รักสวยตามเวลา</div></a></div>
+     *
+     * Split on the card class and match each field separately rather than with one long pattern, so a
+     * reordered attribute or an added wrapper costs a field instead of the whole page. The `lang-badge`
+     * is worth having on its own: it states dub vs sub outright, which `seriesData` never did — that
+     * had to be guessed from the poster filename.
+     *
+     * @return RemoteSeries[]
+     */
+    private function parseGrid(string $html): array
+    {
+        $chunks = preg_split('~<div class="movie-card"~', $html);
+        if ($chunks === false || count($chunks) < 2) {
+            return [];
+        }
+        array_shift($chunks);   // everything before the first card
+
+        $out = [];
+        foreach ($chunks as $card) {
+            if (! preg_match('~href="/series/(\d+)/?"~', $card, $m)) {
+                continue;
+            }
+            $id = $m[1];
+
+            if (! preg_match('~<img[^>]+src="([^"]+)"~i', $card, $mi)) {
+                continue;
+            }
+            $poster = html_entity_decode($mi[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            // The theme points a broken cover at its own placeholder — that is not a poster.
+            if (str_contains($poster, 'no-image')) {
+                $poster = '';
+            }
+
+            $title = preg_match('~<div class="movie-tag"[^>]*>([^<]+)<~u', $card, $mt)
+                ? trim(html_entity_decode($mt[1], ENT_QUOTES | ENT_HTML5, 'UTF-8'))
+                : (preg_match('~<img[^>]+alt="([^"]*)"~i', $card, $ma)
+                    ? trim(html_entity_decode($ma[1], ENT_QUOTES | ENT_HTML5, 'UTF-8'))
+                    : '');
+            if ($title === '') {
+                continue;
+            }
+
+            $badge = preg_match('~class="lang-badge\s+(dub|sub)~i', $card, $mb) ? strtolower($mb[1]) : null;
+
+            $out[] = $this->seriesFromCard($id, $title, $poster, $badge);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Build a RemoteSeries from one grid card. The poster filename is still the best source of the
+     * clean title and year (see [self::parseSeries]); the badge overrides its language guess because
+     * the site states that outright. view_count is deliberately 0 — the grid does not render it, and
+     * [self::fetchNewest] is where a real figure comes from.
+     */
+    private function seriesFromCard(string $id, string $rawTitle, string $poster, ?string $badge): RemoteSeries
+    {
+        [$clean, $year, $dub] = $this->fromPosterName($poster);
+
+        if ($badge !== null) {
+            $dub = $badge === 'dub' ? 'thai_dub' : 'thai_sub';
+        }
+
+        return new RemoteSeries(
+            source: 'rongyok',
+            sourceKey: $id,
+            title: $rawTitle,
+            cleanTitle: $clean ?: $this->cleanTitle($rawTitle),
+            posterUrl: $this->abs($poster),
+            year: $year,
+            dubType: $dub ?? $this->detectDub($poster.$rawTitle),
+            extra: ['poster_url' => $this->abs($poster)],
+        );
     }
 
     private function parseSeries(array $el): ?RemoteSeries
@@ -116,16 +289,8 @@ class RongYokSource implements MediaSource, SearchesPosters
         $posterRel = (string) ($el['poster_url'] ?? '');
         $jpgRel = (string) ($el['jpg_url'] ?? '');
 
-        $clean = null;
-        $year = null;
-        $dub = null;
-
-        // Poster filename is the most reliable source of clean title / language / year.
-        if (preg_match('~poster/(?<title>.+?)-(?<type>พากย์ไทย|ซับไทย)-(?<year>\d{4})-(?<id>\d+)\.~u', $posterRel, $m)) {
-            $clean = rawurldecode($m['title']);
-            $dub = $m['type'] === 'พากย์ไทย' ? 'thai_dub' : 'thai_sub';
-            $year = (int) $m['year'];
-        } else {
+        [$clean, $year, $dub] = $this->fromPosterName($posterRel);
+        if ($dub === null) {
             $dub = $this->detectDub($posterRel.$rawTitle);
         }
         if (! $clean) {
@@ -144,6 +309,42 @@ class RongYokSource implements MediaSource, SearchesPosters
             viewCount: (int) ($el['view_count'] ?? 0),
             extra: ['poster_url' => $this->abs($posterRel)],
         );
+    }
+
+    /**
+     * Read the clean title, year and language out of a poster filename — still the most reliable
+     * source for all three, because the displayed title carries the site's own tags.
+     *
+     * Two formats live side by side. The original ends in the numeric series id
+     * (`…-พากย์ไทย-2026-8599.webp`) and is what all 2,665 of our stored rows use; newer uploads end in
+     * an 8-character hex hash instead (`…-พากย์ไทย-2026-71a0287d.webp`), which the old id-only pattern
+     * could not match. The language tag is optional too — a title without it still yields a usable
+     * clean title and year rather than nothing.
+     *
+     * @return array{0:?string,1:?int,2:?string} [cleanTitle, year, dubType] — any of them null
+     */
+    private function fromPosterName(string $posterRel): array
+    {
+        if ($posterRel === '') {
+            return [null, null, null];
+        }
+
+        $re = '~poster/(?<title>.+?)'
+            .'(?:-(?<type>พากย์ไทย|ซับไทย))?'
+            .'-(?<year>\d{4})'
+            .'-(?:\d+|[0-9a-f]{6,12})\.~u';
+
+        if (! preg_match($re, $posterRel, $m)) {
+            return [null, null, null];
+        }
+
+        $dub = match ($m['type'] ?? '') {
+            'พากย์ไทย' => 'thai_dub',
+            'ซับไทย' => 'thai_sub',
+            default => null,
+        };
+
+        return [rawurldecode($m['title']), (int) $m['year'], $dub];
     }
 
     private function detectDub(string $t): ?string
