@@ -11,6 +11,7 @@ use App\Support\SafeUrl;
 use App\Support\SiteSearchScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 /**
@@ -204,7 +205,11 @@ class CoverController extends Controller
 
                 continue;
             }
-            $content->forceFill(['cover_missing_at' => now()])->save();
+            // Query builder, not a model save — flagging a cover as unrecoverable must not bump
+            // `updated_at`, which [SitemapController] publishes as the title's <lastmod>. Nothing
+            // about the page changed; we only learned something about it. Same reason as in
+            // [App\Http\Controllers\PosterHealController].
+            DB::table('contents')->where('id', $content->id)->update(['cover_missing_at' => now()]);
             $dead++;
         }
 
