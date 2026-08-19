@@ -134,7 +134,7 @@ window.importer = () => ({
                 const d = r.ok ? await r.json() : null;
                 this.pvLoading = false;
                 if (d && d.ready && d.url && d.kind === 'embed') { this.pvEmbed = d.url; }   // 9nung/abyss → iframe
-                else if (d && d.ready && d.url) { window.nxAttachVideo(v, d.url); v.play?.().catch(() => {}); }
+                else if (d && d.ready && d.url) { window.nxAttachVideo(v, d.url, null, d.kind); v.play?.().catch(() => {}); }
                 else { this.pvError = true; }
             } catch (e) { this.pvLoading = false; this.pvError = true; }
         });

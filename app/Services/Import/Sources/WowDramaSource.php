@@ -300,16 +300,41 @@ class WowDramaSource implements MediaSource, ProvidesSynopsis, SearchesPosters
         $html = $this->http()->get(self::BASE.'/'.$series->sourceKey.'/')->body();
 
         $out = [];
-        // Whitespace-tolerant on purpose. The theme emits a NEWLINE between the tag name and its
-        // attributes — "<button\nclass=\"mp-ep-btn mp-active\" data-id=\"91643\">" — so the old
-        // literal '<button class="mp-ep-btn' stopped matching anything the day the site's markup
-        // changed. It failed silently: zero episodes for EVERY wow-drama title, so new imports
-        // arrived as empty shells and netwix:refresh-episodes found nothing to add.
-        if (preg_match_all('~<button[^>]*class="[^"]*mp-ep-btn[^"]*"[^>]*data-id="(\d+)"~s', $html, $m)) {
-            foreach ($m[1] as $i => $postId) {
-                $out[] = ['number' => $i + 1, 'ref' => (string) $postId];
+
+        // This has now broken twice from the same cause — the theme reskins and a literal selector
+        // stops matching, silently. First it was a newline between the tag name and its attributes;
+        // by 2026-08-19 the whole element had changed shape:
+        //     was  <button class="mp-ep-btn mp-active" data-id="91643">
+        //     now  <div class="miru-ep-btn" data-ep-id="102400" title="… ตอนที่01">
+        // Every part a selector could hang on moved at once: the tag, the class prefix and the
+        // attribute name. Zero episodes came back for EVERY wow-drama title, which is invisible from
+        // the outside — new imports arrive as empty shells and netwix:refresh-episodes finds nothing.
+        //
+        // So match on the ONE thing that has survived both reskins — a class ending in "ep-btn" — and
+        // read the id out of the element in a second pass, accepting either attribute name. Nothing
+        // here depends on the tag or on attribute order.
+        if (preg_match_all('~<[a-z]+[^>]*class="[^"]*\bep-btn[^"]*"[^>]*>~si', $html, $m)) {
+            $seen = [];
+            foreach ($m[0] as $i => $el) {
+                if (! preg_match('~\bdata-(?:ep-)?id="(\d+)"~i', $el, $idm)) {
+                    continue;
+                }
+                $ref = $idm[1];
+                if (isset($seen[$ref])) {
+                    continue;   // the active episode is often rendered twice (list + header)
+                }
+                $seen[$ref] = true;
+
+                // Prefer the episode number the site states in the title ("… ตอนที่01") over our own
+                // position in the list — a reordered or partially rendered list would otherwise
+                // renumber every episode of the series.
+                $number = preg_match('~ตอนที่\s*0*(\d+)~u', $el, $nm) ? (int) $nm[1] : count($out) + 1;
+
+                $out[] = ['number' => $number, 'ref' => (string) $ref];
             }
         }
+
+        usort($out, fn ($a, $b) => $a['number'] <=> $b['number']);
 
         return $out;
     }

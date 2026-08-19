@@ -104,7 +104,7 @@ window.nxPreviewLoop = function (v, seconds = 18) {
  * Attach an HLS (.m3u8) or progressive source to a <video> element.
  * Lazily loads hls.js only when an .m3u8 needs it.
  */
-window.nxAttachVideo = async function (video, src, reportUrl = null) {
+window.nxAttachVideo = async function (video, src, reportUrl = null, kind = null) {
     if (!video || !src) return;
 
     // Report playback health once per attach — the server auto-suspends a title once enough distinct
@@ -120,7 +120,13 @@ window.nxAttachVideo = async function (video, src, reportUrl = null) {
     // don't pile up and leak.
     if (video._nxHls) { try { video._nxHls.destroy(); } catch (e) {} video._nxHls = null; }
 
-    const isHls = /\.m3u8($|\?)/i.test(src);
+    // Trust an explicit kind over guessing from the URL. The admin QA player streams through
+    // /admin/preview/manifest?u=…&r=…, which carries no ".m3u8" anywhere the old test could see — and
+    // two upstreams (goseries4k, wowdrama) don't contain the string at all, their manifests live at
+    // /api/stream/<id>. So every HLS source silently fell to the progressive branch, which set
+    // video.src to a manifest Chrome and Firefox cannot play: a black player with no error, for six of
+    // the nine sources. Safari hid it by playing HLS natively.
+    const isHls = kind === 'hls' || /\.m3u8($|\?)/i.test(src);
     if (isHls) {
         // Prefer hls.js wherever it's supported. Chrome/Firefox return canPlayType('…mpegurl') ===
         // 'maybe' but CANNOT actually play HLS natively — so never gate on canPlayType (that made the

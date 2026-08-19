@@ -133,7 +133,7 @@
                             if (d && d.ready && d.url && d.kind === 'embed') {
                                 this.embedUrl = d.url;   // 9nung/abyss → sandboxed iframe (no frame-capture)
                             } else if (d && d.ready && d.url) {
-                                window.nxAttachVideo ? window.nxAttachVideo(v, d.url) : (v.src = d.url);
+                                window.nxAttachVideo ? window.nxAttachVideo(v, d.url, null, d.kind) : (v.src = d.url);
                                 v.play?.().catch(() => {});
                             } else {
                                 this.playError = true;
