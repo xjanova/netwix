@@ -583,8 +583,19 @@ window.syncer = () => ({
                            class="imp-cb absolute left-2 top-2 z-10 h-5 w-5 accent-brand">
                     <div class="relative aspect-[2/3] overflow-hidden rounded-lg ring-1 ring-white/10 transition group-hover:ring-2 group-hover:ring-brand"
                          style="background:linear-gradient(160deg,#1c1626,#120e1a)">
-                        @if ($t->poster_url)
-                            <img src="{{ $t->poster_url }}" alt="" loading="lazy" referrerpolicy="no-referrer"
+                        {{-- Prefer OUR stored cover over the source's.
+
+                             rongyok started answering hotlinked poster requests with a green
+                             "rongyok.com ดูฟรีเต็มๆ" advert instead of the artwork (2026-08-19), so this
+                             grid — the one an admin checks work against — filled up with identical
+                             adverts and became unreadable. Every already-imported title has the real
+                             cover on our own disk, so use that: it reads correctly, it loads from our
+                             CDN, and it stops handing a rival site free impressions inside our admin.
+                             A not-yet-imported title has no local copy, so it still falls back to the
+                             source URL. --}}
+                        @php($cover = $t->content?->poster_url ?: $t->poster_url)
+                        @if ($cover)
+                            <img src="{{ $cover }}" alt="" loading="lazy" referrerpolicy="no-referrer"
                                  class="absolute inset-0 h-full w-full object-cover"
                                  onerror="this.style.display='none'">
                         @endif

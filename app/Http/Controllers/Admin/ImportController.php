@@ -31,7 +31,10 @@ class ImportController extends Controller
         $q = trim((string) $request->query('q', ''));
         $filter = $request->query('filter', 'all'); // all | new | imported
 
+        // Eager-load the imported title so the grid can show OUR stored cover instead of hotlinking the
+        // source's — see the <img> in the view for why that matters.
         $titles = SourceTitle::where('source', $sourceId)
+            ->with('content:id,poster_path,slug,title')
             ->when($q !== '', fn ($w) => $w->where(fn ($x) => $x->where('clean_title', 'like', "%{$q}%")->orWhere('title', 'like', "%{$q}%")))
             ->when($filter === 'new', fn ($w) => $w->notImported())
             ->when($filter === 'imported', fn ($w) => $w->imported())
