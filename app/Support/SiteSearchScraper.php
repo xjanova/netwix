@@ -94,12 +94,28 @@ class SiteSearchScraper
      */
     public static function searchWordPress(PendingRequest $http, string $base, string $title, int $limit = 8): array
     {
+        return self::searchAt($http, $base, rtrim($base, '/').'/', 's', $title, $limit);
+    }
+
+    /**
+     * Same, for a site whose search is NOT WordPress's own "?s=".
+     *
+     * Themes move it: the Halim sites (24-hdx, anime108) search at `/search_movie/?keyword=…` and
+     * their `?s=` is cached to an empty 200, so calling the wrong one returns silence rather than an
+     * error. The trailing slash on the path matters there too — without it the site 301s.
+     *
+     * @param  string  $url  absolute search URL
+     * @param  string  $param  query parameter carrying the search text
+     * @return PosterCandidate[]
+     */
+    public static function searchAt(PendingRequest $http, string $base, string $url, string $param, string $title, int $limit = 8): array
+    {
         $title = trim($title);
         if ($title === '') {
             return [];
         }
         try {
-            $resp = $http->get(rtrim($base, '/').'/', ['s' => $title]);
+            $resp = $http->get($url, [$param => $title]);
         } catch (\Throwable) {
             return [];
         }

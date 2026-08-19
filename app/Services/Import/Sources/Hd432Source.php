@@ -6,11 +6,15 @@ use App\Services\Import\Contracts\BackupPoolSource;
 use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesPoster;
 use App\Services\Import\Contracts\ProvidesSynopsis;
+use App\Services\Import\Contracts\SearchesPosters;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\PosterCandidate;
 use App\Support\PosterScraper;
+use App\Support\PosterSearch;
 use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -33,9 +37,10 @@ use Illuminate\Support\Facades\Http;
  *
  * No live search (the site's ?s= is cached to an empty body), so hd432 can't be matched by the
  * search-based [App\Support\BackupFinder]; it takes part in failover through [App\Models\ContentMirror],
- * which pairs duplicate titles from NetWix's own catalogue instead.
+ * which pairs duplicate titles from NetWix's own catalogue instead. For finding a COVER by name there
+ * is a way round it — the sitemap slugs carry the film's Latin title — see [self::searchPosters].
  */
-class Hd432Source implements BackupPoolSource, MediaSource, ProvidesPoster, ProvidesSynopsis
+class Hd432Source implements BackupPoolSource, MediaSource, ProvidesPoster, ProvidesSynopsis, SearchesPosters
 {
     public const BASE = 'https://hd432.com';
 
@@ -339,6 +344,77 @@ class Hd432Source implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
         $html = $this->fetchTitlePage($series->sourceKey);
 
         return $html !== null ? PosterScraper::fromHtml($html) : null;
+    }
+
+    /**
+     * Look a title up by NAME on hd432 (see [SearchesPosters]).
+     *
+     * hd432 has no search to call — its `?s=` is swallowed by the page cache and answers an empty 200
+     * (that limitation is why [App\Support\BackupFinder] skips this site). What it does have is a
+     * sitemap whose permalinks carry the film's Latin name in the slug:
+     * `/nishaanchi-2025-เป้าหมายนี้คือเธอ/`. So the sitemap IS the search index — match the slug, then
+     * open only the winners for their og:image.
+     *
+     * Two costs are worth knowing: the slug index takes a handful of requests, so it is cached; and a
+     * match still needs the title page fetched, so only the best few are opened.
+     *
+     * @return PosterCandidate[]
+     */
+    public function searchPosters(string $title, int $limit = 8): array
+    {
+        $ours = PosterSearch::titleKey($title);
+        if ($ours === '') {
+            return [];
+        }
+
+        $scored = [];
+        foreach ($this->slugIndex() as $slug) {
+            $score = PosterSearch::similarity($ours, PosterSearch::titleKey(str_replace('-', ' ', $slug)));
+            if ($score >= PosterSearch::MIN_SCORE) {
+                $scored[$slug] = $score;
+            }
+        }
+        if ($scored === []) {
+            return [];
+        }
+        arsort($scored);
+
+        $out = [];
+        // Each candidate is one more page fetch, so open only the closest few however many matched.
+        foreach (array_slice(array_keys($scored), 0, min(3, max(1, $limit))) as $slug) {
+            $html = $this->fetchTitlePage($slug);
+            if ($html === null || ($image = PosterScraper::fromHtml($html)) === null) {
+                continue;
+            }
+            $out[] = new PosterCandidate(
+                title: $this->ogTitle($html) ?: str_replace('-', ' ', $slug),
+                image: $image,
+                page: self::BASE.'/'.$slug.'/',
+            );
+        }
+
+        return $out;
+    }
+
+    /**
+     * Every title slug on the site, from the sitemap, cached.
+     *
+     * @return string[]
+     */
+    private function slugIndex(): array
+    {
+        return Cache::remember('hd432:slug-index', now()->addMinutes(30), function (): array {
+            $slugs = [];
+            foreach ($this->postSitemaps() as $sitemap) {
+                foreach ($this->sitemapUrls($sitemap) as $url) {
+                    if (($slug = $this->slugOf($url)) !== '') {
+                        $slugs[$slug] = true;
+                    }
+                }
+            }
+
+            return array_keys($slugs);
+        });
     }
 
     // --------------------------------------------------------- resolve

@@ -3,9 +3,11 @@
 namespace App\Services\Import\Sources;
 
 use App\Services\Import\Contracts\MediaSource;
+use App\Services\Import\Contracts\SearchesPosters;
 use App\Services\Import\JsonExtract;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\PosterCandidate;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -18,7 +20,7 @@ use Illuminate\Support\Facades\Http;
  * Videos are plain MP4 on Discord's CDN — signed URLs that expire ~24h, so resolve on demand.
  * PHP port of the Hive Download RongYokClient.
  */
-class RongYokSource implements MediaSource
+class RongYokSource implements MediaSource, SearchesPosters
 {
     public const BASE = 'https://rongyok.com';
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
@@ -272,5 +274,84 @@ class RongYokSource implements MediaSource
         }
 
         return hexdec($m[1]) > time() + 60;   // small clock-skew buffer
+    }
+
+    /**
+     * Look a title up by NAME on rongyok (see [SearchesPosters]).
+     *
+     * rongyok is not WordPress and has no search route to call — but it does something better: the
+     * whole catalogue, with a poster URL per title, comes down in ONE request as the `seriesData`
+     * literal embedded in /category?category=all (the same page [self::fetchCatalog] reads). So the
+     * search is a local scan over that, and it is cached, because one lookup and forty lookups should
+     * cost the same single request.
+     *
+     * ⚠️ As of 2026-08-19 this returns nothing in production: rongyok answers our server with its own
+     * branded block page ("ขออภัย คุณถูกบล็อก · โรงหยก", HTTP 403 through Cloudflare) and has since
+     * ~2026-08-06, which is also why its catalogue stopped syncing. The code is here so it starts
+     * working the moment access comes back; meanwhile rongyok covers are still reachable through the
+     * catalogue mirror layer of [App\Support\PosterSearch], which needs no access to the site at all.
+     *
+     * @return PosterCandidate[]
+     */
+    public function searchPosters(string $title, int $limit = 8): array
+    {
+        $needle = mb_strtolower(trim($title), 'UTF-8');
+        if ($needle === '') {
+            return [];
+        }
+
+        $out = [];
+        foreach ($this->catalogueIndex() as [$name, $poster]) {
+            // Loose containment either way — ranking in [App\Support\PosterSearch] decides for real.
+            $hay = mb_strtolower($name, 'UTF-8');
+            if (! str_contains($hay, $needle) && ! str_contains($needle, $hay)) {
+                continue;
+            }
+            $out[] = new PosterCandidate(title: $name, image: $poster, page: self::BASE.'/watch/');
+            if (count($out) >= $limit) {
+                break;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * [title, posterUrl] for every title in the catalogue, cached.
+     *
+     * Trimmed to the two fields a cover search needs before caching — the raw page is megabytes of
+     * descriptions and episode counts, and the cache store here is the database.
+     *
+     * @return array<int,array{0:string,1:string}>
+     */
+    private function catalogueIndex(): array
+    {
+        return Cache::remember('rongyok:poster-index', now()->addMinutes(30), function (): array {
+            try {
+                $html = $this->http()->get(self::BASE.'/category', ['category' => 'all'])->body();
+            } catch (\Throwable) {
+                return [];
+            }
+            $json = JsonExtract::catalogArray($html);
+            $arr = $json ? json_decode($json, true) : null;
+            if (! is_array($arr)) {
+                return [];
+            }
+
+            $index = [];
+            foreach ($arr as $el) {
+                if (! is_array($el)) {
+                    continue;
+                }
+                $name = trim((string) ($el['title'] ?? ''));
+                // jpg_url is the display cover; poster_url is the Thai-named original. Either works.
+                $poster = $this->abs((string) ($el['jpg_url'] ?? '')) ?? $this->abs((string) ($el['poster_url'] ?? ''));
+                if ($name !== '' && $poster !== null) {
+                    $index[] = [$name, $poster];
+                }
+            }
+
+            return $index;
+        });
     }
 }

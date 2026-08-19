@@ -609,16 +609,21 @@ class HalimSource implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
     /**
      * Look a title up by NAME on this site (see [SearchesPosters]).
      *
-     * Prefers the site's own live-search JSON when one is configured, because on 24-hdx — the site
-     * this matters most for — WordPress's own "?s=" search answers 200 with an empty body, so the
-     * ordinary HTML path finds nothing at all. Sites without such an endpoint fall through to it.
+     * The Halim theme does NOT use WordPress's own `?s=` — that route is cached to an empty 200 on
+     * both 24-hdx and anime108, so asking it returns silence rather than an error. The theme's real
+     * search is `/search_movie/?keyword=…` (verified on both sites 2026-08-19), and its results carry
+     * the cover in `data-lazy-src` with the title on the `alt`, which [SiteSearchScraper] reads.
+     *
+     * A site with a live-search JSON endpoint configured uses that instead: it is one small response
+     * instead of a full results page, and it hands back the poster path directly.
      *
      * @return PosterCandidate[]
      */
     public function searchPosters(string $title, int $limit = 8): array
     {
         if ($this->config->autocompleteUrl === null) {
-            return SiteSearchScraper::searchWordPress($this->http(), $this->config->base, $title, $limit);
+            return SiteSearchScraper::searchAt($this->http()->withHeaders(['Referer' => $this->config->base.'/']),
+                $this->config->base, $this->config->base.'/search_movie/', 'keyword', $title, $limit);
         }
 
         try {

@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Content;
+use App\Models\SourceTitle;
 use App\Services\Import\Contracts\SearchesPosters;
 use App\Services\Import\SourceRegistry;
 
@@ -36,10 +37,19 @@ class PosterSearch
     /**
      * Poster candidates for a title, best match first.
      *
-     * The title's own source is asked first — it holds the same catalogue our row was imported from,
-     * so it is the likeliest to have the very same film — and the others are there for when that
-     * source is gone. Once one site answers with a confident match the rest are skipped, because each
-     * one costs a live HTTP round-trip and the admin is waiting on it.
+     * Two layers, cheapest first.
+     *
+     * 1. Our own MIRROR of every source's catalogue (`source_titles`) — 30,500 rows, and all but a
+     *    couple of thousand carry a poster URL. This covers all nine sources at once, needs no
+     *    network at all, and is the ONLY layer that can answer for a source we cannot reach: anifume
+     *    and anime108 are dark, and rongyok has been serving our server its own block page since
+     *    2026-08-06. Their covers still live in this table.
+     * 2. The sites themselves, own source first. Slower (a live HTTP round-trip each) but current —
+     *    it is the only layer that knows about a title released since the last catalogue sync, which
+     *    is exactly the case for a freshly imported row that arrived without a poster.
+     *
+     * Either layer stops the search as soon as it has a confident match, so the common case costs one
+     * local query and nothing else.
      *
      * @return PosterCandidate[]
      */
@@ -50,7 +60,11 @@ class PosterSearch
             return [];
         }
 
-        $out = [];
+        $out = $this->fromCatalogue($content, $limit);
+        if ($this->best($this->rank($title, $out)) >= self::AUTO_SCORE) {
+            return array_slice($this->rank($title, $out), 0, $limit);
+        }
+
         foreach ($this->searchableFor($content) as $id => $source) {
             try {
                 $found = $source->searchPosters($this->queryFor($title), $limit);
@@ -67,6 +81,77 @@ class PosterSearch
         }
 
         return array_slice($this->rank($title, $out), 0, $limit);
+    }
+
+    /**
+     * Candidates out of our own mirror of the sources' catalogues.
+     *
+     * Rows for the title's OWN source_key are skipped: [PosterBackfill::recover] already tries that
+     * exact row's URL, and it is the one most likely to be the dead URL we are here to replace. What
+     * this looks for is a DIFFERENT row — usually another site's listing of the same film — whose
+     * poster we have never tried.
+     *
+     * A `LIKE %seed%` over 30,500 rows is a table scan, which is why the seed is a short leading
+     * fragment rather than the whole title: it has to be loose enough that "Boruto - Naruto Next
+     * Generations โบรูโตะ" still finds a row spelled "Boruto: Naruto Next Generations", and the real
+     * decision is made by [self::rank] afterwards, not by SQL.
+     *
+     * @return PosterCandidate[]
+     */
+    private function fromCatalogue(Content $content, int $limit): array
+    {
+        $seed = $this->seedFor((string) $content->title);
+        if ($seed === '') {
+            return [];
+        }
+
+        $rows = SourceTitle::query()
+            ->where('title', 'like', '%'.$seed.'%')
+            ->whereNotNull('poster_url')->where('poster_url', '!=', '')
+            ->when($content->source && $content->source_key, fn ($q) => $q->whereNot(
+                fn ($w) => $w->where('source', $content->source)->where('source_key', $content->source_key)
+            ))
+            // Deliberately generous — ranking does the real filtering, and a common seed like "Love"
+            // can legitimately need dozens of rows looked at before the right film shows up.
+            ->limit(max(60, $limit * 10))
+            ->get(['source', 'title', 'poster_url']);
+
+        $out = [];
+        foreach ($rows as $row) {
+            $out[] = new PosterCandidate(
+                title: (string) $row->title,
+                image: (string) $row->poster_url,
+                page: null,
+                source: (string) $row->source,
+            );
+        }
+
+        return $out;
+    }
+
+    /**
+     * The short leading fragment used as the SQL seed.
+     *
+     * One or two leading Latin words (a single one is often too generic — "The", "Love"), or the
+     * first few characters for a Thai-only title, which has no spaces to split on.
+     */
+    private function seedFor(string $title): string
+    {
+        $q = $this->queryFor($title);
+        if (! preg_match('~^[\x20-\x7E]+~', $q, $m)) {
+            return mb_substr(trim($q), 0, 6, 'UTF-8');
+        }
+
+        $words = preg_split('~\s+~', trim($m[0]), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if ($words === []) {
+            return '';
+        }
+        $seed = $words[0];
+        if (mb_strlen($seed, 'UTF-8') < 5 && isset($words[1])) {
+            $seed .= ' '.$words[1];
+        }
+
+        return mb_substr($seed, 0, 16, 'UTF-8');
     }
 
     /**
