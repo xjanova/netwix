@@ -207,9 +207,17 @@ class MirrorProbe
         }
 
         $avgSeg = $sampledBytes / $sampled;
+        $total = (int) round($avgSeg * count($segments));
+
+        // A whole episode under a megabyte is a measurement artefact, not a small file. Refusing it
+        // keeps a nonsense average out of the storage projection, which is the one thing this class
+        // exists to protect.
+        if ($total < 1_000_000) {
+            return $fail('ขนาดที่วัดได้เล็กผิดปกติ — ต้นทางไม่ยอมบอกขนาดไฟล์ย่อย');
+        }
 
         return [
-            'bytes' => (int) round($avgSeg * count($segments)),
+            'bytes' => $total,
             'seconds' => $seconds > 0 ? (int) round($seconds) : null,
             'kind' => 'hls',
             'error' => null,
@@ -228,9 +236,13 @@ class MirrorProbe
         if ($range && preg_match('~/(\d+)$~', $range, $m)) {
             return (int) $m[1];
         }
+
+        // Content-Length is only the FILE size when the server ignored our range and sent the whole
+        // thing (200). On a 206 it is the length of the one byte we asked for — trusting it there is
+        // what made hd432 report 2.8 MB for a feature film.
         $len = (int) $resp->header('Content-Length');
 
-        return $resp->successful() && $len > 0 ? $len : null;
+        return $resp->status() === 200 && $len > 0 ? $len : null;
     }
 
     private function fetch(string $url, RemoteStream $stream): ?string
