@@ -11,6 +11,7 @@ use App\Services\Import\Contracts\MediaSource;
 use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Support\Maturity;
 use App\Support\MirrorLinker;
+use App\Support\PosterBackfill;
 use App\Support\VerticalGenre;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -121,6 +122,9 @@ class ImportService
         $hidden = array_filter(array_map('trim', explode(',', (string) Setting::get('hidden_sources', ''))));
         $publish = ! in_array($st->source, $hidden, true) && (bool) ($opts['publish'] ?? true);
 
+        $existing = Content::withoutGlobalScopes()
+            ->where('source', $st->source)->where('source_key', $st->source_key)->first();
+
         $content = Content::updateOrCreate(
             ['source' => $st->source, 'source_key' => $st->source_key],
             [
@@ -138,8 +142,6 @@ class ImportService
                 // members (the `ratings` table); a title with none simply shows none.
                 'is_original' => (bool) ($opts['is_original'] ?? false),
                 'is_published' => $publish,
-                'poster_path' => $st->poster_url,
-                'backdrop_path' => $st->poster_url,
                 // No 'views' either. It used to seed the source site's own counter, so a card could
                 // read "501,123 ครั้ง" for a title 33 people here had actually watched. Worse, sitting
                 // in updateOrCreate's value list meant every re-sync OVERWROTE the column — 3,242
@@ -147,8 +149,11 @@ class ImportService
                 // NetWix views destroyed. `views` now only ever moves via increment() on a real watch
                 // (WatchController / app CatalogController). Omitted rather than set to null: the
                 // column is NOT NULL, and an explicit null overrides the 0 default (that broke CI once).
-            ],
+            ] + $this->coverColumns($st, $existing),
         );
+
+        // Pull the cover into OUR storage as part of the import, not a day later. See localizeCover().
+        $this->localizeCover($content);
 
         $this->syncGenres($content, $this->resolveGenreOpts($st, $opts));
         $this->ensureUmbrella($content, $source);
@@ -160,6 +165,74 @@ class ImportService
         $st->update(['content_id' => $content->id, 'episodes_count' => $count]);
 
         return $content;
+    }
+
+    /**
+     * The poster/backdrop columns to write for this import — and, on a re-import, the ones to LEAVE
+     * ALONE.
+     *
+     * `$st->poster_url` is the source's own URL. Seeding it is right for a brand-new title (it is all
+     * we have until localizeCover() runs a moment later), but writing it unconditionally is the same
+     * trap `views` fell into: updateOrCreate re-writes every listed column on every re-import, so a
+     * cover we had already pulled down — or one an admin picked by hand on /admin/covers — was
+     * silently reverted to a hotlink. EpisodeRefresher re-imports every airing series nightly at
+     * 03:20, which means that reversion was happening in bulk, every night, and re-exposing rongyok's
+     * advert banner (a hotlinked poster answers a BROWSER with the advert and our server with the real
+     * artwork — see localizeCover()).
+     *
+     * So: only seed a cover column while it holds nothing of our own.
+     *
+     * @return array{poster_path?:string|null,backdrop_path?:string|null}
+     */
+    private function coverColumns(SourceTitle $st, ?Content $existing): array
+    {
+        $ours = fn (?string $path) => filled($path) && ! str_starts_with((string) $path, 'http');
+
+        $cols = [];
+        if (! $existing || ! $ours($existing->poster_path)) {
+            $cols['poster_path'] = $st->poster_url;
+        }
+        if (! $existing || ! $ours($existing->backdrop_path)) {
+            $cols['backdrop_path'] = $st->poster_url;
+        }
+
+        return $cols;
+    }
+
+    /**
+     * Download a freshly-imported title's cover into our own storage, immediately.
+     *
+     * A hotlinked poster is not merely someone else's bandwidth: rongyok answers the same URL with its
+     * green "rongyok.com ดูฟรีเต็มๆ" advert when a BROWSER asks and with the real artwork when our
+     * server asks, so a title we leave hotlinked wears a rival's banner on our home page. Nothing
+     * reports it, either — on-demand healing only fires when a poster FAILS to load, and an advert is
+     * a perfectly successful 200.
+     *
+     * The nightly localize sweep (routes/console.php, 03:50) used to be the only thing closing that
+     * gap, and auto-import runs at 04:00 — ten minutes too late, every single day. Owner, 2026-08-20:
+     * "ราชินีมาเฟียที่เขาเสียไป" (imported 04:00:17) was still showing the banner, along with the 23
+     * other titles from the same run. Localizing here shrinks the exposure window from ~24 hours to
+     * zero; the sweep stays as the net for whatever fails below.
+     *
+     * Best-effort and never fatal — a title with no cover falls back to the branded card and lands in
+     * the admin's missing-covers queue, which is a far better outcome than losing the import.
+     */
+    private function localizeCover(Content $content): void
+    {
+        if (! str_starts_with((string) $content->poster_path, 'http')) {
+            return;   // already ours — nothing to pull down
+        }
+
+        try {
+            $backfill = app(PosterBackfill::class);
+            if (($path = $backfill->localize($content)) !== null) {
+                $backfill->apply($content, $path);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('import: cover localize failed', [
+                'content_id' => $content->id, 'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

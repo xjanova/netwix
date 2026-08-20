@@ -127,15 +127,22 @@ Schedule::command('netwix:ad-impressions')
 // Covers heal ON-DEMAND when they BREAK (a card pings content.heal-cover once its poster fails to
 // load — see [App\Http\Controllers\PosterHealController]). That covers dead hotlinks and nothing else.
 //
-// Nightly localize sweep — the gap on-demand healing cannot see. A source that answers a hotlinked
-// poster with its own advertising banner returns HTTP 200 and a perfectly valid image, so no card ever
+// Localize sweep — the gap on-demand healing cannot see. A source that answers a hotlinked poster
+// with its own advertising banner returns HTTP 200 and a perfectly valid image, so no card ever
 // reports it broken; the advert simply sits on our home page. That is exactly what rongyok started
 // doing (owner, 2026-08-19: 124 freshly-imported titles showing a green "rongyok.com ดูฟรีเต็มๆ"
 // banner, and 497 titles across six sources still hotlinked). Fetched from OUR server the same URL
 // returns the real artwork, so pulling every cover down is both the fix and the permanent defence.
 // Bounded + resumable: a localized cover no longer matches `http%`, so each run continues the last.
-Schedule::command('netwix:backfill-posters --localize --limit=400 --sleep=200')
-    ->dailyAt('03:50')->withoutOverlapping()->runInBackground();
+//
+// HOURLY, not nightly. Imports now localize their own covers ([App\Services\Import\ImportService]),
+// so this is the net for what that misses — and a fixed nightly time cannot BE a net: it ran at 03:50,
+// auto-import runs at 04:00 (admin-configurable, so no fixed hour can reliably follow it), and every
+// title imported in that run therefore wore rongyok's banner for a full day. Owner, 2026-08-20:
+// "ราชินีมาเฟียที่เขาเสียไป", imported 04:00:17, still showing it. Hourly caps the exposure at an hour
+// no matter when an import runs, and costs nothing on the (normal) hours where nothing matches `http%`.
+Schedule::command('netwix:backfill-posters --localize --limit=100 --sleep=200')
+    ->hourly()->withoutOverlapping()->runInBackground();
 
 // Daily backup-link finder: re-source auto-suspended (un-playable) titles from another Halim pool
 // site and auto-republish. Self-gates on the admin toggle `backup_finder_enabled` (set on
