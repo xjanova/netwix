@@ -175,10 +175,10 @@ class ImportService
      * we have until localizeCover() runs a moment later), but writing it unconditionally is the same
      * trap `views` fell into: updateOrCreate re-writes every listed column on every re-import, so a
      * cover we had already pulled down — or one an admin picked by hand on /admin/covers — was
-     * silently reverted to a hotlink. EpisodeRefresher re-imports every airing series nightly at
-     * 03:20, which means that reversion was happening in bulk, every night, and re-exposing rongyok's
-     * advert banner (a hotlinked poster answers a BROWSER with the advert and our server with the real
-     * artwork — see localizeCover()).
+     * silently reverted to a hotlink, undoing the work in localizeCover(). And not just on the odd
+     * manual re-import: EpisodeRefresher re-imports every airing series nightly at 03:20 (all sources
+     * but rongyok, which it skips by default), so the reversion ran in bulk every night and the 03:50
+     * sweep then had to pay to pull the same covers down again.
      *
      * So: only seed a cover column while it holds nothing of our own.
      *
