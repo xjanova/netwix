@@ -56,43 +56,14 @@
     <a href="{{ route('browse.vertical') }}" x-show="ui || !playing" x-transition.opacity class="absolute left-4 top-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-lg backdrop-blur hover:bg-white/20">✕</a>
 
     {{-- open the episode grid --}}
-    <button @click.stop="epMenu = true" x-show="ui || !playing" x-transition.opacity
+    <button @click.stop="openEpMenu()" x-show="ui || !playing" x-transition.opacity
             class="absolute left-16 top-4 z-40 flex h-10 items-center gap-1.5 rounded-full bg-white/10 px-4 text-sm font-semibold backdrop-blur hover:bg-white/20">
         ▦ ตอน <span x-text="index + 1"></span>/{{ $eps->count() }}
     </button>
 
-    {{-- episode picker: a FULL-WIDTH grid of covers (captured frame, else the main poster) — tap to
-         jump. Fills the whole screen width on PC (not the narrow 9:16 player box) and scrolls
-         vertically when a title has many episodes. --}}
-    <div x-show="epMenu" x-cloak @click.self="epMenu = false"
-         class="absolute inset-0 z-50 flex flex-col bg-black/90 backdrop-blur">
-        <div class="flex items-center justify-between px-5 py-4">
-            <span class="truncate text-lg font-bold">เลือกตอน · {{ $content->title }}</span>
-            <button @click="epMenu = false" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-lg hover:bg-white/20">✕</button>
-        </div>
-        <div class="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain px-4 pb-8 sm:px-6"
-             style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
-            <template x-for="(ep, i) in episodes" :key="i">
-                {{-- one self-contained card per episode: image + its own footer label + a
-                     visible border/shadow, so cards never blur into each other even when
-                     several episodes share the same (fallback) cover image. --}}
-                <button @click="go(i)"
-                        class="group flex flex-col overflow-hidden rounded-xl border border-white/12 bg-[#181022] shadow-md shadow-black/50 transition hover:-translate-y-0.5 hover:border-brand/60 hover:shadow-lg"
-                        :class="i === index ? '!border-brand ring-1 ring-brand' : ''">
-                    <div class="relative w-full overflow-hidden" style="aspect-ratio:2/3">
-                        <div class="absolute inset-0" style="background:linear-gradient(160deg,#241a33,#130f1c)"></div>
-                        <img :src="ep.thumb" x-show="ep.thumb" loading="lazy" referrerpolicy="no-referrer"
-                             class="absolute inset-0 h-full w-full object-cover transition duration-300 group-hover:scale-105" onerror="this.style.display='none'">
-                        <div class="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent"></div>
-                        <span x-show="i === index" x-cloak class="nx-gradient absolute left-1.5 top-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold">● กำลังดู</span>
-                    </div>
-                    <div class="flex items-center justify-center border-t border-white/10 bg-black/35 py-2 leading-none">
-                        <span class="text-[13px] font-bold text-cream/90" x-text="'ตอน ' + ep.n"></span>
-                    </div>
-                </button>
-            </template>
-        </div>
-    </div>
+    {{-- episode picker: fixed-size covers + range pills, full screen width on PC (not the narrow 9:16
+         player box). Shared with the landscape player — see partials/episode-picker. --}}
+    @include('partials.episode-picker', ['ratio' => '2/3'])
 
     <div class="relative z-[1] h-full max-h-[100dvh] w-auto overflow-hidden rounded-2xl ring-1 ring-white/10"
          style="aspect-ratio:9/16;box-shadow:0 24px 70px -12px rgba(0,0,0,0.75)">
@@ -239,7 +210,7 @@
             {{-- actions --}}
             <div class="mt-4 flex flex-wrap items-center justify-center gap-2.5">
                 <button type="button" @click.stop="replayAll()" class="rounded-lg bg-white/10 px-4 py-2.5 text-sm font-semibold hover:bg-white/15">↻ ดูอีกครั้งตั้งแต่ตอนแรก</button>
-                <button type="button" @click.stop="finished = false; epMenu = true" class="rounded-lg bg-white/10 px-4 py-2.5 text-sm font-semibold hover:bg-white/15">▦ เลือกตอน</button>
+                <button type="button" @click.stop="finished = false; openEpMenu()" class="rounded-lg bg-white/10 px-4 py-2.5 text-sm font-semibold hover:bg-white/15">▦ เลือกตอน</button>
                 <a href="{{ route('browse.vertical') }}" class="btn-brand px-5 py-2.5 text-sm font-semibold">ดูเรื่องอื่น →</a>
                 <button type="button" @click.stop="finished = false" class="rounded-lg px-4 py-2.5 text-sm text-cream/55 hover:text-cream">ปิด</button>
             </div>
@@ -268,7 +239,7 @@
             lock: false,
             touchY: 0,
             preparing: false,
-            epMenu: false,
+            ...nxEpPicker(),
             _poll: null,
             _stallT: null,
 

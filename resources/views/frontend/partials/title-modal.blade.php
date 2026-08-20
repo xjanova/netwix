@@ -24,6 +24,7 @@
         inList: @js($inMyList),
         liked: @js($liked),
         season: {{ $firstSeason->number ?? 1 }},
+        epChunk: 0,   // which 50-episode range is showing — see partials/episode-picker
         busy: false,
         async toggleList() { if (this.busy) return; this.busy = true;
             try { this.inList = (await nxPost('{{ route('content.list', $content) }}')).in_list; } finally { this.busy = false; } },
@@ -149,7 +150,7 @@
                     <div class="mb-3 flex items-center gap-3">
                         <h3 class="text-lg font-semibold">ตอนทั้งหมด</h3>
                         @if ($content->seasons->count() > 1)
-                            <select x-model.number="season" class="rounded bg-surface-2 border border-white/15 px-3 py-1.5 text-sm outline-none">
+                            <select x-model.number="season" @change="epChunk = 0" class="rounded bg-surface-2 border border-white/15 px-3 py-1.5 text-sm outline-none">
                                 @foreach ($content->seasons as $s)
                                     <option value="{{ $s->number }}">{{ $s->title ?? 'ซีซั่น '.$s->number }}</option>
                                 @endforeach
@@ -157,13 +158,17 @@
                         @endif
                     </div>
                     @foreach ($content->seasons as $s)
-                        <div x-show="season === {{ $s->number }}" class="flex flex-col gap-1">
-                            @foreach ($s->episodes as $ep)
+                        @php $groups = $s->episodes->chunk(50)->values(); @endphp
+                        <div x-show="season === {{ $s->number }}">
+                            @include('frontend.partials.episode-ranges', ['groups' => $groups])
+                            @foreach ($groups as $gi => $g)
+                            <div x-show="epChunk === {{ $gi }}" class="flex flex-col gap-1">
+                            @foreach ($g as $ep)
                                 <a href="{{ route('watch', [$content, $ep]) }}"
                                    class="flex items-center gap-4 rounded-lg p-3 transition hover:bg-white/5">
                                     <span class="w-6 text-center text-lg font-bold text-cream/40">{{ $ep->number }}</span>
                                     <div class="h-14 w-24 flex-shrink-0 overflow-hidden rounded" style="background:{{ $content->gradient }}">
-                                        @if ($ep->thumbnail_url)<img src="{{ $ep->thumbnail_url }}" class="h-full w-full object-cover" alt="">@endif
+                                        @if ($ep->thumbnail_url)<img src="{{ $ep->thumbnail_url }}" loading="lazy" class="h-full w-full object-cover" alt="">@endif
                                     </div>
                                     <div class="min-w-0 flex-1">
                                         <div class="flex justify-between gap-2">
@@ -174,6 +179,8 @@
                                     </div>
                                 </a>
                             @endforeach
+                            </div>
+                            @endforeach
                         </div>
                     @endforeach
                 @elseif ($content->type === 'vertical' && $content->episodes->isNotEmpty())
@@ -181,9 +188,18 @@
                         <h3 class="text-lg font-semibold">ตอนทั้งหมด</h3>
                         <span class="text-sm text-cream/45">{{ $content->episodes->count() }} ตอน · ปัดขึ้น–ลงเพื่อดูตอนถัดไป</span>
                     </div>
-                    {{-- portrait tiles (9:16) with the captured per-episode frame + episode number --}}
-                    <div class="grid gap-2.5" style="grid-template-columns:repeat(auto-fill,minmax(84px,1fr))">
-                        @foreach ($content->episodes as $i => $ep)
+                    {{-- Portrait tiles (9:16) with the captured per-episode frame + episode number.
+                         NOT the players' fixed-width .nx-ep-grid: this column is only ~296px wide on
+                         desktop (the synopsis beside it takes 64%), and a 156px fixed tile would drop it
+                         to a single column. Raising the floor 84px → 110px is what helps here — it forces
+                         2 columns instead of 3, and `1fr` then spends the whole column on them, so the
+                         covers go from 92px to ~143px. The wall of 214 at once is handled by the ranges. --}}
+                    @php $groups = $content->episodes->chunk(50)->values(); @endphp
+                    @include('frontend.partials.episode-ranges', ['groups' => $groups])
+                    @foreach ($groups as $gi => $g)
+                    <div x-show="epChunk === {{ $gi }}" class="grid gap-2.5" style="grid-template-columns:repeat(auto-fill,minmax(110px,1fr))">
+                        @foreach ($g as $ep)
+                            @php $i = $gi * 50 + $loop->index; @endphp
                             @php $epThumb = $ep->thumbnail_path ? $ep->thumbnail_url : $content->poster_url; @endphp
                             <a href="{{ route('watch', $content) }}?ep={{ $i }}" title="ตอนที่ {{ $ep->number }}"
                                class="relative block overflow-hidden rounded-lg ring-1 ring-white/10 transition hover:ring-2 hover:ring-brand"
@@ -200,6 +216,7 @@
                             </a>
                         @endforeach
                     </div>
+                    @endforeach
                 @else
                     <p class="text-sm text-cream/45">กด “เล่น” ด้านบนเพื่อรับชม</p>
                 @endif

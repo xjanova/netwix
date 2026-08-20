@@ -85,7 +85,7 @@
         </div>
 
         @unless ($youtubeId)
-            <button type="button" x-show="episodes.length > 1" x-cloak @click="epMenu = true"
+            <button type="button" x-show="episodes.length > 1" x-cloak @click="openEpMenu()"
                     class="ml-auto flex h-10 items-center gap-1.5 rounded-full bg-white/10 px-4 text-sm font-semibold backdrop-blur hover:bg-white/20">
                 ▦ เลือกตอน
             </button>
@@ -156,31 +156,9 @@
             <span x-text="err"></span>
         </div>
 
-        {{-- episode picker (covers = captured frame, else main poster) — tap to jump --}}
-        <div x-show="epMenu" x-cloak @click.self="epMenu = false"
-             class="absolute inset-0 z-50 flex flex-col bg-black/90 backdrop-blur">
-            <div class="flex items-center justify-between px-5 py-4">
-                <span class="truncate text-lg font-bold">เลือกตอน · {{ $content->title }}</span>
-                <button @click="epMenu = false" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-lg hover:bg-white/20">✕</button>
-            </div>
-            <div class="grid flex-1 content-start gap-2.5 overflow-y-auto px-5 pb-8" style="grid-template-columns:repeat(auto-fill,minmax(148px,1fr))">
-                <template x-for="(ep, i) in episodes" :key="i">
-                    <button @click="go(i)" style="aspect-ratio:16/9"
-                            class="group relative overflow-hidden rounded-lg ring-1 ring-white/10 transition hover:ring-2 hover:ring-white/40"
-                            :class="i === index ? '!ring-2 !ring-brand' : ''">
-                        <div class="absolute inset-0" style="background:linear-gradient(160deg,#241a33,#130f1c)"></div>
-                        <img :src="ep.thumb" x-show="ep.thumb" loading="lazy" referrerpolicy="no-referrer"
-                             class="absolute inset-0 h-full w-full object-cover" onerror="this.style.display='none'">
-                        <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-transparent"></div>
-                        <div class="absolute bottom-1.5 left-2 flex items-baseline gap-1 leading-none drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
-                            <span class="text-[19px] font-extrabold" x-text="ep.n"></span>
-                            <span class="text-[11px] font-medium text-cream/60">ตอน</span>
-                        </div>
-                        <span x-show="i === index" x-cloak class="nx-gradient absolute right-1.5 top-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold">● กำลังดู</span>
-                    </button>
-                </template>
-            </div>
-        </div>
+        {{-- episode picker (covers = captured frame, else main poster) — tap to jump.
+             Fixed-size tiles + range pills, shared with the vertical player. --}}
+        @include('partials.episode-picker', ['ratio' => '16/9'])
 
         {{-- End-of-series card: auto-shown by onEnded() when the LAST episode of a MULTI-episode title
              finishes. Members get interactive stars + a comment box (same endpoints as the title page);
@@ -253,7 +231,7 @@
                 {{-- actions --}}
                 <div class="mt-4 flex flex-wrap items-center justify-center gap-2.5">
                     <button type="button" @click="replayAll()" class="rounded-lg bg-white/10 px-4 py-2.5 text-sm font-semibold hover:bg-white/15">↻ ดูอีกครั้งตั้งแต่ตอนแรก</button>
-                    <button type="button" @click="finished = false; epMenu = true" class="rounded-lg bg-white/10 px-4 py-2.5 text-sm font-semibold hover:bg-white/15">▦ เลือกตอน</button>
+                    <button type="button" @click="finished = false; openEpMenu()" class="rounded-lg bg-white/10 px-4 py-2.5 text-sm font-semibold hover:bg-white/15">▦ เลือกตอน</button>
                     <a href="{{ route('browse') }}" class="btn-brand px-5 py-2.5 text-sm font-semibold">ดูเรื่องอื่น →</a>
                     <button type="button" @click="finished = false" class="rounded-lg px-4 py-2.5 text-sm text-cream/55 hover:text-cream">ปิด</button>
                 </div>
@@ -283,7 +261,7 @@
             episodes: cfg.episodes || [],
             reportUrl: cfg.reportUrl,
             index: Math.min(cfg.start || 0, Math.max(0, (cfg.episodes || []).length - 1)),
-            epMenu: false,
+            ...nxEpPicker(),
             err: '',
             fs: false,
             forcedMute: false,   // true only when iPad refused sound-autoplay and we fell back to muted
