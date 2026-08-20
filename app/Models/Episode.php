@@ -16,7 +16,7 @@ class Episode extends Model
         'content_id', 'season_id', 'source', 'source_ref', 'number', 'title',
         'backup_source', 'backup_key', 'backup_ref', 'backup_forced', 'active_mirror_id',
         'description', 'duration_minutes', 'intro_end_seconds', 'outro_seconds', 'video_url', 'thumbnail_path', 'sort',
-        'mirrored_at', 'file_size', 'mirror_requested_at', 'mirror_requests', 'mirror_trigger',
+        'mirrored_at', 'file_size', 'mirror_disk', 'mirror_key', 'mirror_requested_at', 'mirror_requests', 'mirror_trigger',
         'mirror_attempts', 'mirror_failed_at', 'views',
     ];
 

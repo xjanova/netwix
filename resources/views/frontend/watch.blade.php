@@ -115,7 +115,7 @@
                @ended="onEnded()"
                @waiting="stall()" @stalled="stall()"
                @seeked="_lastT = $refs.video.currentTime; _stuck = 0"
-               @playing="resume(); maybeCapture()" @canplay="resume()" @loadeddata="resume()" x-on:error="resume()"
+               @playing="resume(); maybeCapture()" @canplay="resume()" @loadeddata="resume()" x-on:error="onVideoError()"
                @volumechange="if (! $refs.video.muted) forcedMute = false"
                class="h-full w-full bg-black object-contain"></video>
 
@@ -285,6 +285,8 @@
             _reloads: 0,
             _lastT: 0,
             _stuck: 0,
+            _reResolving: false,
+            _reResolves: 0,
             _watch: null,
 
             // auto-hide the top chrome (+ watermark) when idle; mouse/touch activity shows it again
@@ -348,9 +350,64 @@
                     this.hardReload();
                 }
             },
+            /**
+             * A <video> error on the progressive path used to only hide the loader — the player froze
+             * with no message, no retry, and nothing told the dead-link system. It matters more now
+             * that an episode can point at a file WE host: a stored copy short-circuits the link
+             * rotation, so a bad file has no failover behind it unless we ask for one.
+             */
+            onVideoError() {
+                this.resume();
+                const v = this.$refs.video;
+                if (!v || this.embedUrl) return;
+                if (v.error && v.error.code === 4 && !v.currentTime) return;   // unsupported source: re-resolving won't help
+                this.reResolve();
+            },
+
+            /**
+             * Ask the server for a DIFFERENT link for this episode and carry on from where we were.
+             *
+             * `refresh=1` makes the resolver skip our stored copy and walk the link rotation instead,
+             * so one broken mirrored file degrades to live streaming rather than to a dead episode.
+             * Only reported as unplayable if that fails too — otherwise a healthy title would be
+             * auto-suspended for a storage fault.
+             */
+            async reResolve() {
+                if (this._reResolving || this._reResolves >= 2) return;   // bounded: a rotation that
+                this._reResolving = true;                                  // cycles bad links must not loop
+                this._reResolves++;
+                const v = this.$refs.video;
+                const at = (v && v.currentTime) || 0;
+                const ep = this.episodes[this.index];
+                this.stall();
+                let d = null;
+                try {
+                    const sep = (ep.resolve || '').includes('?') ? '&' : '?';
+                    const r = await fetch(ep.resolve + sep + 'refresh=1', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                    d = await r.json();
+                } catch (e) { /* fall through to the error message below */ }
+                this._reResolving = false;
+
+                if (d && d.ready && d.url && d.url !== this._url) {
+                    this.attach(d.url, d.kind);
+                    const seekBack = () => {
+                        v.removeEventListener('loadedmetadata', seekBack);
+                        try { if (at > 1 && isFinite(v.duration)) v.currentTime = Math.max(0, at - 1); } catch (e) {}
+                    };
+                    if (v) v.addEventListener('loadedmetadata', seekBack);
+                    return;
+                }
+                this.resume();
+                this.err = 'ตอนนี้เล่นไม่ได้ชั่วคราว — กำลังหาลิงก์ใหม่ให้';
+                if (this.reportUrl) { try { window.nxPost(this.reportUrl, { ok: false }).catch(() => {}); } catch (e) {} }
+            },
+
             hardReload() {
                 const v = this.$refs.video;
                 if (!v || !this._url) return;
+                // Two same-URL reloads have already failed: the link itself is the problem, not the
+                // network, so escalate to asking for a different one instead of retrying it a third time.
+                if (this._reloads >= 2) { this.reResolve(); return; }
                 const t = v.currentTime || 0;
                 const wasMuted = v.muted;                          // keep the viewer's sound choice across the reload
                 this.stall();                                      // show the connecting loader
@@ -370,6 +427,7 @@
                 this.stopPoll();
                 this.err = '';
                 this._outroFired = false; this.showSkip = false; this.dismissNext();   // fresh markers per episode
+                this._reResolves = 0;
                 const ep = this.episodes[this.index];
                 if (!ep) return;
                 this.introEnd = ep.introEnd || 0; this.outroSeconds = ep.outroSeconds || 0;   // per-episode override ?? content default

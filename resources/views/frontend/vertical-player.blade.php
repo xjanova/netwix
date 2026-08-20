@@ -74,7 +74,7 @@
                @ended="onEnded()"
                @play="playing = true" @pause="playing = false"
                @waiting="stall()" @stalled="stall()"
-               @playing="resume(); maybeCapture()" @canplay="resume()" @loadeddata="resume()" x-on:error="resume()"
+               @playing="resume(); maybeCapture()" @canplay="resume()" @loadeddata="resume()" x-on:error="onVideoError()"
                class="h-full w-full bg-black object-contain"></video>
 
         {{-- prominent tap-to-unmute (only while muted) — the whole reason people say "no sound" --}}
@@ -242,6 +242,8 @@
             ...nxEpPicker(),
             _poll: null,
             _stallT: null,
+            _reResolving: false,
+            _reResolves: 0,
 
             // transport state
             muted: true,
@@ -312,6 +314,7 @@
             async load() {
                 this.stopPoll();
                 this.preparing = false;
+                this._reResolves = 0;
                 const ep = this.episodes[this.index];
                 if (!ep) return;
 
@@ -328,6 +331,53 @@
                     const d = await this.tryResolve(ep);
                     if (d && d.ready && d.url) { this.stopPoll(); this.preparing = false; this.attach(d.url); }
                 }, 10000);
+            },
+
+            /**
+             * The <video> failed. This is the player rongyok's vertical shorts use, and rongyok is the
+             * first source whose files we host ourselves — a stored copy short-circuits the link
+             * rotation, so a bad file has no failover behind it unless we go and ask for one.
+             */
+            onVideoError() {
+                this.resume();
+                const v = this.$refs.video;
+                if (!v) return;
+                if (v.error && v.error.code === 4 && !v.currentTime) return;   // source the browser can't play at all
+                this.reResolve();
+            },
+
+            /** Ask for a different link for this episode (skipping our stored copy) and resume from where we were. */
+            async reResolve() {
+                if (this._reResolving || this._reResolves >= 2) return;
+                this._reResolving = true;
+                this._reResolves++;
+                const v = this.$refs.video;
+                const at = (v && v.currentTime) || 0;
+                const ep = this.episodes[this.index];
+                const myIndex = this.index;
+                this.stall();
+
+                let d = null;
+                try {
+                    const sep = (ep.resolve || '').includes('?') ? '&' : '?';
+                    const r = await fetch(ep.resolve + sep + 'refresh=1', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                    d = await r.json();
+                } catch (e) { /* handled below */ }
+                this._reResolving = false;
+                if (this.index !== myIndex) return;   // the viewer swiped away while we were asking
+
+                if (d && d.ready && d.url) {
+                    this.attach(d.url);
+                    const seekBack = () => {
+                        v.removeEventListener('loadedmetadata', seekBack);
+                        try { if (at > 1 && isFinite(v.duration)) v.currentTime = Math.max(0, at - 1); } catch (e) {}
+                    };
+                    if (v) v.addEventListener('loadedmetadata', seekBack);
+                    return;
+                }
+                this.resume();
+                this.preparing = true;   // falls into the existing "preparing" poll UI
+                if (this.reportUrl) { try { window.nxPost(this.reportUrl, { ok: false }).catch(() => {}); } catch (e) {} }
             },
 
             async tryResolve(ep) {

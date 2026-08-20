@@ -29,6 +29,7 @@ class MirrorRun extends Command
 {
     protected $signature = 'netwix:mirror-run
         {source? : เจาะจงแหล่งเดียว (เว้นว่าง = ทุกแหล่งที่สั่งเริ่มไว้)}
+        {--content= : เจาะจงเรื่องเดียว (id ของ content) — ใช้ตอนทดลอง}
         {--max-time=280 : วินาทีสูงสุดต่อรอบ}
         {--sleep=1500 : พักกี่มิลลิวินาทีระหว่างตอน (กันยิงถี่ใส่ต้นทาง)}';
 
@@ -60,13 +61,13 @@ class MirrorRun extends Command
             if (microtime(true) >= $deadline) {
                 break;
             }
-            $this->runOne($job, $mirror, $deadline, $sleepUs);
+            $this->runOne($job, $mirror, $deadline, $sleepUs, $this->option('content') ? (int) $this->option('content') : null);
         }
 
         return self::SUCCESS;
     }
 
-    private function runOne(MirrorJob $job, MediaMirror $mirror, float $deadline, int $sleepUs): void
+    private function runOne(MirrorJob $job, MediaMirror $mirror, float $deadline, int $sleepUs, ?int $contentId = null): void
     {
         $job->update([
             'status' => MirrorJob::STATUS_RUNNING,
@@ -100,7 +101,7 @@ class MirrorRun extends Command
                 return;
             }
 
-            $episode = $this->nextEpisode($job);
+            $episode = $this->nextEpisode($job, $contentId);
             if (! $episode) {
                 $job->update(['status' => MirrorJob::STATUS_DONE, 'finished_at' => now()]);
                 $this->line("  ✔ {$job->source} — ไม่มีตอนค้างแล้ว");
@@ -122,10 +123,8 @@ class MirrorRun extends Command
                 ]);
                 $this->line('  ✓ '.$title.' EP'.$episode->number.' — '.number_format(($result['bytes'] ?? 0) / 1e6, 1).' MB');
             } else {
-                // Count the attempt on the episode so a permanently-dead link stops being retried,
-                // exactly like the admin one-off path does.
-                $episode->increment('mirror_attempts');
-                $episode->update(['mirror_failed_at' => now()]);
+                // The attempt itself is counted inside MediaMirror::store(), so every caller is bounded
+                // by the same rule; the job only tracks its own run.
                 $job->increment('fail_count');
                 $job->update([
                     'worker_seen_at' => now(),
@@ -144,10 +143,17 @@ class MirrorRun extends Command
         $job->update(['worker_seen_at' => now()]);
     }
 
-    /** The next episode to fetch for this source, skipping ones that have failed too often. */
-    private function nextEpisode(MirrorJob $job): ?Episode
+    /**
+     * The next episode to fetch for this source, skipping ones that have failed too often.
+     *
+     * `--content` narrows a run to a single title. That is what makes a first trial possible: one
+     * title's worth of bytes, one title's worth of blast radius, against a source whose catalogue is
+     * 184,800 episodes.
+     */
+    private function nextEpisode(MirrorJob $job, ?int $contentId = null): ?Episode
     {
         return Episode::query()
+            ->when($contentId, fn ($q) => $q->where('content_id', $contentId))
             ->whereHas('content', fn ($q) => $q->where('source', $job->source)->whereNotNull('source_key'))
             ->whereNotNull('source_ref')
             ->where('source_ref', '<>', '')

@@ -11,7 +11,7 @@
 @endphp
 
 @section('content')
-<div x-data="mirrorMonitor(@js(['rows' => $rows, 'totals' => $totals, 'switch' => $switchOn, 'usdPerTb' => $usdPerTb, 'urls' => [
+<div x-data="mirrorMonitor(@js(['rows' => $rows, 'totals' => $totals, 'switch' => $switchOn, 'usdPerTb' => $usdPerTb, 'disk' => $storageDisk, 'urls' => [
         'monitor' => route('admin.storage.monitor'),
         'switch' => route('admin.storage.switch'),
         'probe' => route('admin.storage.probe'),
@@ -42,6 +42,11 @@
                         </template>
                     </div>
                 </div>
+            </div>
+            <div class="text-right text-xs text-cream/45">
+                <div>ที่เก็บไฟล์ตอนนี้</div>
+                <div class="mt-0.5 font-semibold text-cream/75"
+                     x-text="disk === 'public' ? 'ดิสก์เซิร์ฟเวอร์' : 'Cloudflare R2 (' + disk + ')'"></div>
             </div>
             <button type="button" @click="toggle()" :disabled="busy"
                     class="rounded-lg px-5 py-2.5 text-sm font-semibold transition disabled:opacity-40"
@@ -106,9 +111,13 @@
                     <div class="mt-1 text-xs text-cream/45" x-text="'เทียบเท่า ' + fmtInt(Math.round(totals.projected/1e9)) + ' GB'"></div>
                 </div>
                 <div class="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-                    <div class="text-xs text-cream/50">ค่าเก็บไฟล์ Backblaze B2</div>
-                    <div class="mt-1 text-2xl font-extrabold" x-text="'$' + usd(totals.projected) + ' /เดือน'"></div>
-                    <div class="mt-1 text-xs text-cream/45" x-text="'$' + usdPerTb + '/TB/เดือน · ค่าส่งออกฟรีเมื่อผ่าน Cloudflare'"></div>
+                    <div class="text-xs text-cream/50">ค่าเก็บไฟล์ต่อเดือน</div>
+                    <div class="mt-1 text-2xl font-extrabold"
+                         x-text="disk === 'public' ? 'ไม่มีค่าใช้จ่าย' : '$' + usd(totals.projected)"></div>
+                    <div class="mt-1 text-xs text-cream/45"
+                         x-text="disk === 'public'
+                            ? 'เก็บลงดิสก์เซิร์ฟเวอร์เอง (จ่ายค่าเช่าเครื่องอยู่แล้ว)'
+                            : '$' + usdPerTb + '/TB/เดือน · ค่าส่งออกฟรี'"></div>
                 </div>
                 <div class="rounded-xl border p-4"
                      :class="totals.projected > totals.disk_usable ? 'border-[#ff6b81]/25 bg-[#ff6b81]/[0.06]' : 'border-success/25 bg-success/[0.06]'">
@@ -344,6 +353,7 @@ window.mirrorMonitor = function (cfg) {
         totals: cfg.totals,
         on: cfg.switch,
         usdPerTb: cfg.usdPerTb,
+        disk: cfg.disk,
         urls: cfg.urls,
         at: '',
         busy: false,

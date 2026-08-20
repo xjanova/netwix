@@ -243,10 +243,12 @@ class Content extends Model
             ? $this->getRelation('previewEpisode')
             : $this->previewEpisode;
 
-        $url = $ep?->video_url;
-
-        if ($url && str_contains($url, '/storage/') && str_ends_with($url, '.mp4')) {
-            return $url;
+        // Only a file WE hold can be previewed: a source's signed link expires, and an HLS manifest
+        // can't be scrubbed to a random position in a card. `mirrored_at` is the fact that matters, so
+        // it is what gets tested — the previous check string-matched "/storage/" and ".mp4", which
+        // silently stopped recognising our own files the moment they moved to Cloudflare R2.
+        if ($ep?->mirrored_at && $ep->video_url && ! str_contains($ep->video_url, '.m3u8')) {
+            return $ep->video_url;
         }
 
         return null;

@@ -10,6 +10,7 @@
         "laravel/framework": "^12.0",
         "laravel/socialite": "^5.28",
         "laravel/tinker": "^2.10.1",
+        "league/flysystem-aws-s3-v3": "^3.0",
         "socialiteproviders/line": "^4.1"
     },
     "require-dev": {

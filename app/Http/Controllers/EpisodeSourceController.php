@@ -22,7 +22,7 @@ class EpisodeSourceController extends Controller
      *    cache it per-episode until just before it expires. NetWix does this itself now — the
      *    home downloader is no longer required.
      */
-    public function resolve(Episode $episode, SourceRegistry $registry): JsonResponse
+    public function resolve(Request $request, Episode $episode, SourceRegistry $registry): JsonResponse
     {
         // Never hand out a playable URL for unpublished/embargoed content — the public mobile
         // endpoint (/api/app/…) shares this resolver, and the rest of the app gates on this too.
@@ -44,7 +44,16 @@ class EpisodeSourceController extends Controller
             }
         }
 
-        if ($episode->video_url) {
+        // A stored copy short-circuits the whole rotation — that IS the point of mirroring. But that
+        // also means a bad stored file (wrong storage config, deleted object, expired front door)
+        // would take a title off the air with the rotation, the cooldowns and the auto-death checks
+        // all bypassed, and the source canary would keep reporting the upstream green the whole time.
+        //
+        // `?refresh=1` is the escape hatch the player uses after a playback error: it skips the stored
+        // copy and walks the rotation instead, so one broken file degrades to live streaming rather
+        // than to a dead episode. Costs nothing on the happy path, since it is only ever sent by a
+        // client that has already failed once.
+        if ($episode->video_url && ! $request->boolean('refresh')) {
             return response()->json([
                 'ready' => true,
                 'kind' => str_contains($episode->video_url, '.m3u8') ? 'hls' : 'mp4',

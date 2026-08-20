@@ -40,6 +40,14 @@ return [
     'ingest' => [
         'token' => env('NETWIX_INGEST_TOKEN'),
         'max_gb' => (float) env('NETWIX_MEDIA_MAX_GB', 100),
+        // Where a mirrored video file is written: 'public' (this server's disk) or 'r2' (Cloudflare).
+        // Switching this changes only where NEW files go — every episode remembers the disk its own
+        // file landed on, so a half-migrated catalogue still deletes and serves correctly.
+        'disk' => env('NETWIX_MEDIA_DISK', 'public'),
+        // What a gigabyte-month costs on that disk, in USD, for the storage projection on
+        // /admin/storage. Local disk is already paid for; Cloudflare R2 is $0.015/GB-month with no
+        // egress charge; Backblaze B2 is $0.006. Wrong here means the owner budgets off a wrong number.
+        'usd_per_gb_month' => (float) env('NETWIX_STORAGE_USD_PER_GB', 0.015),
     ],
 
     // ---- Social sign-in (requires laravel/socialite on the server) --------

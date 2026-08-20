@@ -25,8 +25,18 @@ use Illuminate\Support\Facades\DB;
  */
 class MirrorPlan
 {
-    /** Backblaze B2, the storage picked for this (cheapest that is still good for streaming). */
-    public const B2_USD_PER_TB_MONTH = 6.0;
+    /**
+     * What a terabyte-month costs on the storage actually in use, from `services.ingest.usd_per_gb_month`.
+     *
+     * This is config, not a constant, because the constant was wrong the moment the storage changed:
+     * it read $6/TB (Backblaze B2) while the files were going to Cloudflare R2 at $15/TB, so every
+     * projection on the monitor was 60% under. Storage price is the one number on that page the owner
+     * makes spending decisions from — see the class docblock about invented averages.
+     */
+    public static function usdPerTbMonth(): float
+    {
+        return (float) config('services.ingest.usd_per_gb_month', 0.015) * 1000;
+    }
 
     /** Free disk we refuse to eat into, so the box never fills up because of a download run. */
     public const DISK_RESERVE_BYTES = 15_000_000_000;
@@ -145,10 +155,10 @@ class MirrorPlan
         ];
     }
 
-    /** Monthly Backblaze B2 storage cost for a byte count (egress is free via Cloudflare). */
+    /** Monthly storage cost for a byte count on the configured backend (R2 egress is free). */
     public static function monthlyUsd(float|int $bytes): float
     {
-        return round($bytes / 1_000_000_000_000 * self::B2_USD_PER_TB_MONTH, 2);
+        return round($bytes / 1_000_000_000_000 * self::usdPerTbMonth(), 2);
     }
 
     /**
