@@ -62,6 +62,17 @@
 # browser opening an image in its own tab sends none. Blocking those would break the app's covers and
 # every shared link, which is a far bigger loss than the hotlinking. What this stops is the specific
 # case we can be certain about: an <img> tag on a page that is not ours.
+#
+# KNOW WHAT THIS DOES NOT COVER. It only runs when the request reaches the origin. Covers are served
+# with `max-age=31536000, immutable`, so once Cloudflare has one cached the edge answers it directly
+# and this rule is never consulted. Measured 2026-08-21 on the same file: a cache MISS with a foreign
+# Referer → 403, a cache HIT with the same foreign Referer → 200. In other words it protects the
+# images nobody has asked for yet, and not the popular ones — which are exactly the ones worth taking.
+#
+# A previous session (2026-07-05) reached the same conclusion and DELETED the rule. It is kept this
+# time because it is free and does close the miss case, but it is not the fix: the fix is Cloudflare's
+# own Hotlink Protection (dashboard → Scrape Shield), which runs at the edge where the cache is. Until
+# that toggle is on, treat cover hotlinking as OPEN, not solved.
 <IfModule mod_rewrite.c>
     RewriteCond %{REQUEST_URI} ^(/public)?/storage/media/ [NC]
     RewriteCond %{HTTP_REFERER} !^$
