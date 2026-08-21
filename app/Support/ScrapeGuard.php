@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\AppToken;
 use App\Models\BlockedIp;
 use App\Models\SecurityEvent;
 use App\Models\Setting;
@@ -32,11 +33,19 @@ use Illuminate\Support\Str;
  */
 class ScrapeGuard
 {
-    /** Requests to content endpoints per minute, per address, before it looks automated. */
-    private const RATE_PER_MIN = 90;
+    /*
+     * Both thresholds are set from MEASUREMENT, not intuition: five days of Apache logs (75,928 lines,
+     * 16-21 Aug 2026, real client IPs restored by Cloudflare) put a real viewer's worst true
+     * clock-minute at 69 requests on the watched surface and 29 stream-token mints. The previous
+     * values sat at 90 and 25 — i.e. BELOW what an ordinary binge already does — which is why every
+     * one of the first 96 recorded events was a false positive, 69 of them the owner.
+     */
 
-    /** Stream-token mints per minute. Nobody starts 25 films a minute; a harvester does. */
-    private const TOKEN_PER_MIN = 25;
+    /** Requests to content endpoints per minute, per address. Measured human worst case: 69. */
+    private const RATE_PER_MIN = 240;
+
+    /** Stream-token mints per minute — the resolver, not media transport. Measured worst case: 29. */
+    private const TOKEN_PER_MIN = 90;
 
     /** Consecutive ascending ids before "walking the catalogue" is the only explanation. */
     private const SEQUENTIAL_RUN = 12;
@@ -134,16 +143,53 @@ class ScrapeGuard
      */
     private static function exempt(Request $request): bool
     {
-        if ($request->attributes->has('app_token') || $request->bearerToken()) {
+        // A VALIDATED app token. The previous version accepted any non-empty bearerToken() without
+        // looking at it, which meant sending `Authorization: Bearer anything` switched the entire
+        // guard off — an off switch available to exactly the people it is meant to stop, and denied to
+        // the real mobile app, whose media player sends no Authorization header at all.
+        if ($request->attributes->has('app_token')) {
             return true;
         }
+        $bearer = (string) $request->bearerToken();
+        if ($bearer !== '' && self::validAppToken($bearer)) {
+            return true;
+        }
+
         $user = $request->user();
         if ($user && method_exists($user, 'isAdmin') && $user->isAdmin()) {
             return true;
         }
 
-        // Our own server calling itself (health checks, the canary) arrives on the loopback.
-        return in_array($request->ip(), ['127.0.0.1', '::1'], true);
+        return self::isOwnServer((string) $request->ip());
+    }
+
+    /** Is this bearer an app token we actually issued? Cached, so it costs no query on the hot path. */
+    private static function validAppToken(string $bearer): bool
+    {
+        try {
+            return (bool) Cache::remember('guard:apptok:'.sha1($bearer), now()->addMinutes(10),
+                fn () => AppToken::where('token_hash', hash('sha256', $bearer))->exists());
+        } catch (\Throwable) {
+            return false;   // never let a lookup failure turn into a block
+        }
+    }
+
+    /**
+     * Our own machine. Loopback alone was not enough: the canary, the storage probe and the admin
+     * preview all reach the site by its PUBLIC hostname, so the request leaves the box, goes through
+     * Cloudflare and comes back as the server's own public address. That is why our health checks were
+     * being logged as bot traffic — and under enforcement the box would have blocked itself, which
+     * fails every source probe at once and fires "แหล่งล่ม" alerts for sources that are perfectly fine.
+     */
+    private static function isOwnServer(string $ip): bool
+    {
+        if ($ip === '' || in_array($ip, ['127.0.0.1', '::1'], true)) {
+            return true;
+        }
+
+        $own = array_filter(array_map('trim', explode(',', (string) config('services.guard.server_ips', ''))));
+
+        return in_array($ip, $own, true);
     }
 
     private static function watched(Request $request): bool
@@ -176,7 +222,13 @@ class ScrapeGuard
 
         // 2. Stream tokens. A viewer starts a handful of films an hour; a harvester mints hundreds,
         //    because every token is one downloadable stream.
-        if (str_contains($path, '/source') || str_contains($path, 'stream/')) {
+        //
+        //    ONLY the resolver mints. This used to also match 'stream/', which is media TRANSPORT —
+        //    every HLS segment (one per ~6s of video), every manifest re-fetch, every Range re-open of
+        //    an mp4. Twenty-five segments is three minutes of television, so the rule fired on people
+        //    watching. It also made the mobile app unblockable-by-design impossible to exempt: its
+        //    ExoPlayer sends no Authorization header at all, and 100% of its traffic is /stream/.
+        if (str_contains($path, '/source')) {
             $tokens = self::bump('guard:tok:'.$ip, 60);
             if ($tokens === self::TOKEN_PER_MIN || ($tokens > self::TOKEN_PER_MIN && $tokens % 25 === 0)) {
                 $out[] = ['token_abuse', 18, ['tokens_in_minute' => $tokens]];
@@ -221,10 +273,38 @@ class ScrapeGuard
         return $run;
     }
 
+    /**
+     * Count one hit inside a window that actually expires.
+     *
+     * The window must be set when the key is CREATED and never touched again. The original used
+     * Cache::put on every hit, which rewrote the expiry each time — so a "per minute" counter only
+     * reset after a full minute of TOTAL SILENCE. A player fetching an HLS segment every six seconds,
+     * or a progress heartbeat every ten, kept it alive for the whole session, and the number written
+     * into the log as `requests_in_minute` was really a running session total. One address was
+     * recorded at "500 requests in a minute" while genuinely making about seven.
+     *
+     * Cache::add is SET-if-absent WITH the expiry; Cache::increment is a bare INCR that leaves the
+     * expiry alone. That combination is the whole fix.
+     */
     private static function bump(string $key, int $ttlSeconds): int
     {
-        $n = (int) Cache::get($key, 0) + 1;
-        Cache::put($key, $n, now()->addSeconds($ttlSeconds));
+        return self::bumpBy($key, 1, $ttlSeconds);
+    }
+
+    /** As bump(), but adding an arbitrary amount (used for the running score). */
+    private static function bumpBy(string $key, int $amount, int $ttlSeconds): int
+    {
+        if (Cache::add($key, $amount, now()->addSeconds($ttlSeconds))) {
+            return $amount;
+        }
+
+        $n = (int) Cache::increment($key, $amount);
+
+        // The key can expire between the add and the increment; INCR would then recreate it with no
+        // expiry at all, and the counter would live forever. Re-stamp the window in that one case.
+        if ($n <= $amount) {
+            Cache::put($key, $n, now()->addSeconds($ttlSeconds));
+        }
 
         return $n;
     }
@@ -243,9 +323,10 @@ class ScrapeGuard
             'created_at' => now(),
         ]);
 
-        $key = 'guard:score:'.$ip;
-        $total = (int) Cache::get($key, 0) + $score;
-        Cache::put($key, $total, now()->addMinutes(self::SCORE_WINDOW_MIN));
+        // Same fixed-window rule as bump(): the score must age out on its own, or SCORE_WINDOW_MIN
+        // silently means "until 30 minutes of total silence" and a long viewing session accumulates
+        // until it crosses BLOCK_SCORE.
+        $total = self::bumpBy('guard:score:'.$ip, $score, self::SCORE_WINDOW_MIN * 60);
 
         if ($total >= self::BLOCK_SCORE) {
             self::block($ip, $reason, $total);
@@ -265,10 +346,16 @@ class ScrapeGuard
         );
         Cache::forget('guard:block:'.$ip);
 
-        LineNotifier::alert(
-            'scrape:'.$ip,
-            "🚨 บล็อกผู้ต้องสงสัยดูดข้อมูล\nIP: {$ip}\nสาเหตุ: {$reason} (คะแนน {$score})\nบล็อก ".self::BLOCK_HOURS." ชม. · ดูรายละเอียดที่ /admin/security",
-            180,
-        );
+        // Throttled per ADDRESS *and* globally. Per-address alone is not a throttle at all here: Thai
+        // mobile carriers hand out a fresh IPv6 per session, so one determined client can present a
+        // hundred distinct addresses and buy a hundred separate pushes. The global key is what makes
+        // "an outage cannot spam the owner" actually true.
+        if (Cache::add('guard:alertcap', 1, now()->addMinutes(60))) {
+            LineNotifier::alert(
+                'scrape:'.$ip,
+                "🚨 บล็อกผู้ต้องสงสัยดูดข้อมูล\nIP: {$ip}\nสาเหตุ: {$reason} (คะแนน {$score})\nบล็อก ".self::BLOCK_HOURS." ชม. · ดูรายละเอียดที่ /admin/security",
+                180,
+            );
+        }
     }
 }

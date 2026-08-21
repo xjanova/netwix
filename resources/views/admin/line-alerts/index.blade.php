@@ -80,4 +80,36 @@
         </form>
     @endif
 </div>
+
+{{-- ── ประวัติการแจ้งเตือน ──────────────────────────────────────────────────
+     Exists because an alert used to live only on the owner's phone: the throttle key is stored
+     hashed, and a SUCCESSFUL push wrote nothing anywhere. "What was that alert?" had no answer. --}}
+<div class="nx-card mt-6 overflow-hidden">
+    <div class="border-b border-white/5 px-5 py-4">
+        <div class="text-base font-semibold">ข้อความที่ส่งไปแล้ว</div>
+        <div class="mt-0.5 text-xs text-cream/45">เก็บทุกครั้งที่ระบบยิงเข้า LINE — ย้อนดูได้ว่าที่เด้งเข้ามือถือคืออะไร</div>
+    </div>
+    @forelse ($recent as $a)
+        <div class="border-b border-white/[0.04] px-5 py-3.5">
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+                <span class="rounded px-2 py-0.5 {{ $a->ok ? 'bg-success/15 text-success' : 'bg-[#ff6b81]/15 text-[#ff6b81]' }}">
+                    {{ $a->ok ? 'ส่งสำเร็จ' : 'ส่งไม่สำเร็จ' }}
+                </span>
+                <span class="text-cream/40">{{ $a->created_at }}</span>
+                @if ($a->alert_key)
+                    <code class="rounded bg-white/8 px-1.5 py-0.5 text-cream/60">{{ $a->alert_key }}</code>
+                @endif
+            </div>
+            <div class="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-cream/75">{{ \Illuminate\Support\Str::limit($a->body, 400) }}</div>
+            @if ($a->error)
+                <div class="mt-1 text-xs text-[#ff6b81]">{{ $a->error }}</div>
+            @endif
+        </div>
+    @empty
+        <div class="px-5 py-10 text-center text-sm text-cream/45">
+            ยังไม่มีข้อความที่บันทึกไว้<br>
+            <span class="text-xs">ระบบเพิ่งเริ่มเก็บประวัติ — ข้อความก่อนหน้านี้ไม่ได้ถูกบันทึกไว้</span>
+        </div>
+    @endforelse
+</div>
 @endsection

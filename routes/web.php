@@ -251,9 +251,15 @@ Route::withoutMiddleware([
 ])->group(function () {
     Route::get('/stream/{episode}/index.m3u8', [StreamController::class, 'manifest'])
         ->middleware('throttle:60,1')->name('stream.manifest');
-    Route::get('/stream/{episode}/segment', [StreamController::class, 'segment'])->name('stream.segment');
+    // The two routes that move actual video bytes had NO limit at all. Segments arrive roughly one
+    // per six seconds of playback, so a real viewer sits near 10/min and a few hundred is comfortable
+    // headroom; a harvester pulling a whole episode as fast as it can is well past it. This is the
+    // right place for that limit — a per-route ceiling, not a heuristic that has to guess intent.
+    Route::get('/stream/{episode}/segment', [StreamController::class, 'segment'])
+        ->middleware('throttle:600,1')->name('stream.segment');
 });
-Route::get('/stream/{episode}/video.mp4', [StreamController::class, 'mp4'])->name('stream.mp4');
+Route::get('/stream/{episode}/video.mp4', [StreamController::class, 'mp4'])
+    ->middleware('throttle:240,1')->name('stream.mp4');
 
 // Browser player health ping (ok=played / !ok=couldn't play) → auto-suspend dead titles.
 Route::post('/api/playback/{content}/report', [\App\Http\Controllers\PlaybackController::class, 'report'])

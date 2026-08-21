@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\Setting;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -61,7 +62,7 @@ class LineNotifier
             return false;   // already reported recently — silence is the feature
         }
 
-        return self::push($message);
+        return self::push($message, $key);
     }
 
     /** Send without throttling — for the admin's own "ทดสอบส่ง" button. Returns [ok, error]. */
@@ -70,13 +71,13 @@ class LineNotifier
         if (! self::enabled()) {
             return [false, 'ยังไม่ได้เปิดใช้งาน หรือยังไม่ได้ใส่ Token / ผู้รับ'];
         }
-        $ok = self::push("✅ ทดสอบการแจ้งเตือนจาก NetWix\nถ้าคุณเห็นข้อความนี้ แปลว่าระบบแจ้งเตือนปัญหาพร้อมใช้งานแล้ว");
+        $ok = self::push("✅ ทดสอบการแจ้งเตือนจาก NetWix\nถ้าคุณเห็นข้อความนี้ แปลว่าระบบแจ้งเตือนปัญหาพร้อมใช้งานแล้ว", 'test');
 
         return [$ok, $ok ? null : 'ส่งไม่สำเร็จ — ตรวจสอบ Token และ ID ผู้รับ (ดู log)'];
     }
 
     /** Raw push. Never throws: an alerting failure must not take down whatever was reporting. */
-    private static function push(string $text): bool
+    private static function push(string $text, string $key = ''): bool
     {
         try {
             $resp = Http::withToken(self::token())
@@ -94,15 +95,51 @@ class LineNotifier
                     'status' => $resp->status(),
                     'body' => mb_substr($resp->body(), 0, 300),
                 ]);
+                self::record($key, $text, false, 'HTTP '.$resp->status().' '.mb_substr($resp->body(), 0, 180));
 
                 return false;
             }
 
+            self::record($key, $text, true, null);
+
             return true;
         } catch (Throwable $e) {
             Log::warning('line-alert: push threw', ['error' => $e->getMessage()]);
+            self::record($key, $text, false, mb_substr($e->getMessage(), 0, 200));
 
             return false;
+        }
+    }
+
+    /**
+     * Keep what we sent, so "what was that alert on my phone?" is answerable.
+     *
+     * Stores the UN-hashed key: the throttle lives in the cache as sha1($key), which is deliberately
+     * one-way, so the cache can say "something fired recently" but never what. Swallows its own errors
+     * — a bookkeeping failure must not turn into a lost alert.
+     */
+    private static function record(string $key, string $text, bool $ok, ?string $error): void
+    {
+        try {
+            DB::table('line_alerts')->insert([
+                'alert_key' => $key !== '' ? mb_substr($key, 0, 120) : null,
+                'body' => mb_substr($text, 0, 2000),
+                'ok' => $ok,
+                'error' => $error,
+                'created_at' => now(),
+            ]);
+        } catch (Throwable $e) {
+            // table missing (pre-migrate) or DB hiccup — never break alerting over its own log
+        }
+    }
+
+    /** The most recent alerts we pushed, newest first — for the admin page and for after-the-fact questions. */
+    public static function recent(int $limit = 20): array
+    {
+        try {
+            return DB::table('line_alerts')->orderByDesc('id')->limit($limit)->get()->all();
+        } catch (Throwable $e) {
+            return [];
         }
     }
 
@@ -168,7 +205,7 @@ class LineNotifier
         $lines[] = '';
         $lines[] = 'ดูรายการทั้งหมด: '.url('/admin/contents?filter=suspended');
 
-        self::push(implode("\n", $lines));
+        self::push(implode("\n", $lines), 'digest-suspended');
 
         return count($bucket);
     }

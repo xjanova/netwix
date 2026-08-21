@@ -17,10 +17,13 @@ return Application::configure(basePath: dirname(__DIR__))
         // Global (not web-only) so the API and stream surfaces canonicalise too.
         $middleware->prepend(\App\Http\Middleware\CanonicalHost::class);
 
-        // Watch the content endpoints for scraping-shaped traffic. Global, because a scraper picks
-        // its own targets — the guard decides internally which paths it cares about, so a route added
-        // later is covered without anyone remembering to opt it in. Ships in observe-only mode.
-        $middleware->prepend(\App\Http\Middleware\DetectScraping::class);
+        // Watch the content endpoints for scraping-shaped traffic. Appended to BOTH groups rather
+        // than prepended globally: on the global stack it ran before StartSession and before route
+        // middleware, so it could never see a logged-in admin or a validated app token, and its two
+        // most important exemptions were dead code. Every route we serve is in one of these groups.
+        // Ships in observe-only mode.
+        $middleware->appendToGroup('web', \App\Http\Middleware\DetectScraping::class);
+        $middleware->appendToGroup('api', \App\Http\Middleware\DetectScraping::class);
 
         $middleware->alias([
             'profile' => \App\Http\Middleware\EnsureProfileSelected::class,

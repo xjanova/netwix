@@ -10,21 +10,24 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Runs [App\Support\ScrapeGuard] over the endpoints that carry our content.
  *
- * Placed on the global stack rather than a route group because a scraper picks its own targets — the
- * guard decides internally which paths it cares about, so a route added next month is covered without
- * anyone remembering to opt it in.
+ * Registered on the `web` and `api` GROUPS, not the global stack. Global meant running before
+ * StartSession and before route middleware, so `$request->user()` was always null and the `app_token`
+ * attribute was never set — the admin exemption and the app exemption were both unreachable code, and
+ * the only clause that ever evaluated was a raw `Authorization` header. The guard is only useful if it
+ * can tell who is asking.
  *
- * Refusing happens BEFORE the request is handled, so a blocked client costs one cached lookup instead
- * of a database query and a rendered response. Everything else is observation only.
+ * Everything else is observation: in observe mode nothing is ever refused.
  */
 class DetectScraping
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if (ScrapeGuard::enforcing() && ScrapeGuard::isBlocked((string) $request->ip())) {
-            return $this->refuse($request);
-        }
-
+        // inspect() decides everything: whether this path is even watched, whether the caller is
+        // exempt, and whether an enforcing guard should refuse. The block check used to run FIRST and
+        // independently, so a flagged address was refused on every path on the site — including
+        // /login and the admin panel, which is precisely where a wrongly-caught person (or the owner)
+        // would go to fix it. It also ran before the exemptions, so an admin whose address had been
+        // flagged before they signed in could never sign in.
         if (ScrapeGuard::inspect($request)) {
             return $this->refuse($request);
         }

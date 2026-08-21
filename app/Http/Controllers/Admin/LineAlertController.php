@@ -27,6 +27,10 @@ class LineAlertController extends Controller
             'to' => (string) Setting::get('line_oa_to', ''),
             'ready' => LineNotifier::enabled(),
             'sourcesDown' => array_keys(SourceHealth::down()),
+            // What we have actually sent. The owner asked "an alert came through — what was it?" and
+            // nothing on the server could answer: the throttle key is hashed in the cache and a
+            // successful push logged nothing at all.
+            'recent' => LineNotifier::recent(20),
         ]);
     }
 

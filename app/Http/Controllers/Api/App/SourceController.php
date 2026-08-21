@@ -7,6 +7,7 @@ use App\Http\Controllers\EpisodeSourceController;
 use App\Models\Episode;
 use App\Services\Import\SourceRegistry;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 /**
  * Public playable-source resolver for the mobile app. Delegates to the existing
@@ -19,9 +20,11 @@ use Illuminate\Http\JsonResponse;
  */
 class SourceController extends Controller
 {
-    public function source(Episode $episode, SourceRegistry $registry, EpisodeSourceController $resolver): JsonResponse
+    public function source(Request $request, Episode $episode, SourceRegistry $registry, EpisodeSourceController $resolver): JsonResponse
     {
-        $resp = $resolver->resolve($episode, $registry);
+        // The request is passed through so the app gets the same `?refresh=1` escape hatch the web
+        // players use: skip a stored copy that won't play and walk the link rotation instead.
+        $resp = $resolver->resolve($request, $episode, $registry);
         $status = $resp->getStatusCode();
 
         return response()->json([
