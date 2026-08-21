@@ -116,6 +116,36 @@ class PlaybackHealth
             return;
         }
 
+        /*
+         * Require the death to be CORROBORATED before anything leaves the site.
+         *
+         * A full cycle of definitive failures is strong evidence about the links — but it is evidence
+         * gathered in one moment, by one requester, and it cannot tell "this title is dead" apart from
+         * "our server had a bad minute": a source rate-limiting us, a DNS blip, a TLS handshake that
+         * lost a race. On 2026-08-21 two healthy titles were unpublished this way within minutes of
+         * each other, and both resolved perfectly on the very next attempt. Taking a title off a public
+         * catalogue is not a decision worth making on one sample.
+         *
+         * First strike flags it for admin review — visible immediately, nothing lost. It only becomes a
+         * suspension when a SECOND full-cycle failure lands from a different viewer, or when the same
+         * failure is still happening five minutes later. A real outage clears that bar within a couple
+         * of viewers; a blip never does.
+         */
+        $confirmKey = 'death:confirm:'.$content->id;
+        $first = Cache::get($confirmKey);
+        if ($first === null) {
+            Cache::put($confirmKey, ['viewer' => self::viewer(), 'at' => time()], now()->addMinutes(30));
+            self::flagForReview($content);
+
+            return;
+        }
+        $sameViewer = ($first['viewer'] ?? null) === self::viewer();
+        $soon = (time() - (int) ($first['at'] ?? 0)) < 300;
+        if ($sameViewer && $soon) {
+            return;   // one client retrying inside five minutes is still a single opinion
+        }
+
+        Cache::forget($confirmKey);
         self::suspend($content, $reason);
         try {
             Redis::del(self::viewerFailKey($content->id, self::viewer()));
