@@ -18,6 +18,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // skipped them has skipped everything. Reversible from the DB (`require_cloudflare`).
         $middleware->prepend(\App\Http\Middleware\EnsureBehindCloudflare::class);
 
+        // Credential scanning is judged globally, because a scanner asks for paths we have no route
+        // for and route-group middleware never runs on a 404. Identity-dependent rules stay in the
+        // groups below, where the session exists.
+        $middleware->prepend(\App\Http\Middleware\DetectProbes::class);
+
         // Fold the www alias onto the APP_URL host before anything else runs — see CanonicalHost.
         // Global (not web-only) so the API and stream surfaces canonicalise too.
         $middleware->prepend(\App\Http\Middleware\CanonicalHost::class);

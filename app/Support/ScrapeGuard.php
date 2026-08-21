@@ -169,16 +169,6 @@ class ScrapeGuard
                 return false;
             }
 
-            // Probing for secrets is judged on EVERY path, not just the content surfaces. `/.env` and
-            // `/wp-admin` are nowhere near our watched prefixes, which is why an address that spent
-            // 1,985 requests hunting for our credentials never tripped a single rule. One request like
-            // that is not a mistake and does not need corroborating.
-            if ($probe = self::probeReason($request)) {
-                self::record($request, $ip, 'probe', 30, ['path' => $probe]);
-
-                return self::enforcing() && self::isBlocked($ip);
-            }
-
             if (! self::watched($request)) {
                 return false;
             }
@@ -249,6 +239,36 @@ class ScrapeGuard
         $own = array_filter(array_map('trim', explode(',', (string) config('services.guard.server_ips', ''))));
 
         return in_array($ip, $own, true);
+    }
+
+    /**
+     * Judge one request for credential scanning. Separate entry point from inspect() because it must
+     * run on the GLOBAL stack: a scanner asks for paths we have no route for, and route-group
+     * middleware never runs on a 404. See [App\Http\Middleware\DetectProbes].
+     *
+     * Needs no session and no user — nobody signed in has a reason to ask for a `.env` either.
+     */
+    public static function inspectProbe(Request $request): bool
+    {
+        try {
+            if (self::mode() === 'off') {
+                return false;
+            }
+            $ip = (string) $request->ip();
+            if ($ip === '' || self::isOwnServer($ip)) {
+                return false;
+            }
+            $probe = self::probeReason($request);
+            if ($probe === null) {
+                return false;
+            }
+
+            self::record($request, $ip, 'probe', 30, ['path' => $probe]);
+
+            return self::enforcing() && self::isBlocked($ip);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**
