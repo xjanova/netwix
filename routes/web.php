@@ -385,6 +385,10 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('security/firewall', [Admin\SecurityController::class, 'toggleFirewall'])->name('security.firewall');
     Route::post('security/block', [Admin\SecurityController::class, 'block'])->name('security.block');
     Route::delete('security/blocked/{blockedIp}', [Admin\SecurityController::class, 'unblock'])->name('security.unblock');
+    // Extend, shorten or make permanent an existing block — separate from lifting it, so the block's
+    // history and hit count survive the change.
+    Route::post('security/blocked/{blockedIp}/duration', [Admin\SecurityController::class, 'setDuration'])->name('security.duration');
+    Route::post('security/default-hours', [Admin\SecurityController::class, 'setDefaultHours'])->name('security.default-hours');
 
     // "ลายน้ำบนปก" — where the mark sits, how heavy it is, and whether it is a logo or text. The
     // preview route renders a REAL cover with unsaved settings so dragging shows the true result.

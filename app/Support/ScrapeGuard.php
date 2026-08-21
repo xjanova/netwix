@@ -53,8 +53,15 @@ class ScrapeGuard
     /** Score at which a client is blocked (when enforcing). Roughly "tripped a rule repeatedly". */
     private const BLOCK_SCORE = 60;
 
-    /** How long an automatic block lasts. Long enough to be expensive, short enough to be wrong. */
+    /** Default block length when the admin hasn't set one. Long enough to be expensive, short enough to be wrong. */
     private const BLOCK_HOURS = 6;
+
+    /** Paths nobody browsing a film site ever asks for. Requesting one is not a mistake. */
+    private const PROBE_PATHS = [
+        '.env', '.git', '.aws', '.ssh', 'wp-admin', 'wp-login', 'wp-content', 'xmlrpc.php',
+        'phpinfo', 'phpmyadmin', 'adminer', 'vendor/phpunit', 'config.json', 'credentials',
+        'id_rsa', 'shell.php', 'eval-stdin', 'server-status', 'actuator', 'solr/', 'struts',
+    ];
 
     /** Sliding window the score is accumulated over. */
     private const SCORE_WINDOW_MIN = 30;
@@ -85,6 +92,41 @@ class ScrapeGuard
         return self::mode() === 'enforce';
     }
 
+    /** How many hours an automatic block lasts. Admin-set, because "how long" is a judgement call. */
+    public static function blockHours(): int
+    {
+        $h = (int) Setting::get('scrape_block_hours', self::BLOCK_HOURS);
+
+        return max(1, min(720, $h ?: self::BLOCK_HOURS));
+    }
+
+    /**
+     * What we actually block — an address for IPv4, the /64 for IPv6.
+     *
+     * Blocking a single IPv6 address is close to useless AND unfair at the same time. Thai carriers
+     * hand a household a whole /64 and rotate the low half constantly: one visitor showed up under
+     * five different addresses in five days. A /128 block is evaded by reconnecting, while the same
+     * rotation makes the block list fill with dead entries. The /64 is the subscriber, which is the
+     * thing we actually mean when we say "this person".
+     *
+     * IPv4 stays exact: an address can be shared by a whole mobile carrier's customers (CGNAT), so
+     * widening it would take out strangers.
+     */
+    public static function blockKey(string $ip): string
+    {
+        if (! str_contains($ip, ':')) {
+            return $ip;
+        }
+        $packed = @inet_pton($ip);
+        if ($packed === false || strlen($packed) !== 16) {
+            return $ip;
+        }
+        // Keep the first 64 bits, zero the rest.
+        $prefix = @inet_ntop(substr($packed, 0, 8).pack('x8'));
+
+        return $prefix === false ? $ip : $prefix.'/64';
+    }
+
     /** True when this address is currently refused (and the refusal is counted). */
     public static function isBlocked(string $ip): bool
     {
@@ -92,8 +134,11 @@ class ScrapeGuard
             return false;
         }
 
-        $block = Cache::remember('guard:block:'.$ip, now()->addMinutes(2), function () use ($ip) {
-            $row = BlockedIp::where('ip', $ip)->first();
+        $key = self::blockKey($ip);
+        $block = Cache::remember('guard:block:'.$key, now()->addMinutes(2), function () use ($ip, $key) {
+            // Match the /64 entry AND a legacy exact-address one, so blocks written before the prefix
+            // rule existed keep working.
+            $row = BlockedIp::whereIn('ip', array_unique([$key, $ip]))->first();
 
             return $row && $row->active ? ['id' => $row->id] : null;
         });
@@ -116,11 +161,25 @@ class ScrapeGuard
     public static function inspect(Request $request): bool
     {
         try {
-            if (self::mode() === 'off' || ! self::watched($request)) {
+            if (self::mode() === 'off') {
                 return false;
             }
             $ip = (string) $request->ip();
             if ($ip === '' || self::exempt($request)) {
+                return false;
+            }
+
+            // Probing for secrets is judged on EVERY path, not just the content surfaces. `/.env` and
+            // `/wp-admin` are nowhere near our watched prefixes, which is why an address that spent
+            // 1,985 requests hunting for our credentials never tripped a single rule. One request like
+            // that is not a mistake and does not need corroborating.
+            if ($probe = self::probeReason($request)) {
+                self::record($request, $ip, 'probe', 30, ['path' => $probe]);
+
+                return self::enforcing() && self::isBlocked($ip);
+            }
+
+            if (! self::watched($request)) {
                 return false;
             }
 
@@ -190,6 +249,28 @@ class ScrapeGuard
         $own = array_filter(array_map('trim', explode(',', (string) config('services.guard.server_ips', ''))));
 
         return in_array($ip, $own, true);
+    }
+
+    /**
+     * The fragment of the path that gives away a credential hunt, or null.
+     *
+     * Deliberately a substring match on a short, specific list: every entry names a file or panel that
+     * exists only on OTHER kinds of site, so a viewer of ours has no way to ask for one by accident.
+     * That is what makes a single hit enough to act on, where every other rule needs a pattern.
+     */
+    private static function probeReason(Request $request): ?string
+    {
+        $path = strtolower(ltrim($request->path(), '/'));
+        if ($path === '' || $path === '/') {
+            return null;
+        }
+        foreach (self::PROBE_PATHS as $needle) {
+            if (str_contains($path, $needle)) {
+                return Str::limit($path, 90, '');
+            }
+        }
+
+        return null;
     }
 
     private static function watched(Request $request): bool
@@ -340,11 +421,27 @@ class ScrapeGuard
             return;
         }
 
+        // Never auto-block an address a real member is signed in from. A paying viewer is the one
+        // person we can be sure is not a harvester, and the cost of getting them wrong — they cannot
+        // reach the site, cannot reach support, and we hear about it days later — is far higher than
+        // letting an account-holding scraper through, whose account we can revoke instead.
+        if (auth()->check()) {
+            return;
+        }
+
+        $key = self::blockKey($ip);
+        $hours = self::blockHours();
+
         BlockedIp::updateOrCreate(
-            ['ip' => $ip],
-            ['reason' => $reason, 'score' => $score, 'expires_at' => now()->addHours(self::BLOCK_HOURS), 'manual' => false],
+            ['ip' => $key],
+            ['reason' => $reason, 'score' => $score, 'expires_at' => now()->addHours($hours), 'manual' => false],
         );
+        Cache::forget('guard:block:'.$key);
         Cache::forget('guard:block:'.$ip);
+
+        // Push it down to Apache too when firewall blocking is on, so a banned client stops costing us
+        // PHP at all. sync() self-checks and rolls back, so a bad write cannot take the site with it.
+        FirewallBlocklist::sync();
 
         // Throttled per ADDRESS *and* globally. Per-address alone is not a throttle at all here: Thai
         // mobile carriers hand out a fresh IPv6 per session, so one determined client can present a

@@ -61,7 +61,33 @@
             </button>
             <span class="text-[12px] text-cream/50">สถานะ: <b class="{{ $firewall ? 'text-success' : 'text-cream/70' }}">{{ $firewall ? 'เปิดอยู่' : 'ปิดอยู่' }}</b></span>
         </form>
+
+        {{-- How long an automatic block lasts. Short by default on purpose: a block that is wrong
+             should expire before anyone has to notice it, and one that is right can always be
+             extended from the list below once there is evidence to justify it. --}}
+        <form method="POST" action="{{ route('admin.security.default-hours') }}"
+              class="mt-4 flex flex-wrap items-center gap-2 border-t border-white/5 pt-4">
+            @csrf
+            <span class="text-[12px] text-cream/60">บล็อกอัตโนมัตินานครั้งละ</span>
+            <select name="hours" class="nx-input w-28 py-1.5 text-xs">
+                @foreach ([1 => '1 ชม.', 6 => '6 ชม.', 12 => '12 ชม.', 24 => '1 วัน', 72 => '3 วัน', 168 => '7 วัน', 720 => '30 วัน'] as $h => $label)
+                    <option value="{{ $h }}" @selected($blockHours === $h)>{{ $label }}</option>
+                @endforeach
+            </select>
+            <button class="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/15">บันทึก</button>
+            <span class="text-[11px] text-cream/35">ต่อเวลาหรือปลดรายตัวได้ที่รายการด้านล่าง</span>
+        </form>
     </div>
+</div>
+
+{{-- IPv6 note: automatic blocks are written as a /64 — the subscriber, not one of the addresses a
+     Thai carrier rotates through them every few hours. Blocking a single IPv6 address is evaded by
+     reconnecting and fills the list with dead entries. --}}
+<div class="mb-6 rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3 text-[12px] leading-relaxed text-cream/55">
+    <b class="text-cream/75">วิธีที่ระบบเลือกบล็อก:</b>
+    IPv4 บล็อกเลขเดียว · IPv6 บล็อกทั้งช่วง <code class="rounded bg-white/10 px-1">/64</code> (คือ “บ้านหนึ่งหลัง”
+    เพราะค่ายมือถือไทยหมุนเลขท้ายให้ผู้ใช้คนเดิมตลอด — บล็อกทีละเลขจึงหลบง่ายและลิสต์จะเต็มไปด้วยขยะ)
+    · <b class="text-cream/75">ไม่บล็อกเครื่องที่มีสมาชิกล็อกอินอยู่</b> และไม่บล็อกเซิร์ฟเวอร์เราเอง
 </div>
 
 {{-- ── ไอพีที่น่าจับตา + รายการที่บล็อก ─────────────────── --}}
@@ -100,6 +126,13 @@
             <form method="POST" action="{{ route('admin.security.block') }}" class="flex items-center gap-1.5">
                 @csrf
                 <input name="ip" placeholder="เพิ่ม IP" class="nx-input w-32 py-1.5 text-xs">
+                <select name="hours" class="nx-input w-24 py-1.5 text-xs" title="นานแค่ไหน">
+                    <option value="6">6 ชม.</option>
+                    <option value="24">1 วัน</option>
+                    <option value="168">7 วัน</option>
+                    <option value="720">30 วัน</option>
+                    <option value="0">ถาวร</option>
+                </select>
                 <button class="rounded-lg bg-white/10 px-2.5 py-1.5 text-xs hover:bg-white/15">บล็อก</button>
             </form>
         </div>
@@ -118,7 +151,23 @@
                             </div>
                         </td>
                         <td class="px-2 py-2.5 text-right text-[11px] text-cream/45">
-                            {{ $b->manual ? 'ถาวร' : ($b->expires_at?->diffForHumans() ?? '—') }}
+                            {{ $b->expires_at ? 'หมดอายุ '.$b->expires_at->diffForHumans() : 'ถาวร' }}
+                        </td>
+                        <td class="px-2 py-2.5 text-right">
+                            {{-- Change how long, without lifting and re-adding: the hit count and the
+                                 block's history are the evidence for deciding, and re-adding loses both. --}}
+                            <form method="POST" action="{{ route('admin.security.duration', $b) }}" class="inline-flex items-center gap-1">
+                                @csrf
+                                <select name="hours" class="nx-input w-[86px] py-1 text-[11px]" onchange="this.form.submit()">
+                                    <option value="" selected disabled>แก้เวลา…</option>
+                                    <option value="1">1 ชม.</option>
+                                    <option value="6">6 ชม.</option>
+                                    <option value="24">1 วัน</option>
+                                    <option value="168">7 วัน</option>
+                                    <option value="720">30 วัน</option>
+                                    <option value="0">ถาวร</option>
+                                </select>
+                            </form>
                         </td>
                         <td class="px-5 py-2.5 text-right">
                             <form method="POST" action="{{ route('admin.security.unblock', $b) }}"

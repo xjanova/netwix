@@ -68,7 +68,7 @@ class FirewallBlocklist
             ->orderByDesc('id')
             ->limit(self::MAX_RULES)
             ->pluck('ip')
-            ->filter(fn ($ip) => filter_var($ip, FILTER_VALIDATE_IP) !== false)   // never trust the column
+            ->filter(fn ($ip) => self::validTarget((string) $ip))   // never trust the column
             ->unique()
             ->values();
 
@@ -114,6 +114,32 @@ class FirewallBlocklist
     }
 
     /** @param string[] $ips */
+    /**
+     * A value we are willing to paste into a webserver config: a bare address, or a CIDR range.
+     *
+     * The CIDR half is not optional any more. Automatic blocks are written as an IPv6 /64 — the
+     * subscriber rather than one of the addresses a carrier rotates through them — and the old
+     * `FILTER_VALIDATE_IP` check silently rejects anything with a slash. It would have dropped every
+     * IPv6 block on the floor: present in the admin list, absent from the firewall, and nothing
+     * anywhere saying so.
+     */
+    private static function validTarget(string $value): bool
+    {
+        if (filter_var($value, FILTER_VALIDATE_IP) !== false) {
+            return true;
+        }
+        [$addr, $bits] = array_pad(explode('/', $value, 2), 2, null);
+        if ($bits === null || ! ctype_digit($bits)) {
+            return false;
+        }
+        $isV6 = str_contains((string) $addr, ':');
+        $max = $isV6 ? 128 : 32;
+        $min = $isV6 ? 32 : 8;   // refuse a mask so wide it would blackhole a continent
+
+        return filter_var($addr, FILTER_VALIDATE_IP) !== false
+            && (int) $bits >= $min && (int) $bits <= $max;
+    }
+
     private static function renderBlock(array $ips): string
     {
         if ($ips === []) {

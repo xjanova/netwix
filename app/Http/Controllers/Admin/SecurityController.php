@@ -52,6 +52,7 @@ class SecurityController extends Controller
             'blocked' => BlockedIp::orderByDesc('id')->limit(50)->get(),
             'mode' => ScrapeGuard::mode(),
             'firewall' => FirewallBlocklist::enabled(),
+            'blockHours' => ScrapeGuard::blockHours(),
             'reason' => $reason,
             'ip' => $ip,
             'stats' => [
@@ -103,19 +104,29 @@ class SecurityController extends Controller
     {
         $data = $request->validate([
             'ip' => ['required', 'ip'],
+            'hours' => ['nullable', 'integer', 'min:0', 'max:8760'],   // 0 = ถาวร
             'note' => ['nullable', 'string', 'max:120'],
         ]);
 
+        // Blocked by the same key an automatic block would use, so a hand-typed IPv6 address covers
+        // the whole subscriber instead of the one address that happened to be on screen.
+        $key = ScrapeGuard::blockKey($data['ip']);
+        $hours = $data['hours'] ?? null;
+
         BlockedIp::updateOrCreate(
-            ['ip' => $data['ip']],
-            ['reason' => 'manual', 'score' => 0, 'manual' => true, 'expires_at' => null],
+            ['ip' => $key],
+            [
+                'reason' => 'manual', 'score' => 0, 'manual' => true,
+                'expires_at' => ($hours === null || $hours === 0) ? null : now()->addHours($hours),
+            ],
         );
+        Cache::forget('guard:block:'.$key);
         Cache::forget('guard:block:'.$data['ip']);
 
-        $this->note($request, $data['ip'], 'บล็อกด้วยตนเอง', $data['note'] ?? null);
+        $this->note($request, $key, 'บล็อกด้วยตนเอง', $data['note'] ?? null);
         FirewallBlocklist::sync();
 
-        return back()->with('status', "บล็อก {$data['ip']} แล้ว");
+        return back()->with('status', "บล็อก {$key} แล้ว".($hours ? " ({$hours} ชม.)" : ' (ถาวร)'));
     }
 
     /** Lift a block, and remember that it was lifted, by whom, and why. */
@@ -134,6 +145,40 @@ class SecurityController extends Controller
         FirewallBlocklist::sync();
 
         return back()->with('status', "ปลดบล็อก {$ip} แล้ว");
+    }
+
+    /**
+     * Change how long an existing block lasts — extend it, cut it short, or make it permanent.
+     *
+     * Separate from unblock() because "this one deserves longer" and "this was a mistake" are
+     * different judgements, and collapsing them into delete-and-re-add would lose the block's history
+     * and its hit count, which are the evidence for making that judgement in the first place.
+     */
+    public function setDuration(Request $request, BlockedIp $blockedIp): RedirectResponse
+    {
+        $data = $request->validate(['hours' => ['required', 'integer', 'min:0', 'max:8760']]);
+        $hours = (int) $data['hours'];
+
+        $blockedIp->update([
+            'expires_at' => $hours === 0 ? null : now()->addHours($hours),
+            'manual' => $hours === 0 ? true : $blockedIp->manual,
+        ]);
+        Cache::forget('guard:block:'.$blockedIp->ip);
+
+        $label = $hours === 0 ? 'ถาวร' : "{$hours} ชม. นับจากนี้";
+        $this->note($request, $blockedIp->ip, 'แก้เวลาบล็อก', $label);
+        FirewallBlocklist::sync();
+
+        return back()->with('status', "ตั้งเวลาบล็อก {$blockedIp->ip} เป็น {$label}");
+    }
+
+    /** The default length of an automatic block, in hours. 0 is not offered — that is what mode=off is for. */
+    public function setDefaultHours(Request $request): RedirectResponse
+    {
+        $data = $request->validate(['hours' => ['required', 'integer', 'min:1', 'max:720']]);
+        Setting::write('scrape_block_hours', (string) $data['hours']);
+
+        return back()->with('status', "บล็อกอัตโนมัติจะนาน {$data['hours']} ชม.");
     }
 
     /** Record an admin action in the same log as the observations, so the history is one story. */
