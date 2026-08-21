@@ -138,8 +138,10 @@ class SecurityController extends Controller
         $blockedIp->delete();
         Cache::forget('guard:block:'.$ip);
         // Clear the running score too, or the next request re-blocks instantly and the unblock looks
-        // like it did nothing.
+        // like it did nothing. Both keys are the block key now (see ScrapeGuard::record), but the raw
+        // form is cleared as well so a row written before that change also lets go.
         Cache::forget('guard:score:'.$ip);
+        Cache::forget('guard:score:'.ScrapeGuard::blockKey($ip));
 
         $this->note($request, $ip, 'ปลดบล็อก', $note !== '' ? $note : null);
         FirewallBlocklist::sync();

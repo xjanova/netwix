@@ -424,10 +424,17 @@ class ScrapeGuard
             'created_at' => now(),
         ]);
 
+        // Scored per BLOCK KEY, not per raw address — the same thing a block is written against.
+        // Keeping them on different keys meant lifting a block did not lift the score behind it: the
+        // admin pressed "ปลด", the very next request re-crossed BLOCK_SCORE, and the unblock looked
+        // like it had done nothing. (Found by unblocking myself and being refused again seconds later.)
+        // It is also the more honest measure: one subscriber's behaviour, not one of the addresses a
+        // carrier happens to be rotating them through.
+        //
         // Same fixed-window rule as bump(): the score must age out on its own, or SCORE_WINDOW_MIN
         // silently means "until 30 minutes of total silence" and a long viewing session accumulates
         // until it crosses BLOCK_SCORE.
-        $total = self::bumpBy('guard:score:'.$ip, $score, self::SCORE_WINDOW_MIN * 60);
+        $total = self::bumpBy('guard:score:'.self::blockKey($ip), $score, self::SCORE_WINDOW_MIN * 60);
 
         if ($total >= self::BLOCK_SCORE) {
             self::block($ip, $reason, $total);
@@ -458,6 +465,9 @@ class ScrapeGuard
         );
         Cache::forget('guard:block:'.$key);
         Cache::forget('guard:block:'.$ip);
+        // Reset the score with the block: it has been acted on. Left in place it would re-block the
+        // moment this one expires, turning a 6-hour ban into a permanent one nobody chose.
+        Cache::forget('guard:score:'.$key);
 
         // Push it down to Apache too when firewall blocking is on, so a banned client stops costing us
         // PHP at all. sync() self-checks and rolls back, so a bad write cannot take the site with it.
