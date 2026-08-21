@@ -49,3 +49,24 @@
 <IfModule mod_headers.c>
     Header set Cache-Control "public, max-age=31536000, immutable" env=NX_IMMUTABLE
 </IfModule>
+
+# Hotlink protection for the images we store ourselves.
+#
+# We pay to fetch, clean, re-encode and watermark every cover (App\Support\ImageStore,
+# App\Support\PosterWatermark). Another site can embed those files straight from us: they get free
+# artwork, we get the bandwidth bill, and our watermark advertises for them. This refuses an image
+# request whose Referer is somebody else's page.
+#
+# An EMPTY Referer is allowed on purpose, and that is not a loophole — it is the whole reason this is
+# safe to switch on. The mobile app sends none, Discord/LINE/Facebook link unfurlers send none, and a
+# browser opening an image in its own tab sends none. Blocking those would break the app's covers and
+# every shared link, which is a far bigger loss than the hotlinking. What this stops is the specific
+# case we can be certain about: an <img> tag on a page that is not ours.
+<IfModule mod_rewrite.c>
+    RewriteCond %{REQUEST_URI} ^(/public)?/storage/media/ [NC]
+    RewriteCond %{HTTP_REFERER} !^$
+    RewriteCond %{HTTP_REFERER} !^https?://([a-z0-9-]+\.)*netwix\.online [NC]
+    RewriteCond %{HTTP_REFERER} !^https?://([a-z0-9-]+\.)*google\. [NC]
+    RewriteCond %{HTTP_REFERER} !^https?://([a-z0-9-]+\.)*bing\.com [NC]
+    RewriteRule ^ - [F,L]
+</IfModule>

@@ -181,7 +181,7 @@ class ScrapeGuard
      * being logged as bot traffic — and under enforcement the box would have blocked itself, which
      * fails every source probe at once and fires "แหล่งล่ม" alerts for sources that are perfectly fine.
      */
-    private static function isOwnServer(string $ip): bool
+    public static function isOwnServer(string $ip): bool
     {
         if ($ip === '' || in_array($ip, ['127.0.0.1', '::1'], true)) {
             return true;

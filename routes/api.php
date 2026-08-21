@@ -44,10 +44,12 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
     // sees the full catalogue. Without this the app served 18+ titles to anyone.
     Route::middleware('auth.apptoken.optional')->group(function () {
         Route::get('home', [CatalogController::class, 'home']);
-        Route::get('titles', [CatalogController::class, 'titles']);
+        // The catalogue list is the one endpoint that hands over the whole library a page at a time —
+        // see the `catalog` limiter in AppServiceProvider for why it needs its own ceiling.
+        Route::get('titles', [CatalogController::class, 'titles'])->middleware('throttle:catalog');
         Route::get('titles/{slug}', [CatalogController::class, 'show']);
         Route::get('genres', [CatalogController::class, 'genres']);
-        Route::get('search', [CatalogController::class, 'search']);
+        Route::get('search', [CatalogController::class, 'search'])->middleware('throttle:catalog');
 
         // Pre-roll ad for a title — same campaigns as the web player. Optional
         // auth so hide_for_pro can be honoured for a signed-in Pro member.

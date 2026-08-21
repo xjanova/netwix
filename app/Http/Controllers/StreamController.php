@@ -11,6 +11,7 @@ use App\Support\MirrorRotation;
 use App\Support\PlaybackHealth;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -145,13 +146,15 @@ class StreamController extends Controller
 
     public function segment(Episode $episode, Request $request)
     {
-        $url = (string) $request->query('u', '');
-        $sig = (string) $request->query('s', '');
-        $exp = (int) $request->query('e', 0);
-        abort_unless($url !== '' && $exp >= time() && hash_equals($this->segSig($episode, $url, $exp), $sig), 403);
-        abort_unless(str_starts_with($url, 'https://'), 400);
+        // The manifest and the mp4 route already refuse a foreign embed; segments were the gap. A
+        // stolen manifest is only useful if its segments load, so the rule has to hold on both.
+        $this->blockForeignEmbed($request);
 
-        $ref = (string) $request->query('r', '');
+        $handle = (string) $request->query('u', '');
+        abort_if($handle === '', 403);
+        $opened = $this->unseal($handle, $episode, $request);
+        abort_if($opened === null, 403);
+        [$url, $ref] = $opened;
 
         // Retry a transient upstream hiccup a couple of times before giving up — one failed segment
         // shouldn't be enough to stall the whole stream (there's no lower rendition to fall back to).
@@ -292,10 +295,7 @@ class StreamController extends Controller
         $exp = time() + self::TTL;
 
         return route('stream.segment', $episode).'?'.http_build_query([
-            'u' => $abs,
-            'e' => $exp,
-            's' => $this->segSig($episode, $abs, $exp),
-            'r' => $referer ?: '',
+            'u' => $this->seal($abs, $referer, $exp),
         ]);
     }
 
@@ -310,10 +310,7 @@ class StreamController extends Controller
 
         return route('stream.manifest', $episode).'?'.http_build_query([
             't' => $token,
-            'u' => $abs,
-            'e' => $exp,
-            's' => $this->segSig($episode, $abs, $exp),
-            'r' => $referer ?: '',
+            'u' => $this->seal($abs, $referer, $exp),
             'd' => 1,   // depth marker — a nested playlist never nests again
         ]);
     }
@@ -325,18 +322,65 @@ class StreamController extends Controller
      */
     private function signedNestedUrl(Episode $episode, Request $request): ?string
     {
-        $url = (string) $request->query('u', '');
-        if ($url === '') {
+        $handle = (string) $request->query('u', '');
+        if ($handle === '') {
             return null;
         }
-        $exp = (int) $request->query('e', 0);
-        abort_unless(
-            $exp >= time() && hash_equals($this->segSig($episode, $url, $exp), (string) $request->query('s', '')),
-            403,
-        );
-        abort_unless(str_starts_with($url, 'https://'), 400);
+        $opened = $this->unseal($handle, $episode, $request);
+        abort_if($opened === null, 403);
 
-        return $url;
+        return $opened[0];
+    }
+
+    /**
+     * Wrap an upstream URL (and the Referer it needs) into an opaque, tamper-proof, expiring handle.
+     *
+     * Until now the proxied manifest we serve carried the source's real CDN address in the clear:
+     * `?u=https://master.steamhls88.com/…&r=https://ssplayer168.xyz/`. Anyone who could fetch one
+     * manifest — which is anyone who can press play — got our entire supply chain in a single line:
+     * which site the stream comes from, which CDN serves it, and the exact Referer needed to fetch it
+     * without us. They could then pull the video straight from the source, at the source's expense,
+     * and our proxy would never see the request. It also told a source exactly who was reselling it.
+     *
+     * `encryptString` is authenticated (AES-256-CBC + HMAC), so this both hides the URL and makes it
+     * unforgeable; the expiry rides inside the sealed payload rather than beside it, where it could be
+     * edited. Nothing about the upstream leaves this server any more.
+     */
+    private function seal(string $abs, ?string $referer, int $exp): string
+    {
+        return Crypt::encryptString(implode('|', [$exp, $abs, (string) $referer]));
+    }
+
+    /**
+     * Reverse of seal(). Returns [url, referer] or null when the handle is forged, corrupt or expired.
+     *
+     * Also accepts a bare `https://…` for a short transition: manifests are cached for five minutes,
+     * so a deploy would otherwise 403 every segment of every stream already in flight — the site
+     * breaking itself in the name of protecting itself. The legacy branch still demands the old HMAC.
+     *
+     * @return array{0:string,1:?string}|null
+     */
+    private function unseal(string $u, Episode $episode, Request $request): ?array
+    {
+        if (str_starts_with($u, 'https://')) {
+            $exp = (int) $request->query('e', 0);
+            if ($exp < time() || ! hash_equals($this->segSig($episode, $u, $exp), (string) $request->query('s', ''))) {
+                return null;
+            }
+
+            return [$u, ((string) $request->query('r', '')) ?: null];
+        }
+
+        try {
+            $parts = explode('|', Crypt::decryptString($u), 3);
+        } catch (\Throwable) {
+            return null;
+        }
+        if (count($parts) !== 3 || (int) $parts[0] < time() || ! str_starts_with($parts[1], 'https://')) {
+            return null;
+        }
+
+        return [$parts[1], $parts[2] !== '' ? $parts[2] : null];
     }
 
     /** HMAC over "app.key" — truncated so signed URLs stay short. */

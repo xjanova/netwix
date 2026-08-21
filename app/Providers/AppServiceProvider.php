@@ -4,6 +4,9 @@ namespace App\Providers;
 
 use App\Models\Setting;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Throwable;
 
@@ -26,6 +29,28 @@ class AppServiceProvider extends ServiceProvider
         // at runtime, so Google/LINE login can be configured from the admin panel
         // without shell access.
         $this->applyDynamicConfig();
+
+        /*
+         * Catalogue listing limiter.
+         *
+         * `/api/app/titles` accepts `per=100`, so the whole 19,351-title catalogue was 194 requests —
+         * about two minutes at the old blanket 90/min, and invisible to every scraping rule we have
+         * (no `stream/` in the path, no ascending ids, a browser User-Agent and a Referer are all it
+         * takes to stay silent). It was the cheapest way to take the entire catalogue and nothing
+         * watched it.
+         *
+         * An identified app client keeps a generous allowance, because that is a client we can revoke.
+         * An anonymous one gets enough to browse — ten pages a minute is far more scrolling than a
+         * person does — and a full sweep goes from two minutes to over an hour, at which point it is
+         * cheaper to ask us. Deliberately a limit, not a block: no real reader is ever refused.
+         */
+        RateLimiter::for('catalog', function (Request $request) {
+            $identified = $request->attributes->has('app_token') || $request->user() !== null;
+
+            return $identified
+                ? Limit::perMinute(120)->by('cat:u:'.($request->user()?->id ?? sha1((string) $request->bearerToken())))
+                : Limit::perMinute(30)->by('cat:ip:'.$request->ip());
+        });
 
         // LINE login runs through the socialiteproviders/line package, which
         // plugs into Socialite via an event. Google is built into

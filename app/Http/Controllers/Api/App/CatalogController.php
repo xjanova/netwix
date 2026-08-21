@@ -112,7 +112,9 @@ class CatalogController extends Controller
         if ($request->boolean('anime')) {
             $scope = 'anime';   // legacy param → the anime category
         }
-        $per = (int) min(100, max(6, (int) $request->query('per', 24)));
+        // Capped at 48, down from 100. Nothing we ship asks for more than 24 a page; the only caller
+        // that benefits from 100 is one trying to take the catalogue in as few requests as possible.
+        $per = (int) min(48, max(6, (int) $request->query('per', 24)));
 
         $q = $this->viewable()->with('genres')->withCount('episodes')->latest()
             ->inCategory($scope, $type);

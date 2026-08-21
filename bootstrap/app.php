@@ -13,6 +13,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Refuse anything that did not arrive through Cloudflare. FIRST, before every other rule:
+        // the edge WAF, bot protection and rate limiting are the outer layer, and a request that
+        // skipped them has skipped everything. Reversible from the DB (`require_cloudflare`).
+        $middleware->prepend(\App\Http\Middleware\EnsureBehindCloudflare::class);
+
         // Fold the www alias onto the APP_URL host before anything else runs — see CanonicalHost.
         // Global (not web-only) so the API and stream surfaces canonicalise too.
         $middleware->prepend(\App\Http\Middleware\CanonicalHost::class);
