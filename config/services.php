@@ -37,6 +37,16 @@ return [
 
     // Desktop ingest bridge (Hive Download → NetWix). The desktop app authenticates
     // with this token to upload mirrored video files. Set NETWIX_INGEST_TOKEN in .env.
+    // Anti-scraping guard (App\Support\ScrapeGuard).
+    //   server_ips — comma-separated PUBLIC addresses of this machine. The source canary, the storage
+    //   probe and the admin preview all call the site by hostname, so those requests leave the box,
+    //   pass through Cloudflare and arrive as our own public IP — never loopback. Without this the
+    //   guard logs our own health checks as bot traffic, and under enforcement the server blocks
+    //   itself: every source probe then fails at once and pushes "แหล่งล่ม" for sources that are fine.
+    'guard' => [
+        'server_ips' => env('NETWIX_SERVER_IPS', '123.253.62.251'),
+    ],
+
     'ingest' => [
         'token' => env('NETWIX_INGEST_TOKEN'),
         'max_gb' => (float) env('NETWIX_MEDIA_MAX_GB', 100),
