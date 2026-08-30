@@ -68,8 +68,9 @@
     {{-- Non-blocking notice: this title's link is under review (some viewers couldn't play it). Playback
          still works normally; this just sets expectations. Auto-fades; dismissible. --}}
     @if ($content->link_under_review)
+        {{-- Pushed down from top-16: the band under the top bar now belongs to the tap-for-sound pill. --}}
         <div x-data="{ show: true }" x-show="show" x-transition.opacity x-init="setTimeout(() => show = false, 8000)"
-             class="absolute inset-x-0 top-16 z-40 mx-auto flex w-fit max-w-[92%] items-center gap-2 rounded-lg bg-gold/95 px-4 py-2.5 text-[13px] font-semibold text-black shadow-lg">
+             class="absolute inset-x-0 top-44 z-40 mx-auto flex w-fit max-w-[92%] items-center gap-2 rounded-lg bg-gold/95 px-4 py-2.5 text-[13px] font-semibold text-black shadow-lg">
             🚧 เรื่องนี้กำลังตรวจสอบลิงก์ อาจเล่นไม่ได้ชั่วคราว — ขออภัยในความไม่สะดวก
             <button type="button" @click="show = false" class="ml-1 text-black/55 hover:text-black">✕</button>
         </div>
@@ -85,16 +86,31 @@
         </div>
 
         @unless ($youtubeId)
+        {{-- One right-hand cluster. It carries the ml-auto so no single button has to know whether the
+             one before it is currently hidden (เลือกตอน is x-show'd on multi-episode titles only). --}}
+        <div class="ml-auto flex items-center gap-3">
             <button type="button" x-show="episodes.length > 1" x-cloak @click="openEpMenu()"
-                    class="ml-auto flex h-10 items-center gap-1.5 rounded-full bg-white/10 px-4 text-sm font-semibold backdrop-blur hover:bg-white/20">
+                    class="flex h-10 items-center gap-1.5 rounded-full bg-white/10 px-4 text-sm font-semibold backdrop-blur hover:bg-white/20">
                 ▦ เลือกตอน
             </button>
+            @if ($eps->isNotEmpty())
+                {{-- Sound lives here PERMANENTLY, not only while we happen to know we force-muted:
+                     iPad refuses autoplay-with-sound, so the movie starts silent, and a control the
+                     viewer has to discover is a control they never find. Hidden for the 3rd-party
+                     embed player (9nung/abyss), whose audio isn't ours to toggle. --}}
+                <button type="button" x-show="! embedUrl" @click="toggleMute()"
+                        :title="muted ? 'เปิดเสียง' : 'ปิดเสียง'" :aria-label="muted ? 'เปิดเสียง' : 'ปิดเสียง'"
+                        :class="muted ? 'bg-brand ring-2 ring-white/60' : 'bg-white/10 hover:bg-white/20'"
+                        class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg leading-none backdrop-blur">
+                    <span x-text="muted ? '🔇' : '🔊'"></span>
+                </button>
+            @endif
             <button type="button" @click="toggleFs()" title="เต็มจอ" aria-label="เต็มจอ"
-                    :class="episodes.length > 1 ? '' : 'ml-auto'"
                     class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 backdrop-blur hover:bg-white/20">
                 <svg x-show="!fs" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3"/></svg>
                 <svg x-show="fs" x-cloak class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3m8 0v-3a2 2 0 0 1 2-2h3"/></svg>
             </button>
+        </div>
         @endunless
     </div>
 
@@ -115,8 +131,8 @@
                @ended="onEnded()"
                @waiting="stall()" @stalled="stall()"
                @seeked="_lastT = $refs.video.currentTime; _stuck = 0"
-               @playing="resume(); maybeCapture()" @canplay="resume()" @loadeddata="resume()" x-on:error="onVideoError()"
-               @volumechange="if (! $refs.video.muted) forcedMute = false"
+               @playing="resume(); maybeCapture(); syncMuted()" @canplay="resume()" @loadeddata="resume()" x-on:error="onVideoError()"
+               @volumechange="syncMuted()"
                class="h-full w-full bg-black object-contain"></video>
 
         {{-- 9nung/abyss: a sandboxed 3rd-party player iframe. sandbox WITHOUT allow-popups blocks the
@@ -126,10 +142,15 @@
                 allow="autoplay; fullscreen; encrypted-media"
                 class="absolute inset-0 h-full w-full border-0 bg-black"></iframe>
 
-        {{-- iPad forces muted autoplay → one-tap unmute so a silent start isn't a mystery --}}
-        <button x-show="forcedMute" x-cloak @click.stop="unmute()"
-                class="absolute right-4 top-4 z-40 flex items-center gap-2 rounded-full bg-black/60 px-3.5 py-2 text-sm font-semibold backdrop-blur hover:bg-black/80">
-            <span class="text-base">🔇</span> แตะเพื่อเปิดเสียง
+        {{-- iPad forces muted autoplay → one-tap unmute so a silent start isn't a mystery.
+             top-CENTRE, under the bar: at right-4/top-4 this pill was drawn straight on top of the
+             เลือกตอน + fullscreen cluster (same corner, higher z), which is how a bright pill still
+             read as "ไม่มีปุ่มเปิดเสียง" on an iPad. Shown from the element's REAL muted state — the
+             old `forcedMute` flag was only set when the muted retry's play() promise resolved, so a
+             fallback that started muted without resolving left no way back to sound at all. --}}
+        <button x-show="muted && ! soundSettled" x-cloak @click.stop="unmute()"
+                class="absolute left-1/2 top-[112px] z-40 flex -translate-x-1/2 items-center gap-2 rounded-full bg-brand px-5 py-3 text-base font-bold text-white shadow-lg ring-1 ring-white/30 hover:bg-brand/90 sm:top-20">
+            <span class="text-xl">🔇</span> แตะเพื่อเปิดเสียง
         </button>
 
         {{-- Skip-intro (appears while inside [1s, intro_end]); the toggle remembers auto-skip in localStorage --}}
@@ -264,7 +285,8 @@
             ...nxEpPicker(),
             err: '',
             fs: false,
-            forcedMute: false,   // true only when iPad refused sound-autoplay and we fell back to muted
+            muted: false,        // mirror of the <video>'s real muted state (volumechange keeps it honest)
+            soundSettled: false, // heard audio, or muted on purpose → stop offering "tap for sound"
             loading: cfg.hasMedia,
             ui: true,
             ytSrc: '',           // YouTube embed src — filled by beginPlayback() (after any pre-roll ad)
@@ -299,6 +321,11 @@
             init() {
                 document.addEventListener('fullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
                 document.addEventListener('webkitfullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
+                // iOS's own fullscreen button (controlsList="nofullscreen" is ignored there) hands the
+                // video to the OS player, where our pill doesn't exist — take the sound back first.
+                if (this.$refs.video) {
+                    this.$refs.video.addEventListener('webkitbeginfullscreen', () => this.unmuteIfSilent());
+                }
                 try { this.autoSkip = localStorage.getItem('nx_autoskip') === '1'; } catch (e) {}
                 this.poke();
                 // Gate the FIRST playback behind a pre-roll ad if one is showing (partials/preroll-ad).
@@ -484,11 +511,33 @@
                 const p = v.play?.();
                 if (p && p.catch) p.catch(() => {
                     if (! allowMutedFallback) { v.play?.().catch(() => {}); return; }
-                    // Sound-autoplay refused → play muted so a picture appears, and raise the pill so the
-                    // silent start isn't a mystery. If even muted play is refused we leave the pill off.
+                    // Sound-autoplay refused → play muted so a picture appears. The UI follows `muted`
+                    // itself (not this promise): the element is silent from here whether or not this
+                    // second play() resolves, and the `autoplay` attribute may be what finally starts it.
                     v.muted = true;
-                    v.play?.().then(() => { this.forcedMute = true; }).catch(() => {});
+                    this.syncMuted();
+                    v.play?.().catch(() => {});
                 });
+            },
+
+            // Mirror the element's real mute state into the UI — also bound to the volumechange
+            // handler, so the iPad's NATIVE control-bar speaker keeps our button and the pill honest.
+            syncMuted() {
+                const v = this.$refs.video;
+                if (v) this.muted = !! v.muted;
+            },
+
+            // Top-bar speaker. A real tap, so iPad allows sound to come back on.
+            toggleMute() {
+                const v = this.$refs.video;
+                if (!v) return;
+                v.muted = ! v.muted;
+                // Muting ON PURPOSE settles the sound question: no nagging pill afterwards, and
+                // fullscreen must not hand them back audio they just switched off.
+                if (v.muted) this.soundSettled = true;
+                this.syncMuted();
+                if (! v.muted) v.play?.().catch(() => {});
+                this.poke();
             },
 
             // User taps "แตะเพื่อเปิดเสียง" — a real gesture, so restoring sound is allowed on iPad.
@@ -496,9 +545,25 @@
                 const v = this.$refs.video;
                 if (!v) return;
                 v.muted = false;
-                this.forcedMute = false;
+                this.syncMuted();
                 v.play?.().catch(() => {});
                 this.poke();
+            },
+
+            /**
+             * Going fullscreen IS a user gesture, and nobody asks for fullscreen to watch in silence —
+             * so if we're still on the autoplay-policy mute (never heard sound), spend the gesture on
+             * getting audio back. It also covers iOS's NATIVE video fullscreen, where none of our
+             * overlay UI (this pill included) is on screen to be tapped. If WebKit refuses the unmute
+             * it pauses the element, so roll back to muted and keep playing rather than freeze.
+             */
+            unmuteIfSilent() {
+                const v = this.$refs.video;
+                if (!v || ! v.muted || this.soundSettled) return;
+                v.muted = false;
+                this.syncMuted();
+                const p = v.play?.();
+                if (p && p.catch) p.catch(() => { v.muted = true; this.syncMuted(); v.play?.().catch(() => {}); });
             },
 
             go(i) { this.epMenu = false; if (i !== this.index) { this.index = i; this.load(); } },
@@ -524,7 +589,10 @@
             // no more on-watch capture.
             maybeCapture() {},
 
-            toggleFs() { window.nxToggleFullscreen(this.$root, this.$refs.video, 'landscape'); },
+            toggleFs() {
+                if (! window.nxFullscreenActive()) this.unmuteIfSilent();   // spend the tap on sound too
+                window.nxToggleFullscreen(this.$root, this.$refs.video, 'landscape');
+            },
 
             saveProgress(force = null) {
                 const v = this.$refs.video;
@@ -568,7 +636,13 @@
             // window, and once the credits marker is reached fires enterOutro() a single time.
             marks() {
                 const v = this.$refs.video;
-                if (!v || !isFinite(v.duration) || !v.duration) return;
+                if (!v) return;
+                // Frames are advancing with sound on → audio has genuinely been heard, so retire the
+                // tap-for-sound pill: from here any silence is the viewer's own choice, and a pill that
+                // reappears every time someone mutes on purpose is worse than no pill. Deliberately
+                // ABOVE the duration guard so a stream with no known duration also settles this.
+                if (! v.muted) this.soundSettled = true;
+                if (!isFinite(v.duration) || !v.duration) return;
                 const t = v.currentTime, dur = v.duration;
                 this.showSkip = this.introEnd > 1 && t >= 1 && t < this.introEnd;
                 if (this.showSkip && this.autoSkip) this.skipIntro();
