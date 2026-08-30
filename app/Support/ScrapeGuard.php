@@ -80,6 +80,14 @@ class ScrapeGuard
     /** Paths worth watching — where our actual content lives. */
     private const WATCHED = ['api/', 'stream/', 'storage/media/'];
 
+    /** How the numbers a rule already measured are read out in the alert. See behaviourReport(). */
+    private const META_LABELS = [
+        'requests_in_minute' => 'ยิงสูงสุด %s คำขอ/นาที',
+        'tokens_in_minute' => 'ขอลิงก์สตรีมสูงสุด %s ครั้ง/นาที',
+        'run_length' => 'ไล่ไอดีติดกัน %s ตอน',
+        'json_without_referer' => 'ดูด JSON ไม่ผ่านหน้าเว็บ %s ครั้ง',
+    ];
+
     public static function mode(): string
     {
         $m = (string) Setting::get('scrape_guard_mode', 'observe');
@@ -540,7 +548,13 @@ class ScrapeGuard
         $seconds = $rows->last()->created_at->diffInSeconds($rows->first()->created_at);
         $lines[] = 'จำนวน: '.($rows->count() >= 60 ? '60+' : $rows->count()).' ครั้ง ใน '.max(1, (int) ceil($seconds / 60)).' นาที';
 
-        $paths = $rows->pluck('path')->filter()->countBy()->sortDesc();
+        // Collapse ids before counting. A harvester's paths are all DIFFERENT — ten episode ids in
+        // thirteen minutes — so counting them raw produces ten lines of "×1" and buries the shape.
+        // "/api/episode/{id}/source ×10" is the same evidence in one legible line. (2+ digits, so a
+        // real path segment like /v2/ is not mangled into a placeholder.)
+        $paths = $rows->pluck('path')->filter()
+            ->map(fn ($path) => preg_replace('~\d{2,}~', '{id}', (string) $path))
+            ->countBy()->sortDesc();
         if ($paths->isNotEmpty()) {
             $lines[] = 'ขออะไรบ้าง:';
             foreach ($paths->take(4) as $path => $count) {
@@ -551,24 +565,22 @@ class ScrapeGuard
             }
         }
 
-        // The measured numbers each rule already recorded — "240 คำขอ/นาที" is the whole story in
-        // four words, and it was being thrown away with the rest of the meta.
-        $numbers = [];
+        // The measured numbers each rule already recorded — "ยิงสูงสุด 350 คำขอ/นาที" is the whole
+        // story in four words, and it was being thrown away with the rest of the meta. PEAK per
+        // field, not every value: `rate` re-fires every 50 requests, so one burst leaves rows for
+        // 100/150/200/250/300/350 and listing them all would push the real number off the screen.
+        $peak = [];
         foreach ($rows as $event) {
-            $meta = (array) $event->meta;
-            foreach ([
-                'requests_in_minute' => 'ยิง %s คำขอ/นาที',
-                'tokens_in_minute' => 'ขอลิงก์สตรีม %s ครั้ง/นาที',
-                'run_length' => 'ไล่ไอดีติดกัน %s ตอน',
-                'json_without_referer' => 'ดูด JSON ไม่ผ่านหน้าเว็บ %s ครั้ง',
-            ] as $field => $format) {
-                if (isset($meta[$field])) {
-                    $numbers[sprintf($format, $meta[$field])] = true;
+            foreach ((array) $event->meta as $field => $value) {
+                if (isset(self::META_LABELS[$field]) && is_numeric($value)) {
+                    $peak[$field] = max($peak[$field] ?? 0, (int) $value);
                 }
             }
         }
-        if ($numbers !== []) {
-            $lines[] = 'ตัวเลข: '.implode(' · ', array_keys($numbers));
+        if ($peak !== []) {
+            $lines[] = 'ตัวเลข: '.collect($peak)
+                ->map(fn ($value, $field) => sprintf(self::META_LABELS[$field], $value))
+                ->implode(' · ');
         }
 
         $ua = trim((string) $rows->first()->user_agent);
