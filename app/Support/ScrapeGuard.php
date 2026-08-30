@@ -473,16 +473,114 @@ class ScrapeGuard
         // PHP at all. sync() self-checks and rolls back, so a bad write cannot take the site with it.
         FirewallBlocklist::sync();
 
-        // Throttled per ADDRESS *and* globally. Per-address alone is not a throttle at all here: Thai
-        // mobile carriers hand out a fresh IPv6 per session, so one determined client can present a
-        // hundred distinct addresses and buy a hundred separate pushes. The global key is what makes
-        // "an outage cannot spam the owner" actually true.
-        if (Cache::add('guard:alertcap', 1, now()->addMinutes(60))) {
-            LineNotifier::alert(
-                'scrape:'.$ip,
-                "🚨 บล็อกผู้ต้องสงสัยดูดข้อมูล\nIP: {$ip}\nสาเหตุ: {$reason} (คะแนน {$score})\nบล็อก ".self::BLOCK_HOURS." ชม. · ดูรายละเอียดที่ /admin/security",
-                180,
-            );
+        self::pushAlert($ip, $score, $hours);
+    }
+
+    /**
+     * Tell the owner what the client DID — not which rule number fired.
+     *
+     * "บล็อก IP x · สาเหตุ probe · คะแนน 60" is unreadable on a phone: every alert looks identical,
+     * so the one that matters (someone walking our episode endpoints for stream links) reads exactly
+     * like the ninety that don't (a bot asking every site on the internet for /wp-login.php). The
+     * evidence to tell them apart is already in `security_events` — paths, counts, timing — it was
+     * simply never read back. So read it back and say it.
+     *
+     * TWO CAPS, NOT ONE. A single global cap meant a harvester could be silenced for an hour by a
+     * worthless scanner alert that happened to fire first. Noise keeps the old hourly cap; the
+     * behaviour we actually built this system to catch gets its own, shorter one.
+     */
+    private static function pushAlert(string $ip, int $score, int $hours): void
+    {
+        $report = self::behaviourReport($ip);
+        $harvest = $report['harvest'];
+
+        if (! Cache::add($harvest ? 'guard:alertcap:harvest' : 'guard:alertcap:noise', 1, now()->addMinutes($harvest ? 15 : 60))) {
+            return;
         }
+
+        $head = $harvest
+            ? '🚨 มีคนไล่ดูดลิงก์/ข้อมูลหนังของเรา'
+            : '🛡️ บล็อกบอทที่มาสแกนหาช่องโหว่';
+
+        $body = $head."\nIP: ".$ip."\n"
+            .($report['text'] !== '' ? $report['text'] : 'คะแนนรวม: '.$score)
+            ."\nบล็อกแล้ว {$hours} ชม. · ดูทั้งหมดที่ /admin/security";
+
+        LineNotifier::alert('scrape:'.$ip, $body, $harvest ? 60 : 180);
+    }
+
+    /**
+     * Read back, from the evidence we already store, what this address spent the last half hour doing.
+     *
+     * The window is SCORE_WINDOW_MIN because that is the window the score behind this block was
+     * accumulated over: the alert then describes the burst that was acted on, rather than everything
+     * the address has ever done. Matched on the exact address, not the /64 — a text LIKE over a
+     * prefix is unreliable across IPv6's compressed forms, and the concrete address is the honest
+     * thing to show as evidence anyway.
+     *
+     * @return array{harvest:bool,text:string}
+     */
+    private static function behaviourReport(string $ip): array
+    {
+        $rows = SecurityEvent::query()
+            ->where('ip', $ip)
+            ->where('created_at', '>=', now()->subMinutes(self::SCORE_WINDOW_MIN))
+            ->orderByDesc('id')
+            ->limit(60)
+            ->get(['reason', 'path', 'user_agent', 'meta', 'created_at']);
+
+        if ($rows->isEmpty()) {
+            return ['harvest' => false, 'text' => ''];
+        }
+
+        // Rule labels come from the model, so the phone and the admin table never drift apart.
+        $lines = ['พฤติกรรม: '.$rows->unique('reason')->map(fn ($e) => $e->reason_label)->implode(' + ')];
+
+        // Ordered by id DESC, so first row = newest. Avoids comparing Carbons to find the span.
+        $seconds = $rows->last()->created_at->diffInSeconds($rows->first()->created_at);
+        $lines[] = 'จำนวน: '.($rows->count() >= 60 ? '60+' : $rows->count()).' ครั้ง ใน '.max(1, (int) ceil($seconds / 60)).' นาที';
+
+        $paths = $rows->pluck('path')->filter()->countBy()->sortDesc();
+        if ($paths->isNotEmpty()) {
+            $lines[] = 'ขออะไรบ้าง:';
+            foreach ($paths->take(4) as $path => $count) {
+                $lines[] = '• /'.Str::limit((string) $path, 44).($count > 1 ? ' ×'.$count : '');
+            }
+            if ($paths->count() > 4) {
+                $lines[] = '• (และพาธแบบอื่นอีก '.($paths->count() - 4).' แบบ)';
+            }
+        }
+
+        // The measured numbers each rule already recorded — "240 คำขอ/นาที" is the whole story in
+        // four words, and it was being thrown away with the rest of the meta.
+        $numbers = [];
+        foreach ($rows as $event) {
+            $meta = (array) $event->meta;
+            foreach ([
+                'requests_in_minute' => 'ยิง %s คำขอ/นาที',
+                'tokens_in_minute' => 'ขอลิงก์สตรีม %s ครั้ง/นาที',
+                'run_length' => 'ไล่ไอดีติดกัน %s ตอน',
+                'json_without_referer' => 'ดูด JSON ไม่ผ่านหน้าเว็บ %s ครั้ง',
+            ] as $field => $format) {
+                if (isset($meta[$field])) {
+                    $numbers[sprintf($format, $meta[$field])] = true;
+                }
+            }
+        }
+        if ($numbers !== []) {
+            $lines[] = 'ตัวเลข: '.implode(' · ', array_keys($numbers));
+        }
+
+        $ua = trim((string) $rows->first()->user_agent);
+        $lines[] = 'UA: '.($ua === '' ? '(ไม่ส่ง User-Agent มาเลย)' : Str::limit($ua, 64));
+
+        // What separates "worth waking up for" from "internet weather": a scanner asks for files we
+        // have never had, a harvester asks for OUR endpoints. Path is checked as well as reason,
+        // because the real stream-link harvester we caught on 28 Aug tripped only `bot_ua` — the
+        // reason code alone would have filed it under noise.
+        $harvest = $rows->contains(fn ($e) => in_array($e->reason, ['sequential', 'token_abuse', 'no_referer'], true))
+            || $rows->contains(fn ($e) => Str::startsWith((string) $e->path, self::WATCHED));
+
+        return ['harvest' => $harvest, 'text' => implode("\n", $lines)];
     }
 }
