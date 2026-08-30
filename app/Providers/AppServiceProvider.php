@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Models\Setting;
+use App\Support\ScrapeGuard;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -50,6 +52,21 @@ class AppServiceProvider extends ServiceProvider
             return $identified
                 ? Limit::perMinute(120)->by('cat:u:'.($request->user()?->id ?? sha1((string) $request->bearerToken())))
                 : Limit::perMinute(30)->by('cat:ip:'.$request->ip());
+        });
+
+        /*
+         * Failed sign-ins are the one attack the request-shape rules cannot see. A credential
+         * stuffer sends perfectly ordinary POSTs to a route we really do serve, from a real browser,
+         * at a human-looking rate — nothing about the SHAPE of the traffic is wrong. What gives it
+         * away is the outcome, and Laravel already announces every one of them.
+         *
+         * Listening to the framework's own event rather than editing the login controller means the
+         * social logins, the mobile bridge and any future sign-in path are covered the day they are
+         * written, without anyone remembering to add a call.
+         */
+        Event::listen(function (Failed $event): void {
+            $credentials = (array) $event->credentials;
+            ScrapeGuard::noteAuthFailure(request(), (string) ($credentials['email'] ?? $credentials['name'] ?? ''));
         });
 
         // LINE login runs through the socialiteproviders/line package, which

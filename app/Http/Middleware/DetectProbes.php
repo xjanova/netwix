@@ -31,6 +31,15 @@ class DetectProbes
             return response('Forbidden', 403);
         }
 
-        return $next($request);
+        $response = $next($request);
+
+        // A 404 can only be known on the way OUT. It is the signal that catches the scanner whose
+        // paths are on nobody's list because it made them up — id enumeration, filename guessing —
+        // and this middleware is the only one that sees those requests at all.
+        if ($response->getStatusCode() === 404) {
+            ScrapeGuard::noteNotFound($request);
+        }
+
+        return $response;
     }
 }

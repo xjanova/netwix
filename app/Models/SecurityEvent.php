@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\ScrapeGuard;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -24,16 +25,15 @@ class SecurityEvent extends Model
         ];
     }
 
-    /** Thai label for the admin table — the reason codes are written for machines, not people. */
+    /**
+     * Thai label for the admin table — the reason codes are written for machines, not people.
+     *
+     * Read from the ScrapeGuard rule catalogue rather than kept here: this list and that one were two
+     * places to add a rule, which is one place too many. A new detection now shows up worded in the
+     * admin table and on the owner's phone without anyone touching this file.
+     */
     public function getReasonLabelAttribute(): string
     {
-        return [
-            'rate' => 'ยิงถี่ผิดปกติ',
-            'sequential' => 'ไล่ไอดีเรียงลำดับ',
-            'no_referer' => 'ขอข้อมูลโดยไม่ผ่านหน้าเว็บ',
-            'token_abuse' => 'ขอลิงก์ดูหนังรัว',
-            'bot_ua' => 'บอทที่ประกาศตัว',
-            'probe' => 'สุ่มยิงหา endpoint',
-        ][$this->reason] ?? $this->reason;
+        return ScrapeGuard::label((string) $this->reason);
     }
 }

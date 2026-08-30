@@ -7,6 +7,7 @@ use App\Models\BlockedIp;
 use App\Models\SecurityEvent;
 use App\Models\Setting;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
@@ -56,6 +57,18 @@ class ScrapeGuard
     /** Default block length when the admin hasn't set one. Long enough to be expensive, short enough to be wrong. */
     private const BLOCK_HOURS = 6;
 
+    /** Unauthenticated hits on /admin in 10 minutes before it stops being a mistyped URL. */
+    private const ADMIN_PROBE_HITS = 20;
+
+    /** 404s from one address in 5 minutes before it stops being a stale link. */
+    private const NOT_FOUND_BURST = 25;
+
+    /** Failed sign-ins from one address in 10 minutes before it stops being a forgotten password. */
+    private const AUTH_FAIL_BURST = 8;
+
+    /** Distinct accounts tried from one address before it is a stolen list, not a forgetful person. */
+    private const AUTH_SPRAY_ACCOUNTS = 5;
+
     /** Paths nobody browsing a film site ever asks for. Requesting one is not a mistake. */
     private const PROBE_PATHS = [
         '.env', '.git', '.aws', '.ssh', 'wp-admin', 'wp-login', 'wp-content', 'xmlrpc.php',
@@ -80,13 +93,95 @@ class ScrapeGuard
     /** Paths worth watching — where our actual content lives. */
     private const WATCHED = ['api/', 'stream/', 'storage/media/'];
 
+    /**
+     * THE RULE CATALOGUE — the one place a rule is defined, and the template for adding the next one.
+     *
+     * Everything downstream reads from here: the score a hit is worth, the Thai wording on the phone
+     * and in /admin/security (via SecurityEvent::reason_label), and which of the three kinds of
+     * trouble it belongs to. Adding a detection is one line here plus the code that calls record();
+     * nothing else needs to learn about it, and nothing can drift out of sync with it.
+     *
+     * `kind` is what the owner actually needs to decide from, and the three are genuinely different
+     * problems with different responses:
+     *   attack  — trying to get IN (credentials, injection, our admin panel). Wake up for it.
+     *   harvest — trying to take our CONTENT out (stream links, catalogue, images). Our business.
+     *   scan    — background noise of the internet. Recorded and blocked, worth no one's attention.
+     *
+     * Scores are deliberately small except where a single hit is already proof: BLOCK_SCORE is 60, so
+     * a 30 needs a second offence and a 12 needs a pattern. Anything scored 60+ blocks on sight and
+     * had better be something no viewer of ours can do by accident.
+     */
+    public const RULES = [
+        //  reason        => [Thai label,                          score, kind]
+        'rate' => ['ยิงคำขอถี่ผิดปกติ', 12, 'scan'],
+        'sequential' => ['ไล่ขอข้อมูลเรียงตามไอดี', 20, 'harvest'],
+        'no_referer' => ['ดูดข้อมูลโดยไม่เคยเปิดหน้าเว็บ', 10, 'harvest'],
+        'token_abuse' => ['ขอลิงก์ดูหนังรัว', 18, 'harvest'],
+        'bot_ua' => ['บอทที่ประกาศตัวเอง', 6, 'scan'],
+        'probe' => ['สุ่มยิงหาไฟล์ลับ/ช่องโหว่', 30, 'attack'],
+        'payload' => ['แนบโค้ดโจมตีมากับคำขอ', 30, 'attack'],
+        'headless' => ['เบราว์เซอร์อัตโนมัติที่ปลอมตัว', 10, 'scan'],
+        'hotlink' => ['เอาไฟล์ของเราไปแปะเว็บอื่น', 25, 'harvest'],
+        'admin_probe' => ['วนหาหน้าแอดมิน', 15, 'attack'],
+        'not_found' => ['ยิงหาหน้าที่ไม่มีอยู่รัว ๆ', 20, 'scan'],
+        'auth_fail' => ['ลองรหัสผ่านผิดซ้ำ ๆ', 15, 'attack'],
+        'auth_spray' => ['ไล่ลองหลายบัญชี (credential stuffing)', 40, 'attack'],
+    ];
+
     /** How the numbers a rule already measured are read out in the alert. See behaviourReport(). */
     private const META_LABELS = [
         'requests_in_minute' => 'ยิงสูงสุด %s คำขอ/นาที',
         'tokens_in_minute' => 'ขอลิงก์สตรีมสูงสุด %s ครั้ง/นาที',
         'run_length' => 'ไล่ไอดีติดกัน %s ตอน',
         'json_without_referer' => 'ดูด JSON ไม่ผ่านหน้าเว็บ %s ครั้ง',
+        'fails_in_window' => 'รหัสผิด %s ครั้ง',
+        'accounts_tried' => 'ลองไปแล้ว %s บัญชี',
+        'not_found_in_window' => 'ยิงไม่เจอหน้า %s ครั้ง',
+        'admin_hits' => 'ลองเปิดหน้าแอดมิน %s ครั้ง',
+        'from' => 'มาจาก %s',
     ];
+
+    /**
+     * Attack strings that have no innocent reading. Matched against the path and the query VALUES.
+     *
+     * Kept strict on purpose. The one exception carved out below is our own search box: a curious
+     * visitor typing `<script>alert(1)</script>` into ค้นหา is not an attacker, and flagging them
+     * would re-create exactly the false-positive problem this system already had once.
+     */
+    private const PAYLOAD_SIGNATURES = [
+        'union select', 'union all select', 'information_schema', "or '1'='1", 'or 1=1--',
+        'sleep(', 'benchmark(', 'waitfor delay', 'pg_sleep(',
+        '<script', 'onerror=', 'javascript:', 'onload=alert',
+        '../../', "\0", 'etc/passwd', '/proc/self/environ',
+        'base64_decode(', 'shell_exec(', 'phpinfo(', 'system(', '${jndi:',
+    ];
+
+    /** Query keys whose value is free text a visitor typed, so a scary string there proves nothing. */
+    private const FREE_TEXT_KEYS = ['q', 's', 'search', 'keyword', 'query', 'body', 'comment', 'message'];
+
+    /** Automation that is trying to look like a person — unlike BOT_UA, which announces itself. */
+    private const HEADLESS_UA = [
+        'headlesschrome', 'phantomjs', 'puppeteer', 'playwright', 'selenium', 'webdriver',
+        'electron/', 'cypress', 'chrome-lighthouse',
+    ];
+
+    /** Score this rule is worth, from the catalogue. */
+    private static function score(string $reason): int
+    {
+        return self::RULES[$reason][1] ?? 10;
+    }
+
+    /** Which of the three kinds of trouble this rule is. */
+    public static function kind(string $reason): string
+    {
+        return self::RULES[$reason][2] ?? 'scan';
+    }
+
+    /** Thai wording for a rule — shared by the LINE alert and the admin table. */
+    public static function label(string $reason): string
+    {
+        return self::RULES[$reason][0] ?? $reason;
+    }
 
     public static function mode(): string
     {
@@ -175,6 +270,19 @@ class ScrapeGuard
             $ip = (string) $request->ip();
             if ($ip === '' || self::exempt($request)) {
                 return false;
+            }
+
+            // Trying the admin door is judged HERE and not in rules(), because /admin is not a content
+            // path so watched() is false and the loop below would never see it. Safe to count only
+            // because exempt() above has already let every real admin through: whoever is still being
+            // counted is a stranger. Counted, not flagged on sight — /admin/login is a public page and
+            // one visit is a mistyped URL.
+            $path = ltrim($request->path(), '/');
+            if ($path === 'admin' || str_starts_with($path, 'admin/')) {
+                $hits = self::bump('guard:admin:'.$ip, 600);
+                if ($hits === self::ADMIN_PROBE_HITS) {
+                    self::record($request, $ip, 'admin_probe', self::score('admin_probe'), ['admin_hits' => $hits]);
+                }
             }
 
             if (! self::watched($request)) {
@@ -267,15 +375,145 @@ class ScrapeGuard
                 return false;
             }
             $probe = self::probeReason($request);
-            if ($probe === null) {
-                return false;
+            if ($probe !== null) {
+                self::record($request, $ip, 'probe', self::score('probe'), ['path' => $probe]);
+
+                return self::enforcing() && self::isBlocked($ip);
             }
 
-            self::record($request, $ip, 'probe', 30, ['path' => $probe]);
+            // Same stack, same reason: an injection attempt is usually aimed at a URL we do not
+            // route, so it must be judged before the router answers 404.
+            $signature = self::payloadSignature($request);
+            if ($signature !== null) {
+                self::record($request, $ip, 'payload', self::score('payload'), ['signature' => $signature]);
 
-            return self::enforcing() && self::isBlocked($ip);
+                return self::enforcing() && self::isBlocked($ip);
+            }
+
+            return false;
         } catch (\Throwable) {
             return false;
+        }
+    }
+
+    /**
+     * The attack string in this request, or null.
+     *
+     * Looks at the path and at query VALUES — but never at the ones a visitor types free text into
+     * (ค้นหา, comment bodies). Someone pasting `<script>alert(1)</script>` into our search box is a
+     * curious visitor, and turning them into a blocked "attacker" would recreate exactly the
+     * false-positive problem this system already had once. Real injection against that box is a
+     * bound-parameter problem, not something a substring rule should be trusted to catch.
+     */
+    private static function payloadSignature(Request $request): ?string
+    {
+        $haystacks = [strtolower(rawurldecode(ltrim($request->path(), '/')))];
+
+        foreach ($request->query() as $key => $value) {
+            if (in_array(strtolower((string) $key), self::FREE_TEXT_KEYS, true)) {
+                continue;
+            }
+            foreach (Arr::flatten([$value]) as $one) {
+                if (is_scalar($one)) {
+                    $haystacks[] = strtolower(rawurldecode((string) $one));
+                }
+            }
+        }
+
+        foreach ($haystacks as $hay) {
+            foreach (self::PAYLOAD_SIGNATURES as $signature) {
+                if (str_contains($hay, $signature)) {
+                    return $signature === "\0" ? 'null byte' : $signature;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * A 404 just went out to this address. Called on the way OUT of [DetectProbes], because a
+     * response status cannot be known on the way in.
+     *
+     * One 404 is a stale bookmark. Twenty-five in five minutes is someone enumerating — usually ids
+     * or filenames — and it is the one signal that catches a scanner whose paths are not on any list
+     * because it invented them.
+     */
+    public static function noteNotFound(Request $request): void
+    {
+        try {
+            if (self::mode() === 'off') {
+                return;
+            }
+            $ip = (string) $request->ip();
+            if ($ip === '' || self::isOwnServer($ip)) {
+                return;
+            }
+
+            // A missing ASSET is our fault, not the visitor's: one browse page carries dozens of
+            // posters, and if a handful of them 404 the person scrolling would be charged with
+            // enumeration for looking at our own broken images. Only requests that look like someone
+            // asking for a PAGE or a record are counted.
+            $path = strtolower(ltrim($request->path(), '/'));
+            if (Str::startsWith($path, ['storage/', 'assets/', 'build/', 'favicon'])
+                || Str::endsWith($path, ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.ico', '.css', '.js', '.map', '.woff', '.woff2'])) {
+                return;
+            }
+
+            $seen = self::bump('guard:404:'.$ip, 300);
+            if ($seen === self::NOT_FOUND_BURST) {
+                self::record($request, $ip, 'not_found', self::score('not_found'), ['not_found_in_window' => $seen]);
+            }
+        } catch (\Throwable) {
+            // never let bookkeeping break a 404 page
+        }
+    }
+
+    /**
+     * A sign-in just failed. Wired to Illuminate\Auth\Events\Failed in AppServiceProvider.
+     *
+     * Two different attacks live here and the shape tells them apart: many tries at ONE account is
+     * someone guessing a password, while a few tries at MANY accounts is a stolen credential list
+     * being replayed against us — rarer, more dangerous, and far easier to be certain about, which
+     * is why it scores nearly three times as much.
+     *
+     * The identifiers themselves are counted in the CACHE and expire in ten minutes; only the count
+     * is ever written to security_events. A brute-force log that quietly accumulates other people's
+     * email addresses would be a worse leak than the attack it records.
+     */
+    public static function noteAuthFailure(Request $request, string $identifier): void
+    {
+        try {
+            if (self::mode() === 'off') {
+                return;
+            }
+            $ip = (string) $request->ip();
+            if ($ip === '' || self::isOwnServer($ip)) {
+                return;
+            }
+
+            $fails = self::bump('guard:authfail:'.$ip, 600);
+            if ($fails === self::AUTH_FAIL_BURST) {
+                self::record($request, $ip, 'auth_fail', self::score('auth_fail'), ['fails_in_window' => $fails]);
+            }
+
+            $who = mb_strtolower(trim($identifier));
+            if ($who === '') {
+                return;
+            }
+            $key = 'guard:authwho:'.$ip;
+            $tried = array_values(array_filter((array) Cache::get($key, []), 'is_string'));
+            if (in_array($who, $tried, true)) {
+                return;
+            }
+            $tried[] = $who;
+            Cache::put($key, array_slice($tried, -20), now()->addMinutes(10));
+
+            if (count($tried) === self::AUTH_SPRAY_ACCOUNTS) {
+                self::record($request, $ip, 'auth_spray', self::score('auth_spray'), ['accounts_tried' => count($tried)]);
+            }
+        } catch (\Throwable) {
+            // a failed login must still be a failed login, whatever happens here
         }
     }
 
@@ -326,7 +564,7 @@ class ScrapeGuard
         // 1. Volume. The cheapest, most reliable signal there is.
         $rate = self::bump('guard:rate:'.$ip, 60);
         if ($rate === self::RATE_PER_MIN || ($rate > self::RATE_PER_MIN && $rate % 50 === 0)) {
-            $out[] = ['rate', 12, ['requests_in_minute' => $rate]];
+            $out[] = ['rate', self::score('rate'), ['requests_in_minute' => $rate]];
         }
 
         // 2. Stream tokens. A viewer starts a handful of films an hour; a harvester mints hundreds,
@@ -340,7 +578,7 @@ class ScrapeGuard
         if (str_contains($path, '/source')) {
             $tokens = self::bump('guard:tok:'.$ip, 60);
             if ($tokens === self::TOKEN_PER_MIN || ($tokens > self::TOKEN_PER_MIN && $tokens % 25 === 0)) {
-                $out[] = ['token_abuse', 18, ['tokens_in_minute' => $tokens]];
+                $out[] = ['token_abuse', self::score('token_abuse'), ['tokens_in_minute' => $tokens]];
             }
         }
 
@@ -348,14 +586,36 @@ class ScrapeGuard
         if (preg_match('~/(\d{2,})(?:/|$|\?)~', '/'.$path, $m)) {
             $run = self::sequentialRun($ip, (int) $m[1]);
             if ($run === self::SEQUENTIAL_RUN) {
-                $out[] = ['sequential', 20, ['run_length' => $run, 'last_id' => (int) $m[1]]];
+                $out[] = ['sequential', self::score('sequential'), ['run_length' => $run, 'last_id' => (int) $m[1]]];
             }
         }
 
         // 4. A self-identified crawler or a bare HTTP library.
         $ua = strtolower((string) $request->userAgent());
         if ($ua === '' || Str::contains($ua, self::BOT_UA)) {
-            $out[] = ['bot_ua', 6, ['ua' => Str::limit((string) $request->userAgent(), 120)]];
+            $out[] = ['bot_ua', self::score('bot_ua'), ['ua' => Str::limit((string) $request->userAgent(), 120)]];
+        }
+
+        // 4b. Automation dressed as a browser. Different from the rule above in the only way that
+        //     matters: a declared crawler can be allowed or disallowed, while something calling
+        //     itself HeadlessChrome on our stream endpoints has chosen to look like a person and
+        //     failed. Scored low all the same — QA tools and accessibility audits exist.
+        if ($ua !== '' && Str::contains($ua, self::HEADLESS_UA)) {
+            $out[] = ['headless', self::score('headless'), ['ua' => Str::limit((string) $request->userAgent(), 120)]];
+        }
+
+        // 4c. Our video, someone else's page. A foreign Referer on a stream or API path is the
+        //     definition of hotlinking — they are running our player on our bandwidth. An ABSENT
+        //     Referer is not this rule (that is rule 5, and it is how the app and direct links
+        //     legitimately arrive); only a foreign one counts.
+        //
+        //     Deliberately NOT storage/media: a person who reaches a poster from Google Images or a
+        //     social preview sends that site as the Referer, and blocking them would ban a viewer for
+        //     the crime of finding us. Image hotlinking is the .htaccess rule's job — and really
+        //     Cloudflare's — while a foreign page pulling /stream is nobody's accident.
+        $referer = (string) $request->headers->get('referer', '');
+        if ($referer !== '' && Str::startsWith($path, ['stream/', 'api/']) && ! self::ourHost($referer, $request)) {
+            $out[] = ['hotlink', self::score('hotlink'), ['from' => Str::limit((string) (parse_url($referer, PHP_URL_HOST) ?: $referer), 80)]];
         }
 
         // 5. Catalogue JSON fetched without ever loading a page of ours. One such request is normal
@@ -364,11 +624,34 @@ class ScrapeGuard
         if ($request->expectsJson() && ! $request->headers->has('referer')) {
             $bare = self::bump('guard:bare:'.$ip, 300);
             if ($bare === 40) {
-                $out[] = ['no_referer', 10, ['json_without_referer' => $bare]];
+                $out[] = ['no_referer', self::score('no_referer'), ['json_without_referer' => $bare]];
             }
         }
 
         return $out;
+    }
+
+    /**
+     * Does this Referer belong to us?
+     *
+     * Compares against the host actually being served AND the configured APP_URL host, with a leading
+     * `www.` folded away — netwix.online and www.netwix.online are the same site, and treating the
+     * alias as a stranger would report our own visitors as hotlinkers.
+     */
+    private static function ourHost(string $referer, Request $request): bool
+    {
+        // preg, never ltrim(): ltrim takes a CHARACTER LIST, so ltrim('wowdrama.com', 'www.') eats the
+        // leading w's and returns 'odrama.com' — a silent way to call our own visitors hotlinkers.
+        $bare = static fn (string $value): string => (string) preg_replace(
+            '~^www\.~', '', strtolower(trim((string) (parse_url($value, PHP_URL_HOST) ?: $value)))
+        );
+
+        $host = $bare($referer);
+        if ($host === '') {
+            return true;   // unparseable: not evidence of anything, so never act on it
+        }
+
+        return in_array($host, array_filter([$bare($request->getHost()), $bare((string) config('app.url'))]), true);
     }
 
     /** Length of the current ascending-id run for this address (1 when the chain breaks). */
@@ -500,21 +783,23 @@ class ScrapeGuard
     private static function pushAlert(string $ip, int $score, int $hours): void
     {
         $report = self::behaviourReport($ip);
-        $harvest = $report['harvest'];
+        $urgent = $report['kind'] !== 'scan';
 
-        if (! Cache::add($harvest ? 'guard:alertcap:harvest' : 'guard:alertcap:noise', 1, now()->addMinutes($harvest ? 15 : 60))) {
+        if (! Cache::add($urgent ? 'guard:alertcap:urgent' : 'guard:alertcap:noise', 1, now()->addMinutes($urgent ? 15 : 60))) {
             return;
         }
 
-        $head = $harvest
-            ? '🚨 มีคนไล่ดูดลิงก์/ข้อมูลหนังของเรา'
-            : '🛡️ บล็อกบอทที่มาสแกนหาช่องโหว่';
+        $head = match ($report['kind']) {
+            'attack' => '🚨 มีคนพยายามเจาะระบบ',
+            'harvest' => '🚨 มีคนไล่ดูดลิงก์/ข้อมูลหนังของเรา',
+            default => '🛡️ บล็อกบอทที่มาสแกนหาช่องโหว่',
+        };
 
         $body = $head."\nIP: ".$ip."\n"
             .($report['text'] !== '' ? $report['text'] : 'คะแนนรวม: '.$score)
             ."\nบล็อกแล้ว {$hours} ชม. · ดูทั้งหมดที่ /admin/security";
 
-        LineNotifier::alert('scrape:'.$ip, $body, $harvest ? 60 : 180);
+        LineNotifier::alert('scrape:'.$ip, $body, $urgent ? 60 : 180);
     }
 
     /**
@@ -526,7 +811,7 @@ class ScrapeGuard
      * prefix is unreliable across IPv6's compressed forms, and the concrete address is the honest
      * thing to show as evidence anyway.
      *
-     * @return array{harvest:bool,text:string}
+     * @return array{kind:string,text:string}
      */
     private static function behaviourReport(string $ip): array
     {
@@ -538,7 +823,7 @@ class ScrapeGuard
             ->get(['reason', 'path', 'user_agent', 'meta', 'created_at']);
 
         if ($rows->isEmpty()) {
-            return ['harvest' => false, 'text' => ''];
+            return ['kind' => 'scan', 'text' => ''];
         }
 
         // Rule labels come from the model, so the phone and the admin table never drift apart.
@@ -586,13 +871,18 @@ class ScrapeGuard
         $ua = trim((string) $rows->first()->user_agent);
         $lines[] = 'UA: '.($ua === '' ? '(ไม่ส่ง User-Agent มาเลย)' : Str::limit($ua, 64));
 
-        // What separates "worth waking up for" from "internet weather": a scanner asks for files we
-        // have never had, a harvester asks for OUR endpoints. Path is checked as well as reason,
-        // because the real stream-link harvester we caught on 28 Aug tripped only `bot_ua` — the
-        // reason code alone would have filed it under noise.
-        $harvest = $rows->contains(fn ($e) => in_array($e->reason, ['sequential', 'token_abuse', 'no_referer'], true))
-            || $rows->contains(fn ($e) => Str::startsWith((string) $e->path, self::WATCHED));
+        // Which of the three kinds this burst is, worst first — every rule declares its own in the
+        // catalogue. The PATH is consulted as well, because the real stream-link harvester we caught
+        // on 28 Aug tripped only `bot_ua`: by rule code alone it was background noise, and by what it
+        // reached for it was someone emptying our library.
+        $kinds = $rows->map(fn ($e) => self::kind((string) $e->reason))->all();
+        if ($rows->contains(fn ($e) => Str::startsWith((string) $e->path, self::WATCHED))) {
+            $kinds[] = 'harvest';
+        }
 
-        return ['harvest' => $harvest, 'text' => implode("\n", $lines)];
+        return [
+            'kind' => in_array('attack', $kinds, true) ? 'attack' : (in_array('harvest', $kinds, true) ? 'harvest' : 'scan'),
+            'text' => implode("\n", $lines),
+        ];
     }
 }

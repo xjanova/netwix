@@ -192,9 +192,13 @@
             <input name="ip" value="{{ $ip }}" placeholder="กรอง IP" class="nx-input w-36 py-1.5 text-xs">
             <select name="reason" class="nx-input w-44 py-1.5 text-xs" onchange="this.form.submit()">
                 <option value="">ทุกสาเหตุ</option>
-                @foreach (['rate' => 'ยิงถี่ผิดปกติ', 'token_abuse' => 'ขอลิงก์ดูหนังรัว', 'sequential' => 'ไล่ไอดีเรียงลำดับ', 'no_referer' => 'ขอข้อมูลไม่ผ่านหน้าเว็บ', 'bot_ua' => 'บอทที่ประกาศตัว', 'admin' => 'การกระทำของแอดมิน'] as $k => $v)
-                    <option value="{{ $k }}" @selected($reason === $k)>{{ $v }}</option>
+                {{-- From the rule catalogue, not a copy of it. This list was hand-written and had
+                     already gone stale: it offered no way to filter for `probe`, which by then was
+                     174 of the events on the page. --}}
+                @foreach (\App\Support\ScrapeGuard::RULES as $k => $rule)
+                    <option value="{{ $k }}" @selected($reason === $k)>{{ $rule[0] }}</option>
                 @endforeach
+                <option value="admin" @selected($reason === 'admin')>การกระทำของแอดมิน</option>
             </select>
             <button class="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/15">กรอง</button>
             @if ($ip || $reason)
