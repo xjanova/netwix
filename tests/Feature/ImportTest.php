@@ -25,14 +25,22 @@ class ImportTest extends TestCase
 
     public function test_rongyok_sync_and_import(): void
     {
+        // Http::fake() only intercepts the URLs it is GIVEN — anything else is really sent. The
+        // homepage was missing from this list, so `fetchNewest()` was fetching the LIVE rongyok.com
+        // on every CI run and reading its real 300 titles, which is why this test asserted 1 and got
+        // 300. preventStrayRequests() makes that impossible to reintroduce: an unfaked URL now throws
+        // instead of quietly going to the internet and making the suite depend on someone else's site.
+        Http::preventStrayRequests();
+
+        $catalog = '<script>var seriesData = ['
+            .'{"id":8203,"title":"บ่วงรักth","description":"เรื่องย่อ",'
+            .'"poster_url":"images/poster/บ่วงรัก-พากย์ไทย-2025-8203.webp",'
+            .'"jpg_url":"https://rongyok.com/images/poster/บ่วงรัก-พากย์ไทย-2025-8203.jpg","view_count":1234}'
+            .'];</script>';
+
         Http::fake([
-            'rongyok.com/category*' => Http::response(
-                '<script>var seriesData = ['
-                .'{"id":8203,"title":"บ่วงรักth","description":"เรื่องย่อ",'
-                .'"poster_url":"images/poster/บ่วงรัก-พากย์ไทย-2025-8203.webp",'
-                .'"jpg_url":"https://rongyok.com/images/poster/บ่วงรัก-พากย์ไทย-2025-8203.jpg","view_count":1234}'
-                .'];</script>'
-            ),
+            'rongyok.com/' => Http::response($catalog),          // homepage — fetchNewest()
+            'rongyok.com/category*' => Http::response($catalog), // grid pages — fetchCatalog()
             'rongyok.com/watch/*' => Http::response(
                 '<script>var data = {"episodes_count":2,"episodes":[{"id":11,"episode_number":1},{"id":12,"episode_number":2}]};</script>'
             ),
