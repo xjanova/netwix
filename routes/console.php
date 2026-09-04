@@ -244,3 +244,9 @@ Schedule::command('netwix:clips:purge-files --days=15')
 // clearly dead (>6h). See [App\Console\Commands\PurgeFailedClips].
 Schedule::command('netwix:clips:purge-failed --days=1')
     ->dailyAt('04:25')->withoutOverlapping()->runInBackground();
+
+// Retention: a client's ban history stops counting toward the escalating penalty once it is past the
+// memory window, so past that point the row decides nothing and only accumulates. Removing it is the
+// forgiveness the guard already applies. See [App\Console\Commands\PruneIpOffences].
+Schedule::command('netwix:security:prune-offences')
+    ->dailyAt('04:30')->withoutOverlapping()->runInBackground();

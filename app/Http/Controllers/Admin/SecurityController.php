@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\BlockedIp;
+use App\Models\IpOffence;
 use App\Models\SecurityEvent;
 use App\Models\Setting;
 use App\Support\FirewallBlocklist;
@@ -46,19 +47,35 @@ class SecurityController extends Controller
             ->limit(20)
             ->get();
 
+        $blocked = BlockedIp::orderByDesc('id')->limit(50)->get();
+
+        // "Which time is this?" for each row on screen. Read in one query rather than per row, and
+        // kept beside the block rather than joined into it, because the two have different lifetimes:
+        // the block goes away, the record of it does not.
+        $offences = IpOffence::whereIn('ip', $blocked->pluck('ip'))->get()->keyBy('ip');
+
         return view('admin.security.index', [
             'events' => $events,
             'offenders' => $offenders,
-            'blocked' => BlockedIp::orderByDesc('id')->limit(50)->get(),
+            'blocked' => $blocked,
+            'offences' => $offences,
+            // Only offenders the LADDER still counts. A row whose last strike is past the memory
+            // window is reset to the first rung on the client's next offence, so listing it here
+            // beside a "ครั้งหน้า: ถาวร" prediction would state a penalty the code will not apply —
+            // and the admin would be deciding whether to forgive someone already forgiven.
+            'repeatOffenders' => IpOffence::where('offences', '>=', 2)
+                ->where('last_at', '>=', now()->subDays(ScrapeGuard::offenceMemoryDays()))
+                ->orderByDesc('last_at')->limit(20)->get(),
             'mode' => ScrapeGuard::mode(),
             'firewall' => FirewallBlocklist::enabled(),
             'blockHours' => ScrapeGuard::blockHours(),
+            'repeatHours' => ScrapeGuard::repeatHours(),
             'reason' => $reason,
             'ip' => $ip,
             'stats' => [
                 'today' => SecurityEvent::where('created_at', '>=', now()->startOfDay())->count(),
                 'week' => SecurityEvent::where('created_at', '>=', now()->subWeek())->count(),
-                'blocked' => BlockedIp::where(fn ($q) => $q->where('manual', true)->orWhere('expires_at', '>', now()))->count(),
+                'blocked' => BlockedIp::active()->count(),
             ],
         ]);
     }
@@ -177,10 +194,43 @@ class SecurityController extends Controller
     /** The default length of an automatic block, in hours. 0 is not offered — that is what mode=off is for. */
     public function setDefaultHours(Request $request): RedirectResponse
     {
-        $data = $request->validate(['hours' => ['required', 'integer', 'min:1', 'max:720']]);
-        Setting::write('scrape_block_hours', (string) $data['hours']);
+        $data = $request->validate([
+            'hours' => ['required', 'integer', 'min:1', 'max:720'],
+            // Optional, not required: a page left open from before the second rung existed posts only
+            // `hours`, and rejecting that with an error about a field the admin cannot see on their
+            // screen helps nobody. Absent means "leave the repeat penalty as it is".
+            'repeat_hours' => ['nullable', 'integer', 'min:1', 'max:8760'],
+        ]);
 
-        return back()->with('status', "บล็อกอัตโนมัติจะนาน {$data['hours']} ชม.");
+        Setting::write('scrape_block_hours', (string) $data['hours']);
+        if (isset($data['repeat_hours'])) {
+            Setting::write('scrape_block_repeat_hours', (string) $data['repeat_hours']);
+        }
+
+        $repeat = ScrapeGuard::repeatHours();
+
+        return back()->with('status', "ครั้งแรกบล็อก {$data['hours']} ชม. · ครั้งที่ 2 บล็อก {$repeat} ชม. · ครั้งที่ 3 ถาวร");
+    }
+
+    /**
+     * Wipe a client's ban history, so the next offence starts from the first rung again.
+     *
+     * The escalation deliberately outlives both the block and the unblock — otherwise lifting a ban
+     * would erase the very thing that proves someone is a repeat offender. But that cuts the other
+     * way too: when a block was a MISTAKE, the record of it is a mistake as well, and leaving it in
+     * place means an innocent viewer who trips the same faulty rule twice more is banned forever
+     * without anyone deciding to do that. Every rule in this system has produced false positives
+     * before (all 96 of the first events were), so exonerating has to be as easy as unblocking.
+     */
+    public function forgive(Request $request, IpOffence $ipOffence): RedirectResponse
+    {
+        $ip = $ipOffence->ip;
+        $had = $ipOffence->offences;
+        $ipOffence->delete();
+
+        $this->note($request, $ip, 'ล้างประวัติการโดนแบน', "เดิม {$had} ครั้ง");
+
+        return back()->with('status', "ล้างประวัติของ {$ip} แล้ว — ครั้งต่อไปจะเริ่มนับใหม่");
     }
 
     /** Record an admin action in the same log as the observations, so the history is one story. */

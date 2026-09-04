@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\AppToken;
 use App\Models\BlockedIp;
+use App\Models\IpOffence;
 use App\Models\SecurityEvent;
 use App\Models\Setting;
 use Illuminate\Http\Request;
@@ -56,6 +57,26 @@ class ScrapeGuard
 
     /** Default block length when the admin hasn't set one. Long enough to be expensive, short enough to be wrong. */
     private const BLOCK_HOURS = 6;
+
+    /**
+     * Second offence: a month. First is short on purpose because it might be wrong; by the second the
+     * client has come back AFTER a ban ran its course and started again, which no viewer does.
+     */
+    private const REPEAT_HOURS = 720;
+
+    /** Offences from this many banned times onward are permanent. */
+    private const PERMANENT_AT = 3;
+
+    /**
+     * How long a served ban still counts against you.
+     *
+     * Without a horizon the ladder only ever climbs, so one bad afternoon last winter would earn a
+     * month today and a permanent ban next year — and the first block is the one most likely to have
+     * been a false positive in the first place. Ninety days is long enough that no scraper can wait
+     * it out cheaply, and short enough that an address reassigned to a different customer starts
+     * clean.
+     */
+    private const OFFENCE_MEMORY_DAYS = 90;
 
     /** Unauthenticated hits on /admin in 10 minutes before it stops being a mistyped URL. */
     private const ADMIN_PROBE_HITS = 20;
@@ -201,6 +222,37 @@ class ScrapeGuard
         $h = (int) Setting::get('scrape_block_hours', self::BLOCK_HOURS);
 
         return max(1, min(720, $h ?: self::BLOCK_HOURS));
+    }
+
+    /** How long a served ban still counts against a client. @see self::OFFENCE_MEMORY_DAYS */
+    public static function offenceMemoryDays(): int
+    {
+        return self::OFFENCE_MEMORY_DAYS;
+    }
+
+    /** How long a SECOND offence lasts. Admin-set for the same reason the first one is. */
+    public static function repeatHours(): int
+    {
+        $h = (int) Setting::get('scrape_block_repeat_hours', self::REPEAT_HOURS);
+
+        return max(1, min(8760, $h ?: self::REPEAT_HOURS));
+    }
+
+    /**
+     * The sentence for a client's Nth ban: hours, or null for permanent.
+     *
+     * 1st → the admin default (6h) · 2nd → a month · 3rd and after → permanent.
+     *
+     * Public because the admin page states the ladder in words, and a page that describes the rule
+     * from its own copy of the numbers eventually describes a rule the code no longer follows.
+     */
+    public static function sentenceHours(int $offence): ?int
+    {
+        return match (true) {
+            $offence >= self::PERMANENT_AT => null,
+            $offence === 2 => self::repeatHours(),
+            default => self::blockHours(),
+        };
     }
 
     /**
@@ -748,11 +800,48 @@ class ScrapeGuard
         }
 
         $key = self::blockKey($ip);
-        $hours = self::blockHours();
+
+        // Is a ban already in force for this client? If so nothing new has happened: they are simply
+        // still here, still being refused, still tripping rules on the way. Re-sentencing them would
+        // be the end of the feature — inspect() records BEFORE it checks the blocklist, so a scanner
+        // that ignores its 403 (they all do) re-crosses BLOCK_SCORE every few seconds and would climb
+        // 6 hours → a month → permanent inside one burst. Every client would reach permanent on its
+        // first visit, which is neither what was asked for nor survivable if the rule was wrong.
+        // It also stays SILENT: the alert for this client already went to the owner's phone when the
+        // ban began, and "still banned, still trying" is not news. The expiry is left exactly where
+        // it was, too — refreshing it on every refused request makes a 6-hour ban last as long as the
+        // attacker cares to keep knocking, which is a permanent ban nobody chose and nobody can see.
+        $existing = BlockedIp::where('ip', $key)->first();
+        if ($existing && $existing->active) {
+            // Refresh what they were last caught doing — but never on a block an admin placed by
+            // hand, or the row would stop saying "บล็อกด้วยตนเอง · <the admin's reason>" and start
+            // reporting whichever rule the client tripped on its way into a wall it was already
+            // behind. The admin's reason for blocking is theirs, not ours to overwrite.
+            if (! $existing->manual) {
+                $existing->update(['reason' => $reason, 'score' => $score]);
+            }
+
+            return;
+        }
+
+        // No ban in force, and they are back doing it again → this is a fresh offence, and the
+        // penalty steps up. "Came back after serving it" is the strongest evidence we have that the
+        // first block caught a scraper rather than a viewer: nobody who was blocked by mistake
+        // returns and behaves like a harvester a second time.
+        $offence = self::countOffence($key, $reason);
+        $hours = self::sentenceHours($offence);
 
         BlockedIp::updateOrCreate(
             ['ip' => $key],
-            ['reason' => $reason, 'score' => $score, 'expires_at' => now()->addHours($hours), 'manual' => false],
+            [
+                'reason' => $reason,
+                'score' => $score,
+                'expires_at' => $hours === null ? null : now()->addHours($hours),
+                'manual' => false,
+                // `hits` is deliberately NOT reset. It is the count of requests this client has had
+                // refused across every ban it has earned, and an address at twelve thousand is
+                // telling the admin something an address at two is not.
+            ],
         );
         Cache::forget('guard:block:'.$key);
         Cache::forget('guard:block:'.$ip);
@@ -764,7 +853,35 @@ class ScrapeGuard
         // PHP at all. sync() self-checks and rolls back, so a bad write cannot take the site with it.
         FirewallBlocklist::sync();
 
-        self::pushAlert($ip, $score, $hours);
+        self::pushAlert($ip, $score, $hours, $offence);
+    }
+
+    /**
+     * Record that this client has been banned once more, and say which time it is.
+     *
+     * Deliberately in its own table rather than on `blocked_ips`: that row is deleted when a ban is
+     * lifted and forgotten when it expires, so a ladder built on it could never climb past the first
+     * rung. See the `ip_offences` migration.
+     *
+     * Bans older than OFFENCE_MEMORY_DAYS do not count, and the ladder restarts from the bottom —
+     * the counter is reset rather than merely ignored, so a client cannot bank offences by going
+     * quiet for a season and have them all resurface on the next strike.
+     */
+    private static function countOffence(string $key, string $reason): int
+    {
+        $row = IpOffence::firstOrNew(['ip' => $key]);
+
+        $stale = $row->last_at !== null && $row->last_at->lt(now()->subDays(self::OFFENCE_MEMORY_DAYS));
+
+        $row->offences = ($stale || ! $row->exists) ? 1 : $row->offences + 1;
+        $row->last_reason = $reason;
+        $row->last_at = now();
+        if ($stale || ! $row->exists) {
+            $row->first_at = now();
+        }
+        $row->save();
+
+        return $row->offences;
     }
 
     /**
@@ -780,10 +897,15 @@ class ScrapeGuard
      * worthless scanner alert that happened to fire first. Noise keeps the old hourly cap; the
      * behaviour we actually built this system to catch gets its own, shorter one.
      */
-    private static function pushAlert(string $ip, int $score, int $hours): void
+    private static function pushAlert(string $ip, int $score, ?int $hours, int $offence): void
     {
         $report = self::behaviourReport($ip);
-        $urgent = $report['kind'] !== 'scan';
+
+        // A repeat offender is urgent whatever they were doing. The kind of rule they tripped decides
+        // how alarming ONE visit is; coming back after serving a ban is its own signal, and a client
+        // being handed a month or a permanent ban is a decision the owner should hear about even when
+        // the rule behind it is the boring one.
+        $urgent = $report['kind'] !== 'scan' || $offence >= 2;
 
         if (! Cache::add($urgent ? 'guard:alertcap:urgent' : 'guard:alertcap:noise', 1, now()->addMinutes($urgent ? 15 : 60))) {
             return;
@@ -795,9 +917,14 @@ class ScrapeGuard
             default => '🛡️ บล็อกบอทที่มาสแกนหาช่องโหว่',
         };
 
+        // Say the sentence AND why it is that long. "แบนถาวร" with no explanation reads like a bug
+        // when the same address was banned for six hours last week; "ครั้งที่ 3" is the whole story.
+        $sentence = $hours === null ? 'แบนถาวร' : ($hours >= 24 ? 'แบน '.intdiv($hours, 24).' วัน' : "แบน {$hours} ชม.");
+        $repeat = $offence >= 2 ? " (ทำผิดครั้งที่ {$offence} — เคยโดนแบนแล้วกลับมาทำอีก)" : '';
+
         $body = $head."\nIP: ".$ip."\n"
             .($report['text'] !== '' ? $report['text'] : 'คะแนนรวม: '.$score)
-            ."\nบล็อกแล้ว {$hours} ชม. · ดูทั้งหมดที่ /admin/security";
+            ."\n{$sentence}{$repeat} · ดูทั้งหมดที่ /admin/security";
 
         LineNotifier::alert('scrape:'.$ip, $body, $urgent ? 60 : 180);
     }

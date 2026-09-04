@@ -64,7 +64,11 @@ class FirewallBlocklist
         }
 
         $ips = BlockedIp::query()
-            ->where(fn ($q) => $q->where('manual', true)->orWhere('expires_at', '>', now()))
+            ->active()   // one shared definition — a NULL expiry is permanent, not "no block"
+            // When there are more blocks than rules we are willing to write, the ones that drop off
+            // should be the ones that were going to expire anyway — not the repeat offenders who
+            // earned a ban with no end date.
+            ->orderByRaw('CASE WHEN expires_at IS NULL THEN 0 ELSE 1 END')
             ->orderByDesc('id')
             ->limit(self::MAX_RULES)
             ->pluck('ip')

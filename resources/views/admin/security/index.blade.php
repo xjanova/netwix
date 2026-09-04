@@ -62,20 +62,27 @@
             <span class="text-[12px] text-cream/50">สถานะ: <b class="{{ $firewall ? 'text-success' : 'text-cream/70' }}">{{ $firewall ? 'เปิดอยู่' : 'ปิดอยู่' }}</b></span>
         </form>
 
-        {{-- How long an automatic block lasts. Short by default on purpose: a block that is wrong
-             should expire before anyone has to notice it, and one that is right can always be
-             extended from the list below once there is evidence to justify it. --}}
+        {{-- How long an automatic block lasts. The FIRST one is short on purpose: a block that is
+             wrong should expire before anyone has to notice it. The second is long, and the third
+             does not end, because by then the client has served a ban and come back to do it again —
+             which is the one thing a viewer blocked by mistake never does. --}}
         <form method="POST" action="{{ route('admin.security.default-hours') }}"
               class="mt-4 flex flex-wrap items-center gap-2 border-t border-white/5 pt-4">
             @csrf
-            <span class="text-[12px] text-cream/60">บล็อกอัตโนมัตินานครั้งละ</span>
+            <span class="text-[12px] text-cream/60">ครั้งแรกบล็อก</span>
             <select name="hours" class="nx-input w-28 py-1.5 text-xs">
                 @foreach ([1 => '1 ชม.', 6 => '6 ชม.', 12 => '12 ชม.', 24 => '1 วัน', 72 => '3 วัน', 168 => '7 วัน', 720 => '30 วัน'] as $h => $label)
                     <option value="{{ $h }}" @selected($blockHours === $h)>{{ $label }}</option>
                 @endforeach
             </select>
+            <span class="text-[12px] text-cream/60">· ทำอีกครั้งที่ 2 บล็อก</span>
+            <select name="repeat_hours" class="nx-input w-28 py-1.5 text-xs">
+                @foreach ([24 => '1 วัน', 72 => '3 วัน', 168 => '7 วัน', 336 => '14 วัน', 720 => '30 วัน', 2160 => '90 วัน'] as $h => $label)
+                    <option value="{{ $h }}" @selected($repeatHours === $h)>{{ $label }}</option>
+                @endforeach
+            </select>
+            <span class="text-[12px] text-cream/60">· ครั้งที่ 3 <b class="text-brand">ถาวร</b></span>
             <button class="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/15">บันทึก</button>
-            <span class="text-[11px] text-cream/35">ต่อเวลาหรือปลดรายตัวได้ที่รายการด้านล่าง</span>
         </form>
     </div>
 </div>
@@ -88,6 +95,11 @@
     IPv4 บล็อกเลขเดียว · IPv6 บล็อกทั้งช่วง <code class="rounded bg-white/10 px-1">/64</code> (คือ “บ้านหนึ่งหลัง”
     เพราะค่ายมือถือไทยหมุนเลขท้ายให้ผู้ใช้คนเดิมตลอด — บล็อกทีละเลขจึงหลบง่ายและลิสต์จะเต็มไปด้วยขยะ)
     · <b class="text-cream/75">ไม่บล็อกเครื่องที่มีสมาชิกล็อกอินอยู่</b> และไม่บล็อกเซิร์ฟเวอร์เราเอง
+    <br>
+    <b class="text-cream/75">โทษเพิ่มขึ้นเมื่อเป็นคนเดิม:</b>
+    ครั้งแรก {{ $blockHours }} ชม. → ครั้งที่ 2 {{ intdiv($repeatHours, 24) ?: $repeatHours }} {{ $repeatHours >= 24 ? 'วัน' : 'ชม.' }} → ครั้งที่ 3 เป็นต้นไป <b class="text-brand">ถาวร</b>
+    · นับเพิ่มเฉพาะตอน<b class="text-cream/75">พ้นโทษแล้วกลับมาทำอีก</b> เท่านั้น (ยิงรัวระหว่างโดนแบนอยู่ไม่นับเพิ่ม)
+    · ประวัติเก่ากว่า {{ \App\Support\ScrapeGuard::offenceMemoryDays() }} วันถือว่าล้างแล้ว เริ่มนับหนึ่งใหม่
 </div>
 
 {{-- ── ไอพีที่น่าจับตา + รายการที่บล็อก ─────────────────── --}}
@@ -144,13 +156,23 @@
                 @foreach ($blocked as $b)
                     <tr class="border-b border-white/5 last:border-0">
                         <td class="px-5 py-2.5">
-                            <div class="font-mono text-[12px]">{{ $b->ip }}</div>
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span class="font-mono text-[12px]">{{ $b->ip }}</span>
+                                {{-- Which time this is. Shown on the row and not only in the history
+                                     section, because "ปลด" on a third-offence row is a different
+                                     decision from "ปลด" on a first, and the admin is deciding here. --}}
+                                @if (($offences[$b->ip]->offences ?? 0) >= 2)
+                                    <span class="rounded bg-brand/15 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+                                        ทำผิดครั้งที่ {{ $offences[$b->ip]->offences }}
+                                    </span>
+                                @endif
+                            </div>
                             <div class="text-[11px] text-cream/45">
                                 {{ $b->manual ? 'บล็อกด้วยตนเอง' : 'ระบบบล็อก · '.$b->reason }}
                                 @if ($b->hits > 0) · ปฏิเสธไปแล้ว {{ number_format($b->hits) }} ครั้ง @endif
                             </div>
                         </td>
-                        <td class="px-2 py-2.5 text-right text-[11px] text-cream/45">
+                        <td class="px-2 py-2.5 text-right text-[11px] {{ $b->expires_at ? 'text-cream/45' : 'text-brand' }}">
                             {{ $b->expires_at ? 'หมดอายุ '.$b->expires_at->diffForHumans() : 'ถาวร' }}
                         </td>
                         <td class="px-2 py-2.5 text-right">
@@ -183,6 +205,60 @@
         @endif
     </div>
 </div>
+
+{{-- ── ประวัติผู้ทำผิดซ้ำ ────────────────────────────────
+     Kept separate from the block list above because it answers a different question. That list is
+     "who is refused right now"; this is "who has been refused before", which is the only thing an
+     escalating penalty can be based on — a block row is deleted when it is lifted and forgotten when
+     it expires, so by the time a repeat offender comes back there is nothing left of the first ban.
+     It is also where a mistake gets undone: ปลด lifts today's block, ล้างประวัติ forgives the ones
+     already served so the next strike starts from the first rung again. --}}
+@if ($repeatOffenders->isNotEmpty())
+    <div class="mb-6">
+        <div class="nx-card overflow-hidden p-0">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 px-5 py-3.5">
+                <h3 class="text-base font-semibold">ประวัติผู้ทำผิดซ้ำ</h3>
+                <span class="text-[11px] text-cream/40">พ้นโทษแล้วกลับมาทำอีก — ครั้งถัดไปโทษหนักขึ้น</span>
+            </div>
+            <table class="w-full text-sm">
+                <tbody>
+                @foreach ($repeatOffenders as $o)
+                    <tr class="border-b border-white/5 last:border-0">
+                        <td class="px-5 py-2.5">
+                            <div class="font-mono text-[12px]">{{ $o->ip }}</div>
+                            <div class="text-[11px] text-cream/45">
+                                ล่าสุด {{ $o->last_reason ? \App\Support\ScrapeGuard::label($o->last_reason) : '—' }}
+                                @if ($o->first_at) · ครั้งแรก {{ $o->first_at->diffForHumans() }} @endif
+                            </div>
+                        </td>
+                        <td class="px-2 py-2.5 text-right">
+                            <span class="rounded bg-brand/15 px-1.5 py-0.5 text-[11px] font-semibold text-brand">
+                                {{ $o->offences }} ครั้ง
+                            </span>
+                        </td>
+                        <td class="px-2 py-2.5 text-right text-[11px] text-cream/45">
+                            {{-- Block form, not the inline one: the inline directive mis-compiles a
+                                 nested-call expression into unclosed PHP and swallows the rest of the
+                                 markup. That shipped two 500s on 2026-07-28. --}}
+                            @php
+                                $next = \App\Support\ScrapeGuard::sentenceHours($o->offences + 1);
+                            @endphp
+                            ครั้งหน้า: {{ $next === null ? 'ถาวร' : ($next >= 24 ? intdiv($next, 24).' วัน' : $next.' ชม.') }}
+                        </td>
+                        <td class="px-5 py-2.5 text-right">
+                            <form method="POST" action="{{ route('admin.security.forgive', $o) }}"
+                                  onsubmit="return confirm('ล้างประวัติของ {{ $o->ip }}? ครั้งต่อไปจะเริ่มนับใหม่')">
+                                @csrf @method('DELETE')
+                                <button class="rounded-md bg-white/5 px-2.5 py-1 text-[12px] hover:bg-white/10">ล้างประวัติ</button>
+                            </form>
+                        </td>
+                    </tr>
+                @endforeach
+                </tbody>
+            </table>
+        </div>
+    </div>
+@endif
 
 {{-- ── บันทึกเหตุการณ์ ──────────────────────────────────── --}}
 <div class="nx-card overflow-hidden p-0">

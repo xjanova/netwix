@@ -389,6 +389,9 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     // history and hit count survive the change.
     Route::post('security/blocked/{blockedIp}/duration', [Admin\SecurityController::class, 'setDuration'])->name('security.duration');
     Route::post('security/default-hours', [Admin\SecurityController::class, 'setDefaultHours'])->name('security.default-hours');
+    // Clear a client's ban history, so an escalating penalty starts over. The counterpart to unblock:
+    // that lifts today's ban, this forgives the ones already served.
+    Route::delete('security/offences/{ipOffence}', [Admin\SecurityController::class, 'forgive'])->name('security.forgive');
 
     // "ลายน้ำบนปก" — where the mark sits, how heavy it is, and whether it is a logo or text. The
     // preview route renders a REAL cover with unsaved settings so dragging shows the true result.
