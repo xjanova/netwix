@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\App;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\PosterHealController;
 use App\Http\Resources\ContentResource;
 use App\Http\Resources\EpisodeResource;
 use App\Models\Content;
 use App\Models\Genre;
+use App\Support\PosterBackfill;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -149,6 +151,20 @@ class CatalogController extends Controller
         }
 
         return $this->ok(['ok' => true]);
+    }
+
+    /**
+     * POST /api/app/content/{id}/heal-cover — "this card's poster did not load".
+     *
+     * The website has had this since 2026-07-16, the app never did: an app viewer looking at a
+     * broken cover saw the branded fallback and the server learned nothing, so the title never
+     * reached the admin's missing-covers queue. Same controller, same per-title 6h lock — only the
+     * envelope differs. The browser (or the app) is the judge of whether a cover loads; a dead
+     * hotlink is indistinguishable from a live one in the database.
+     */
+    public function healCover(Content $content, PosterHealController $healer, PosterBackfill $backfill): JsonResponse
+    {
+        return $this->ok($healer->heal($content, $backfill)->getData(true));
     }
 
     /** GET /api/app/genres — the genre taxonomy for the app's category chips. */

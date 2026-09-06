@@ -72,6 +72,17 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
 
     Route::get('episodes/{episode}/source', [SourceController::class, 'source']);
 
+    // Covers earned from viewing — the app half of what the web player has done since 2026-07-06.
+    // `cover` says "this episode is playing and has no cover" (the server ffmpegs a frame; the app
+    // can't read one out of a platform texture). `heal-cover` says "this title's poster did not
+    // load", which is the ONLY signal that tells a dead hotlink from a live one — until now the app
+    // swallowed that verdict and showed the fallback instead of reporting it. Both are deduped and
+    // budgeted server-side; the per-IP ceilings here are just the outer wall.
+    Route::post('episodes/{episode}/cover', [SourceController::class, 'cover'])
+        ->middleware('throttle:20,1');
+    Route::post('content/{content:id}/heal-cover', [CatalogController::class, 'healCover'])
+        ->middleware('throttle:60,1');
+
     // Public reads: comments list + rating summary (guests can see them).
     Route::get('content/{content:id}/comments', [FeedbackController::class, 'comments']);
     Route::get('content/{content:id}/ratings', [FeedbackController::class, 'ratings']);

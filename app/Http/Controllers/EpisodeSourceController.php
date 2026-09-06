@@ -142,10 +142,13 @@ class EpisodeSourceController extends Controller
     }
 
     /**
-     * Server-side cover fallback: the client calls this when it CAN'T grab a frame in-browser — the
-     * source's CDN sends no CORS so the <canvas> is tainted (e.g. anifume/rukoluo). We queue an ffmpeg
-     * grab off a small ranged download (EpisodeThumbnailer), which needs no CORS. One in-flight job per
-     * episode (5-min lock) so a burst of viewers on the same uncovered episode never stacks duplicates.
+     * Server-side cover fallback: the caller can't grab the frame itself. Two callers now —
+     *  - the web player, when the source's CDN sends no CORS so the <canvas> is tainted (anifume/rukoluo);
+     *  - the mobile app, always: video_player draws into a platform texture, and a texture is not
+     *    readable from Dart, so the app has no frame to send in the first place.
+     * We queue an ffmpeg grab off a small ranged download (EpisodeThumbnailer), which needs no CORS.
+     * One in-flight job per episode (5-min lock) so a burst of viewers on the same uncovered episode
+     * never stacks duplicates, plus an hourly ceiling across ALL episodes — see below.
      */
     public function genCover(Request $request, Episode $episode): JsonResponse
     {
@@ -153,10 +156,38 @@ class EpisodeSourceController extends Controller
         if ($episode->thumbnail_path) {
             return response()->json(['ok' => true, 'skipped' => 'exists']);
         }
-        if (Cache::add('episode:gencover:'.$episode->id, 1, now()->addMinutes(5))) {
-            \App\Jobs\GenerateEpisodeThumb::dispatch($episode->id)->onQueue('thumbs');
+        if (! Cache::add('episode:gencover:'.$episode->id, 1, now()->addMinutes(5))) {
+            return response()->json(['ok' => true, 'queued' => false, 'status' => 'in_flight']);
         }
+        // Hourly ceiling across every episode. The per-episode lock stops a crowd on ONE title; it
+        // does nothing about a client walking episode ids, and each job is an ffmpeg — the exact
+        // shape of the 2026-07-06 crash (stacked ffmpeg workers, not disk). Past the ceiling we drop
+        // the request instead of queueing: an uncovered episode still gets its cover from the admin
+        // batch, or from the next hour's viewers. The per-episode lock is released so this episode
+        // isn't ALSO blocked for 5 minutes by a request we deliberately didn't run.
+        if (! self::withinGenCoverBudget()) {
+            Cache::forget('episode:gencover:'.$episode->id);
+
+            return response()->json(['ok' => true, 'queued' => false, 'status' => 'busy']);
+        }
+        \App\Jobs\GenerateEpisodeThumb::dispatch($episode->id)->onQueue('thumbs');
 
         return response()->json(['ok' => true, 'queued' => true]);
+    }
+
+    /** How many on-demand ffmpeg cover grabs may be queued site-wide in one hour. */
+    private const GENCOVER_PER_HOUR = 120;
+
+    /**
+     * True while this hour's on-demand cover budget still has room (and books one slot).
+     * Counter, not a rate limiter: it is deliberately shared by every viewer and both clients,
+     * because the resource being protected (the ffmpeg queue) is shared too.
+     */
+    private static function withinGenCoverBudget(): bool
+    {
+        $key = 'episode:gencover:hour:'.now()->format('YmdH');
+        Cache::add($key, 0, now()->addHour());
+
+        return (int) Cache::increment($key) <= self::GENCOVER_PER_HOUR;
     }
 }
