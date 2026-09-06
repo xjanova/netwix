@@ -104,8 +104,10 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
     Route::get('legal/{doc}', [LegalController::class, 'show']);
 
     // Diagnostics sink — public (must accept guest + failed-sign-in reports),
-    // extra-throttled on top of the group limit.
-    Route::post('debug', [DebugController::class, 'store'])->middleware('throttle:20,1');
+    // extra-throttled on top of the group limit. Optional auth so a report from a signed-in device
+    // is attributed to the real account: the request body no longer gets to name one.
+    Route::post('debug', [DebugController::class, 'store'])
+        ->middleware(['auth.apptoken.optional', 'throttle:20,1']);
 
     // Public: which social providers are configured (app hides the rest).
     Route::get('auth/providers', [AuthController::class, 'providers']);

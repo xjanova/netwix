@@ -24,7 +24,6 @@ class DebugController extends Controller
             'event' => ['required', 'string', 'max:80'],
             'message' => ['nullable', 'string', 'max:2000'],
             'context' => ['nullable', 'array'],
-            'user_id' => ['nullable', 'integer'],
             'app_version' => ['nullable', 'string', 'max:24'],
             'platform' => ['nullable', 'string', 'max:16'],
         ]);
@@ -40,7 +39,10 @@ class DebugController extends Controller
             'event' => $data['event'],
             'message' => $data['message'] ?? null,
             'context' => $context,
-            'user_id' => $data['user_id'] ?? null,
+            // Never the body's word for it. This endpoint is public and unauthenticated by design,
+            // so a client-supplied user_id is a client-supplied claim — anyone could have filed
+            // these lines against anyone. It is the bearer token or nobody.
+            'user_id' => $request->user()?->id,
             'app_version' => $data['app_version'] ?? null,
             'platform' => $data['platform'] ?? null,
             'ip' => $request->ip(),
