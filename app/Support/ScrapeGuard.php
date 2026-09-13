@@ -7,6 +7,7 @@ use App\Models\BlockedIp;
 use App\Models\IpOffence;
 use App\Models\SecurityEvent;
 use App\Models\Setting;
+use App\Support\Alerts\Alert;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
@@ -911,22 +912,32 @@ class ScrapeGuard
             return;
         }
 
-        $head = match ($report['kind']) {
-            'attack' => '🚨 มีคนพยายามเจาะระบบ',
-            'harvest' => '🚨 มีคนไล่ดูดลิงก์/ข้อมูลหนังของเรา',
-            default => '🛡️ บล็อกบอทที่มาสแกนหาช่องโหว่',
+        $title = match ($report['kind']) {
+            'attack' => 'มีคนพยายามเจาะระบบ',
+            'harvest' => 'มีคนไล่ดูดลิงก์/ข้อมูลหนังของเรา',
+            default => 'บล็อกบอทที่มาสแกนหาช่องโหว่',
         };
 
         // Say the sentence AND why it is that long. "แบนถาวร" with no explanation reads like a bug
         // when the same address was banned for six hours last week; "ครั้งที่ 3" is the whole story.
         $sentence = $hours === null ? 'แบนถาวร' : ($hours >= 24 ? 'แบน '.intdiv($hours, 24).' วัน' : "แบน {$hours} ชม.");
-        $repeat = $offence >= 2 ? " (ทำผิดครั้งที่ {$offence} — เคยโดนแบนแล้วกลับมาทำอีก)" : '';
+        $facts = ['IP' => $ip, 'บทลงโทษ' => $sentence];
+        if ($offence >= 2) {
+            $facts['ทำผิดครั้งที่'] = $offence.' (เคยโดนแบนแล้วกลับมาอีก)';
+        }
 
-        $body = $head."\nIP: ".$ip."\n"
-            .($report['text'] !== '' ? $report['text'] : 'คะแนนรวม: '.$score)
-            ."\n{$sentence}{$repeat} · ดูทั้งหมดที่ /admin/security";
-
-        LineNotifier::alert('scrape:'.$ip, $body, $urgent ? 60 : 180);
+        // Noise (a scanner's first visit) is still recorded and still sent — but silently, so the
+        // phone only buzzes for the kind of alert this system was built to catch.
+        AdminAlerts::send(new Alert(
+            key: 'scrape:'.$ip,
+            level: $urgent ? Alert::CRITICAL : Alert::INFO,
+            title: $title,
+            body: $report['text'] !== '' ? $report['text'] : 'คะแนนรวม: '.$score,
+            facts: $facts,
+            url: url('/admin/security'),
+            urlLabel: 'ดูหน้าความปลอดภัย',
+            category: 'security',
+        ), $urgent ? 60 : 180);
     }
 
     /**

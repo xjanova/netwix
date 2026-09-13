@@ -113,10 +113,19 @@ Schedule::command('netwix:recheck-playable 9nung --limit=3000 --sleep=250')
 Schedule::command('netwix:source-canary')
     ->everyTwoHours()->withoutOverlapping()->runInBackground();
 
-// Hourly: one LINE message summarising the titles that went un-playable, instead of one per title.
-// Self-gates when LINE alerts are off, so it is always safe to schedule.
+// Hourly: one alert summarising the titles that went un-playable (instead of one per title) and the
+// hour's new members. Self-gates when every alert channel is off, so it is always safe to schedule.
 Schedule::command('netwix:alert-digest')
     ->hourly()->withoutOverlapping()->runInBackground();
+
+// Every 5 min: the scheduler's own heartbeat (read back on web requests — a dead cron cannot report
+// itself), disk space, failed queued jobs, and once a day the catalogues that stopped growing.
+Schedule::command('netwix:watchdog')
+    ->everyFiveMinutes()->withoutOverlapping()->runInBackground();
+
+// 09:00 Thai time: yesterday on one card — money, members, watching, top titles, source health.
+Schedule::command('netwix:daily-report')
+    ->dailyAt('09:00')->timezone('Asia/Bangkok')->withoutOverlapping()->runInBackground();
 
 // Every 10 min: fold cached ad-impression counters into ad_bookings and retire finished campaigns.
 // Impressions are counted in cache on render (a DB write per page view would cost more than the ad

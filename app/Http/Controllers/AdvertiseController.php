@@ -246,6 +246,8 @@ class AdvertiseController extends Controller
             'reviewed_by' => null,
         ])->save();
 
+        \App\Support\Alerts\PaymentAlerts::adResubmitted($booking);
+
         return redirect()->route('advertise.mine')
             ->with('status', 'ส่งตรวจใหม่แล้ว — ทีมงานจะตรวจอีกครั้ง ไม่มีค่าใช้จ่ายเพิ่ม');
     }

@@ -54,6 +54,37 @@ class SourceHealth
 
         Setting::write(self::KEY, json_encode($all, JSON_UNESCAPED_UNICODE));
         Cache::forget(self::KEY);
+
+        // Close the loop: the owner was told it went down, so tell them it came back — otherwise the
+        // last word on their phone is an outage that ended hours ago.
+        if (! empty($was['down']) && ! $down) {
+            self::announceRecovery($source, (string) ($was['down_since'] ?? ''), $ok, $tried);
+            // A fresh outage after a recovery is news again, not a repeat inside the 6h cool-off.
+            AdminAlerts::forgetThrottle('source-down:'.$source);
+        }
+    }
+
+    private static function announceRecovery(string $source, string $since, int $ok, int $tried): void
+    {
+        $lasted = '—';
+        try {
+            if ($since !== '') {
+                $mins = (int) \Illuminate\Support\Carbon::parse($since)->diffInMinutes(now());
+                $lasted = $mins >= 1440 ? intdiv($mins, 1440).' วัน '.intdiv($mins % 1440, 60).' ชม.' : intdiv($mins, 60).' ชม. '.($mins % 60).' นาที';
+            }
+        } catch (\Throwable) {
+        }
+
+        AdminAlerts::send(new Alerts\Alert(
+            key: 'source-up:'.$source,
+            level: Alerts\Alert::OK,
+            title: "แหล่ง \"{$source}\" กลับมาดึงลิ้งค์ได้แล้ว",
+            body: 'ระบบตรวจรอบล่าสุดเล่นได้ตามปกติ และกลับมาหยุดเผยแพร่อัตโนมัติเฉพาะเรื่องที่เสียจริงเหมือนเดิม',
+            facts: ['ผลตรวจล่าสุด' => "{$ok}/{$tried} เล่นได้", 'ล่มไปนาน' => $lasted],
+            url: url('/admin'),
+            urlLabel: 'เปิดหน้าแอดมิน',
+            category: 'sources',
+        ), 60);
     }
 
     /** True when the last canary run couldn't resolve a single title from this source. */

@@ -260,8 +260,8 @@ class PlaybackHealth
         ]);
 
         // Collected, not pushed: this fires per TITLE, and one dead source produces thousands of
-        // them. [LineNotifier::flushDigest] sends the hour's worth as a single message.
-        LineNotifier::noteSuspended($content->id, (string) $content->title, (string) $content->source);
+        // them. [AdminAlerts::flushDigest] sends the hour's worth as a single message.
+        AdminAlerts::noteSuspended($content->id, (string) $content->title, (string) $content->source);
     }
 
     private static function setKey(int $id): string

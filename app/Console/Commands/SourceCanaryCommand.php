@@ -6,7 +6,8 @@ use App\Models\Content;
 use App\Models\Episode;
 use App\Models\Setting;
 use App\Services\Import\SourceRegistry;
-use App\Support\LineNotifier;
+use App\Support\AdminAlerts;
+use App\Support\Alerts\Alert;
 use App\Support\SourceHealth;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\ConnectionException;
@@ -105,13 +106,18 @@ class SourceCanaryCommand extends Command
             ]);
             // Worth waking the owner for: either our server lost the internet, or this watchdog is
             // itself broken — and a broken watchdog is the failure that hides every other failure.
-            LineNotifier::alert(
-                'canary-implausible',
-                "❗ ระบบตรวจสอบแหล่งหนังรายงานว่า ".count($downNow)."/".count($verdicts)." แหล่งล่มพร้อมกัน\n"
-                ."ไม่น่าเป็นไปได้ จึงไม่บันทึกผล — น่าจะเป็นฝั่งเซิร์ฟเวอร์เราเอง (เน็ต/DNS) หรือตัวระบบตรวจสอบเสียเอง\n\n"
-                .'กรุณาเข้าไปตรวจสอบ: '.url('/admin'),
-                throttleMinutes: 120,
-            );
+            AdminAlerts::send(new Alert(
+                key: 'canary-implausible',
+                level: Alert::CRITICAL,
+                title: 'ระบบตรวจแหล่งหนังรายงานผิดปกติ',
+                body: 'รายงานว่าแหล่งล่มพร้อมกันเกินครึ่ง ซึ่งไม่น่าเป็นไปได้ จึงไม่บันทึกผล — '
+                    .'น่าจะเป็นฝั่งเซิร์ฟเวอร์เราเอง (เน็ต/DNS) หรือตัวระบบตรวจสอบเสียเอง กรุณาเข้าไปตรวจสอบ',
+                facts: ['รายงานว่าล่ม' => count($downNow).'/'.count($verdicts).' แหล่ง', 'ผลตรวจรอบนี้' => 'ไม่บันทึก'],
+                chips: $this->chips($verdicts),
+                url: url('/admin'),
+                urlLabel: 'เปิดหน้าแอดมิน',
+                category: 'sources',
+            ), throttleMinutes: 120);
             $this->newLine();
             $this->error('มี '.count($downNow).'/'.count($verdicts).' แหล่งรายงานว่าล่มพร้อมกัน — ไม่น่าเป็นไปได้ จึงไม่บันทึกผล (น่าจะเป็นฝั่งเราเอง)');
 
@@ -129,23 +135,41 @@ class SourceCanaryCommand extends Command
             $this->error('แหล่งที่ดึงลิ้งค์ไม่ได้: '.implode(', ', $downNow)
                 .' — อาจล่มจริง หรือเปลี่ยนรูปแบบ URL/เพลเยอร์ ต้องเข้าไปดู · auto-suspend ของแหล่งนี้ถูกพักไว้แล้ว');
 
-            // One LINE message per source, at most once every 6h — a source stays broken for hours or
+            // One alert per source, at most once every 6h — a source stays broken for hours or
             // days, and re-reporting it every 2h canary run is how an alert channel gets muted.
             foreach ($downNow as $id) {
                 $affected = Content::withoutGlobalScopes()->where('source', $id)->where('is_published', true)->count();
-                LineNotifier::alert(
-                    'source-down:'.$id,
-                    "🚨 ดึงลิ้งค์จากแหล่ง \"{$id}\" ไม่ได้เลย\n"
-                    ."กระทบหนัง {$affected} เรื่อง\n\n"
-                    ."อาจเป็นเว็บต้นทางล่ม หรือเขาเปลี่ยนรูปแบบ URL/เพลเยอร์\n"
-                    ."ระบบพักการหยุดเผยแพร่อัตโนมัติของแหล่งนี้ไว้แล้ว หนังจะไม่ถูกปิดทิ้ง\n\n"
-                    .url('/admin'),
-                    throttleMinutes: 360,
-                );
+                AdminAlerts::send(new Alert(
+                    key: 'source-down:'.$id,
+                    level: Alert::CRITICAL,
+                    title: "ดึงลิ้งค์จากแหล่ง \"{$id}\" ไม่ได้เลย",
+                    body: "อาจเป็นเว็บต้นทางล่ม หรือเขาเปลี่ยนรูปแบบ URL/เพลเยอร์\n"
+                        .'ระบบพักการหยุดเผยแพร่อัตโนมัติของแหล่งนี้ไว้แล้ว หนังจะไม่ถูกปิดทิ้ง',
+                    facts: [
+                        'หนังที่กระทบ' => number_format($affected).' เรื่อง',
+                        'ผลตรวจล่าสุด' => $verdicts[$id][0].'/'.$verdicts[$id][1].' เล่นได้',
+                        'แจ้งซ้ำ' => 'ทุก 6 ชม.',
+                    ],
+                    chips: $this->chips($verdicts),
+                    url: url('/admin'),
+                    urlLabel: 'เปิดหน้าแอดมิน',
+                ), throttleMinutes: 360);
             }
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Every source this run reached a verdict on, as label => healthy — the status row on the card,
+     * so one down source is seen against the ones still working.
+     *
+     * @param  array<string,array{0:int,1:int}>  $verdicts
+     * @return array<string,bool>
+     */
+    private function chips(array $verdicts): array
+    {
+        return array_map(fn ($v) => $v[0] > 0, $verdicts);
     }
 
     /**

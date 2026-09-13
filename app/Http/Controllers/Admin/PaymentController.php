@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Setting;
 use App\Models\UsdtOrder;
 use App\Services\Membership;
+use App\Support\Alerts\PaymentAlerts;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -87,6 +88,8 @@ class PaymentController extends Controller
         ]);
 
         // Wallet address + API base are plain + pre-filled → write as-is (null clears).
+        $oldWallet = (string) Setting::get('usdt_wallet_address', '');
+        $oldKey = (string) Setting::get('bscscan_api_key', '');
         Setting::write('usdt_wallet_address', $data['usdt_wallet_address'] ?? null);
         Setting::write('bscscan_api_base', $data['bscscan_api_base'] ?? null);
 
@@ -96,6 +99,15 @@ class PaymentController extends Controller
         } elseif (filled($data['bscscan_api_key'] ?? null)) {
             Setting::write('bscscan_api_key', $data['bscscan_api_key']);
         }
+
+        // Where customers' money goes is the one setting a hijacked admin account would change
+        // first — so any change to it reaches the owner's phone, whoever made it.
+        PaymentAlerts::walletChanged(
+            $oldWallet,
+            (string) ($data['usdt_wallet_address'] ?? ''),
+            $oldKey !== (string) Setting::get('bscscan_api_key', ''),
+            $request->user()?->name,
+        );
 
         return back()->with('status', 'บันทึกการตั้งค่าการชำระเงิน / เหรียญทองแล้ว');
     }

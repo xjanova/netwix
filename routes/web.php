@@ -474,11 +474,20 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('google-ads', [Admin\GoogleAdsController::class, 'index'])->name('google-ads.index');
     Route::put('google-ads', [Admin\GoogleAdsController::class, 'update'])->name('google-ads.update');
 
-    // Problem alerts to the owner's LINE OA ("แจ้งเตือนปัญหาเข้า LINE").
-    Route::get('line-alerts', [Admin\LineAlertController::class, 'index'])->name('line-alerts.index');
-    Route::put('line-alerts', [Admin\LineAlertController::class, 'update'])->name('line-alerts.update');
-    Route::post('line-alerts/test', [Admin\LineAlertController::class, 'test'])->name('line-alerts.test');
-    Route::delete('line-alerts/token', [Admin\LineAlertController::class, 'forget'])->name('line-alerts.forget');
+    // Problem alerts to the owner ("แจ้งเตือนปัญหา") — Telegram (free, drawn cards) and LINE OA.
+    Route::get('alerts', [Admin\AlertController::class, 'index'])->name('alerts.index');
+    Route::get('alerts/preview/{level}.png', [Admin\AlertController::class, 'preview'])
+        ->whereIn('level', ['critical', 'warning', 'info', 'ok'])->name('alerts.preview');
+    Route::put('alerts/telegram', [Admin\AlertController::class, 'updateTelegram'])->name('alerts.telegram.update');
+    Route::post('alerts/telegram/test', [Admin\AlertController::class, 'testTelegram'])->name('alerts.telegram.test');
+    Route::post('alerts/telegram/detect', [Admin\AlertController::class, 'detectTelegram'])->name('alerts.telegram.detect');
+    Route::post('alerts/telegram/chat', [Admin\AlertController::class, 'useTelegramChat'])->name('alerts.telegram.chat');
+    Route::delete('alerts/telegram/token', [Admin\AlertController::class, 'forgetTelegram'])->name('alerts.telegram.forget');
+    Route::put('alerts/line', [Admin\AlertController::class, 'updateLine'])->name('alerts.line.update');
+    Route::post('alerts/line/test', [Admin\AlertController::class, 'testLine'])->name('alerts.line.test');
+    Route::delete('alerts/line/token', [Admin\AlertController::class, 'forgetLine'])->name('alerts.line.forget');
+    Route::put('alerts/routes', [Admin\AlertController::class, 'updateRoutes'])->name('alerts.routes');
+    Route::redirect('line-alerts', '/admin/alerts');     // the page's old address, from when it was LINE-only
 
     // Self-serve ad marketplace ("ขายโฆษณาให้ลูกค้า") — placements, review queue, booking calendar.
     Route::get('ad-market', [Admin\AdMarketController::class, 'index'])->name('ad-market.index');

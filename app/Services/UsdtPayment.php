@@ -6,6 +6,7 @@ use App\Models\AdBooking;
 use App\Models\Setting;
 use App\Models\UsdtOrder;
 use App\Models\User;
+use App\Support\Alerts\PaymentAlerts;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -233,7 +234,71 @@ class UsdtPayment
             }
         }
 
+        // Reporting only — it must never be the thing that fails a watcher tick that already paid out.
+        try {
+            $this->reportUnmatched($transfers, $wallet);
+        } catch (Throwable $e) {
+            report($e);
+        }
+
         return ['settled' => $settled, 'open' => $open->count(), 'expired' => $expired];
+    }
+
+    /**
+     * Money that reached our wallet with no order to claim it. Most often a customer who paid after
+     * the order's timer ran out: `expireStale()` flipped it to expired, `matchTransfer()` only looks at
+     * open orders, and the payment was simply never seen again — no credit, no log, nothing. Now it
+     * reaches the owner, with the order it most likely belongs to.
+     *
+     * Only confirmed transfers from the last 48h (so a first run does not dig up history), and never
+     * one whose amount an OPEN order still owns — that one settles on its own next tick.
+     *
+     * @param  array<int,array<string,mixed>>  $transfers
+     */
+    private function reportUnmatched(array $transfers, string $walletLower): void
+    {
+        $contract = strtolower($this->contract());
+        $minConf = $this->minConfirmations();
+        $since = now()->subHours(48)->getTimestamp();
+
+        $candidates = [];
+        foreach ($transfers as $t) {
+            if (strtolower((string) ($t['to'] ?? '')) !== $walletLower || strtolower((string) ($t['from'] ?? '')) === $walletLower) {
+                continue;
+            }
+            if (isset($t['contractAddress']) && $contract !== '' && strtolower((string) $t['contractAddress']) !== $contract) {
+                continue;
+            }
+            if ((int) ($t['confirmations'] ?? 0) < $minConf || (int) ($t['timeStamp'] ?? 0) < $since) {
+                continue;
+            }
+            $hash = strtolower((string) ($t['hash'] ?? ''));
+            if ($hash !== '') {
+                $candidates[$hash] = $t;
+            }
+        }
+        if ($candidates === []) {
+            return;
+        }
+
+        $known = UsdtOrder::whereIn('tx_hash', array_keys($candidates))->pluck('tx_hash')->map(fn ($h) => strtolower((string) $h))->all();
+        $reported = 0;
+        foreach (array_diff_key($candidates, array_flip($known)) as $t) {
+            $micros = $this->valueToMicros((string) ($t['value'] ?? '0'), (int) ($t['tokenDecimal'] ?? $this->decimals()));
+            // Dust (under 0.1 USDT) is never a purchase — and anyone can send it, so it must not be
+            // a way to flood the owner's phone. Likewise at most three reports per tick.
+            if ($micros < 100_000 || $reported >= 3) {
+                continue;
+            }
+            $amount = number_format($micros / 1_000_000, 6, '.', '');
+            if (UsdtOrder::open()->where('amount_usdt', $amount)->exists()) {
+                continue;
+            }
+            $likely = UsdtOrder::with('user')->where('status', 'expired')->where('amount_usdt', $amount)->latest('id')->first();
+            if (PaymentAlerts::unmatched($t, (float) $amount, $likely)) {
+                $reported++;
+            }
+        }
     }
 
     public function expireStale(): int
@@ -297,7 +362,7 @@ class UsdtPayment
     private function settle(UsdtOrder $order, array $t): bool
     {
         try {
-            return DB::transaction(function () use ($order, $t) {
+            $settled = DB::transaction(function () use ($order, $t) {
                 $o = UsdtOrder::whereKey($order->id)->lockForUpdate()->first();
                 if (! $o || ! $o->isPending()) {
                     return false;
@@ -343,6 +408,13 @@ class UsdtPayment
 
             return false;
         }
+
+        // After the commit, never inside it: an alert must not be able to roll a payment back.
+        if ($settled) {
+            PaymentAlerts::paid($order);
+        }
+
+        return $settled;
     }
 
     // ---- Chain read ---------------------------------------------------
@@ -356,7 +428,14 @@ class UsdtPayment
     private function fetchTransfers(): array
     {
         $wallet = $this->walletAddress();
-        if ($wallet === '' || $this->apiKey() === '') {
+        if ($wallet === '') {
+            return [];
+        }
+        // Every way this read can fail used to return [] in silence — including a missing key, which
+        // means no payment EVER settles. Each now counts toward PaymentAlerts' failure streak.
+        if ($this->apiKey() === '') {
+            PaymentAlerts::watchFailed('ยังไม่ได้ใส่ BscScan API key', UsdtOrder::open()->count());
+
             return [];
         }
 
@@ -372,13 +451,24 @@ class UsdtPayment
                 'apikey' => $this->apiKey(),
             ]);
             if (! $res->ok()) {
+                PaymentAlerts::watchFailed('BscScan ตอบกลับ HTTP '.$res->status(), UsdtOrder::open()->count());
+
                 return [];
             }
             $result = $res->json('result');
+            if (! is_array($result)) {
+                // "0" status carries a string: a bad key, a rate limit. ("No transactions found"
+                // comes back as an empty ARRAY, so it is not counted as a failure.)
+                PaymentAlerts::watchFailed('BscScan: '.mb_substr((string) ($result ?: $res->json('message')), 0, 120), UsdtOrder::open()->count());
 
-            return is_array($result) ? $result : [];   // "0" status returns a string message
+                return [];
+            }
+            PaymentAlerts::watchOk();
+
+            return $result;
         } catch (Throwable $e) {
             report($e);
+            PaymentAlerts::watchFailed('ต่อ BscScan ไม่ได้ ('.class_basename($e).')', UsdtOrder::open()->count());
 
             return [];
         }

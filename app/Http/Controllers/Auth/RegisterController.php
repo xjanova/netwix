@@ -68,6 +68,7 @@ class RegisterController extends Controller
         if (filled($data['ref'] ?? null)) {
             $membership->redeem($user, $data['ref']);
         }
+        \App\Support\AdminAlerts::noteSignup($user->id, (string) $user->name, 'อีเมล');
 
         // remember: brand-new members shouldn't be the ones asked to sign in again
         // first (social sign-up already does this).

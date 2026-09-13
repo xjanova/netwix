@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Support\Alerts\Alert;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -28,14 +29,17 @@ final class CatalogSyncAlert
             'class' => $e::class,
         ]);
 
-        LineNotifier::alert(
-            'catalog-sync-'.$sourceId,
-            "⚠️ ดึงรายชื่อเรื่องใหม่จาก {$displayName} ไม่สำเร็จ\n\n"
-            .'สาเหตุ: '.self::reason($e)."\n\n"
-            ."เรื่องที่นำเข้าไปแล้วยังดูได้ตามปกติ แต่จะไม่มีเรื่องใหม่เข้ามาจนกว่าจะแก้\n"
-            .url('/admin/import-logs'),
-            throttleMinutes: 720,
-        );
+        AdminAlerts::send(new Alert(
+            key: 'catalog-sync-'.$sourceId,
+            level: Alert::WARNING,
+            title: "ดึงรายชื่อเรื่องใหม่จาก {$displayName} ไม่สำเร็จ",
+            body: 'สาเหตุ: '.self::reason($e)."\n\n"
+                .'เรื่องที่นำเข้าไปแล้วยังดูได้ตามปกติ แต่จะไม่มีเรื่องใหม่เข้ามาจนกว่าจะแก้',
+            facts: ['แหล่ง' => $displayName, 'แจ้งซ้ำ' => 'ทุก 12 ชม.'],
+            url: url('/admin/import-logs'),
+            urlLabel: 'ดูประวัติการนำเข้า',
+            category: 'sources',
+        ), throttleMinutes: 720);
     }
 
     /** A short, human reason — the raw exception text is a stack-trace wall on a phone screen. */

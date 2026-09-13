@@ -56,6 +56,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             \App\Http\Middleware\RefreshRememberCookie::class,
             \App\Http\Middleware\TrackPageView::class,
+            // Dead man's switch for the cron — checked after the response is sent.
+            \App\Http\Middleware\WatchScheduler::class,
         ]);
 
         // During a deploy (`artisan down`), keep the mobile app alive: streaming, API and the
@@ -68,5 +70,14 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // A failed validation flashes the submitted form into the session so it can be refilled —
+        // including a pasted API token, which then sits in plaintext in the session store. Every
+        // secret setting's form field is named after its key, so none of them is ever flashed.
+        $exceptions->dontFlash(\App\Models\Setting::SECRET_KEYS);
+
+        // Tell the owner when something throws (a 500, a dying command, a failing job) — throttled
+        // hard and sent after the response. Returns nothing, so normal logging still happens.
+        $exceptions->report(function (\Throwable $e): void {
+            \App\Support\Alerts\ErrorAlert::report($e);
+        });
     })->create();

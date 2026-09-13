@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\ClipCampaignPost;
 use App\Models\MarketingClip;
+use App\Support\Alerts\MarketingAlerts;
 use App\Support\FacebookMessenger;
 use App\Support\FacebookPublisher;
 use Carbon\CarbonImmutable;
@@ -78,6 +79,9 @@ class PostClipToFacebook implements ShouldQueue
             }
             $clip->update(['dry_run' => true]);
             $post?->update(['status' => 'posted', 'dry_run' => true, 'error' => null, 'targets_posted' => null]);
+            if ($post) {
+                MarketingAlerts::notConnected();    // a scheduled slot just went nowhere
+            }
 
             return;
         }
@@ -107,6 +111,7 @@ class PostClipToFacebook implements ShouldQueue
         // Total failure — surface it so the job retries, and flag the post row.
         $post?->markFailed($result['error'] ?? 'post_failed');
         $this->noteError($clip, $result['error'] ?? 'post_failed');
+        MarketingAlerts::postFailed((string) ($clip->caption ?: 'คลิป #'.$clip->id), (string) ($result['error'] ?? 'post_failed'));
         throw new RuntimeException('facebook post failed: '.($result['error'] ?? 'unknown'));
     }
 
