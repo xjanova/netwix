@@ -1,5 +1,13 @@
 {{-- Windowed, jumpable pager. Pass the paginator as $p (e.g. @include('partials.pager', ['p' => $items])).
-     The paginator is built with ->withQueryString(), so $p->url() keeps scope/type/sort/dir intact. --}}
+     The paginator is built with ->withQueryString(), so $p->url() keeps scope/type/sort/dir intact.
+
+     These page links are deliberately FOLLOWED. They used to carry rel="nofollow", and that single
+     attribute was the reason Google could not reach the catalogue: /series alone is 134 pages, and a
+     nofollowed pager means there is no link path to any of them. Search Console said it plainly for a
+     title page — "referring sitemap: none, referring page: none" — while robots.txt, the canonicals
+     and the sitemap were all already correct. Pagination is the crawl path into a catalogue; the
+     things that genuinely must not be followed are the SORT variants, which are nofollowed where they
+     are rendered (hub + genre) and also blocked in robots.txt. --}}
 @if ($p->hasPages())
     @php
         $cur = $p->currentPage();
@@ -16,11 +24,11 @@
         @if ($p->onFirstPage())
             <span class="{{ $btn }} {{ $mute }}">‹</span>
         @else
-            <a href="{{ $p->previousPageUrl() }}" rel="nofollow" class="{{ $btn }} {{ $off }}" aria-label="ก่อนหน้า">‹</a>
+            <a href="{{ $p->previousPageUrl() }}" class="{{ $btn }} {{ $off }}" aria-label="ก่อนหน้า">‹</a>
         @endif
 
         @if ($lo > 1)
-            <a href="{{ $p->url(1) }}" rel="nofollow" class="{{ $btn }} {{ $off }}">1</a>
+            <a href="{{ $p->url(1) }}" class="{{ $btn }} {{ $off }}">1</a>
             @if ($lo > 2)<span class="px-1 text-cream/30">…</span>@endif
         @endif
 
@@ -28,17 +36,17 @@
             @if ($i === $cur)
                 <span class="{{ $btn }} {{ $on }}" aria-current="page">{{ $i }}</span>
             @else
-                <a href="{{ $p->url($i) }}" rel="nofollow" class="{{ $btn }} {{ $off }}">{{ $i }}</a>
+                <a href="{{ $p->url($i) }}" class="{{ $btn }} {{ $off }}">{{ $i }}</a>
             @endif
         @endfor
 
         @if ($hi < $last)
             @if ($hi < $last - 1)<span class="px-1 text-cream/30">…</span>@endif
-            <a href="{{ $p->url($last) }}" rel="nofollow" class="{{ $btn }} {{ $off }}">{{ $last }}</a>
+            <a href="{{ $p->url($last) }}" class="{{ $btn }} {{ $off }}">{{ $last }}</a>
         @endif
 
         @if ($p->hasMorePages())
-            <a href="{{ $p->nextPageUrl() }}" rel="nofollow" class="{{ $btn }} {{ $off }}" aria-label="ถัดไป">›</a>
+            <a href="{{ $p->nextPageUrl() }}" class="{{ $btn }} {{ $off }}" aria-label="ถัดไป">›</a>
         @else
             <span class="{{ $btn }} {{ $mute }}">›</span>
         @endif

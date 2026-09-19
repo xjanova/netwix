@@ -108,21 +108,10 @@
         </div>
     @endif
 
-    {{-- Pager --}}
-    @if ($items->hasPages())
-        <div class="mt-8 flex items-center justify-center gap-3 text-sm">
-            @if ($items->onFirstPage())
-                <span class="rounded-full bg-white/5 px-5 py-2 text-cream/30">‹ ก่อนหน้า</span>
-            @else
-                <a href="{{ $items->previousPageUrl() }}" rel="nofollow" class="rounded-full bg-white/10 px-5 py-2 transition hover:bg-white/15">‹ ก่อนหน้า</a>
-            @endif
-            <span class="text-cream/50">หน้า {{ $items->currentPage() }} / {{ $items->lastPage() }}</span>
-            @if ($items->hasMorePages())
-                <a href="{{ $items->nextPageUrl() }}" rel="nofollow" class="rounded-full bg-white/10 px-5 py-2 transition hover:bg-white/15">ถัดไป ›</a>
-            @else
-                <span class="rounded-full bg-white/5 px-5 py-2 text-cream/30">ถัดไป ›</span>
-            @endif
-        </div>
-    @endif
+    {{-- Pager. This was a bare ‹ ก่อนหน้า / ถัดไป › pair, which put page 134 of /series 133 clicks
+         from page 1 — a depth no crawler walks, and a depth no visitor walks either. The shared
+         windowed pager links first, last and a window around the current page, so any page in the
+         hub is two or three hops from the top instead of a hundred and thirty. --}}
+    @include('partials.pager', ['p' => $items])
 </div>
 @endsection

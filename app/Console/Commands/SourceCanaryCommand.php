@@ -8,6 +8,7 @@ use App\Models\Setting;
 use App\Services\Import\SourceRegistry;
 use App\Support\AdminAlerts;
 use App\Support\Alerts\Alert;
+use App\Support\PlaybackProbe;
 use App\Support\SourceHealth;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\ConnectionException;
@@ -142,13 +143,13 @@ class SourceCanaryCommand extends Command
                 AdminAlerts::send(new Alert(
                     key: 'source-down:'.$id,
                     level: Alert::CRITICAL,
-                    title: "ดึงลิ้งค์จากแหล่ง \"{$id}\" ไม่ได้เลย",
-                    body: "อาจเป็นเว็บต้นทางล่ม หรือเขาเปลี่ยนรูปแบบ URL/เพลเยอร์\n"
+                    title: "หนังจากแหล่ง \"{$id}\" เล่นไม่ได้เลย",
+                    body: "ทดสอบเล่นจริงแล้วไม่ผ่านสักเรื่อง — อาจเป็นเว็บต้นทางล่ม หรือเขาเปลี่ยนรูปแบบ URL/เพลเยอร์\n"
                         .'ระบบพักการหยุดเผยแพร่อัตโนมัติของแหล่งนี้ไว้แล้ว หนังจะไม่ถูกปิดทิ้ง',
                     facts: [
                         'หนังที่กระทบ' => number_format($affected).' เรื่อง',
                         'ผลตรวจล่าสุด' => $verdicts[$id][0].'/'.$verdicts[$id][1].' เล่นได้',
-                        'แจ้งซ้ำ' => 'ทุก 6 ชม.',
+                        'แจ้งซ้ำ' => 'ทุก 6 ชม. จนกว่าจะหาย',
                     ],
                     chips: $this->chips($verdicts),
                     url: url('/admin'),
@@ -235,7 +236,13 @@ class SourceCanaryCommand extends Command
             }
             $tried++;
             try {
-                if ($source->resolveByRef($p['key'], $p['ref']) !== null) {
+                // Resolving is not playing. wow-drama resolved cleanly for weeks while every title
+                // was dead one level in — the child playlist of a master was being fetched without
+                // the Referer and answered 403. A canary that stops at resolve() reports a source
+                // like that as healthy forever, which is precisely what happened, so follow the
+                // stream to the level a player reaches. See [App\Support\PlaybackProbe].
+                $stream = $source->resolveByRef($p['key'], $p['ref']);
+                if ($stream !== null && PlaybackProbe::plays($stream)) {
                     $ok++;
                 }
             } catch (ConnectionException $e) {
