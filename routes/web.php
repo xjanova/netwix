@@ -12,6 +12,7 @@ use App\Http\Controllers\InteractionController;
 use App\Http\Controllers\PageController;
 use App\Http\Controllers\ProfileSelectionController;
 use App\Http\Controllers\PublicCatalogController;
+use App\Http\Controllers\PublicDirectoryController;
 use App\Http\Controllers\PublicGenreController;
 use App\Http\Controllers\PublicTitleController;
 use App\Http\Controllers\Auth\SocialController;
@@ -82,6 +83,12 @@ Route::middleware('throttle:120,1')->group(function () {
     Route::get('/series', [PublicCatalogController::class, 'series'])->name('browse.series');
     Route::get('/anime', [PublicCatalogController::class, 'anime'])->name('browse.anime');
     Route::get('/vertical', [PublicCatalogController::class, 'vertical'])->name('browse.vertical');
+
+    // A–Z directory. The hubs above sort randomly on a daily seed, so no title keeps a referring
+    // page from one day to the next — which is what Search Console reports on a title page. This is
+    // the stable half: ordered by title, the same tomorrow, and every anchor is a film's name.
+    Route::get('/all', [PublicDirectoryController::class, 'index'])->name('browse.all');
+    Route::get('/all/{group}', [PublicDirectoryController::class, 'group'])->name('browse.all.group');
 
     // Public search — results page is noindex,follow; suggest feeds the nav type-ahead. Both sit
     // behind the once-per-session Turnstile human gate (no-op until keys are configured).

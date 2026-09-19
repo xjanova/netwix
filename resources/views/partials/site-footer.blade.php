@@ -76,6 +76,9 @@
                     ['ซีรีส์', route('browse.series')],
                     ['อนิเมะ', route('browse.anime')],
                     ['ซีรีส์แนวตั้ง', route('browse.vertical')],
+                    // The hubs shuffle daily, so this is the only entry in the footer that leads to a
+                    // route into the catalogue which is the same tomorrow as it is today.
+                    ['รายชื่อทั้งหมด ก-ฮ · A-Z', route('browse.all')],
                 ];
                 $footerGenres = \Illuminate\Support\Facades\Cache::remember(
                     'footer:genres', now()->addHours(6),

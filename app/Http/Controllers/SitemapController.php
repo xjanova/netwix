@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Content;
 use App\Models\Genre;
+use App\Support\TitleIndex;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
@@ -74,6 +75,10 @@ class SitemapController extends Controller
             ['browse.movies', '0.9', 'daily'],
             ['browse.anime', '0.9', 'daily'],
             ['browse.vertical', '0.9', 'daily'],
+            // The A–Z directory. Unlike the hubs it is stable, so it is the path we most want Google
+            // to walk — every group page carries a couple of hundred title links whose anchor text is
+            // the film's own name.
+            ['browse.all', '0.9', 'weekly'],
             ['download', '0.7', 'weekly'],
             ['help', '0.5', 'monthly'],
             ['register', '0.6', 'monthly'],
@@ -90,6 +95,17 @@ class SitemapController extends Controller
                 .'<priority>'.$priority.'</priority>'
                 .'</url>'."\n";
         }
+
+        // One entry per populated letter, straight from the counts the pages themselves render, so a
+        // group that has no titles is never advertised and then answered with a 404.
+        foreach (array_keys(TitleIndex::counts()) as $group) {
+            $xml .= '  <url>'
+                .'<loc>'.htmlspecialchars(route('browse.all.group', $group), ENT_XML1).'</loc>'
+                .'<changefreq>weekly</changefreq>'
+                .'<priority>0.8</priority>'
+                .'</url>'."\n";
+        }
+
         $xml .= '</urlset>'."\n";
 
         return $this->xml($xml);
