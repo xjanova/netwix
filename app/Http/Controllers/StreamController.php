@@ -49,8 +49,16 @@ class StreamController extends Controller
         $nested = $this->signedNestedUrl($episode, $request);
         $link = null;
         if ($nested !== null) {
-            $stream = new RemoteStream(RemoteStream::KIND_HLS, $nested, ((string) $request->query('r', '')) ?: null);
-            $cacheKey = "ep_manifest:{$episode->id}:".sha1($nested);
+            // The Referer rides *inside* the sealed handle, not beside it on the query string — that
+            // is the whole point of seal(). Reading it from `?r=` here meant every child playlist of a
+            // master was fetched with no Referer at all: getplay-cdn answers those 403, the body isn't
+            // a playlist, and the guard below then benched the link and recorded a playback failure.
+            // A source that checks Referer and serves a master (wowdrama) was therefore 100% dead
+            // while looking healthy at every other layer — the master itself is fetched on the
+            // top-level request, which does have the Referer.
+            [$nestedUrl, $nestedReferer] = $nested;
+            $stream = new RemoteStream(RemoteStream::KIND_HLS, $nestedUrl, $nestedReferer);
+            $cacheKey = "ep_manifest:{$episode->id}:".sha1($nestedUrl);
         } else {
             $resolved = $this->resolveWithLink($episode, $registry);
             $stream = $resolved['stream'] ?? null;
@@ -319,8 +327,13 @@ class StreamController extends Controller
      * Validate the signed `u` on a nested-playlist request, or null when this is a plain top-level
      * manifest request. Same HMAC as a proxied segment, so a caller can only ask for a sub-playlist we
      * ourselves emitted — never an arbitrary URL (SSRF).
+     *
+     * Returns [url, referer]: the upstream needs the same Referer for a child playlist as for the
+     * master, and it travels sealed inside the handle rather than in the clear beside it.
+     *
+     * @return array{0:string,1:?string}|null
      */
-    private function signedNestedUrl(Episode $episode, Request $request): ?string
+    private function signedNestedUrl(Episode $episode, Request $request): ?array
     {
         $handle = (string) $request->query('u', '');
         if ($handle === '') {
@@ -329,7 +342,7 @@ class StreamController extends Controller
         $opened = $this->unseal($handle, $episode, $request);
         abort_if($opened === null, 403);
 
-        return $opened[0];
+        return $opened;
     }
 
     /**
