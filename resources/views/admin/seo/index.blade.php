@@ -189,6 +189,21 @@
     </p>
 
     <div class="mt-4 flex flex-col gap-4">
+        <label class="block rounded-lg border border-[#b026ff]/30 bg-[#b026ff]/[0.06] p-3.5">
+            <span class="text-sm font-semibold">รหัสยืนยัน Google Search Console</span>
+            <span class="mt-1 block text-[12.5px] leading-relaxed text-cream/60">
+                ตอนนี้เว็บ <b>ยังไม่ได้ผูกกับ Search Console</b> ทำให้ยังไม่เคยส่ง sitemap ให้ Google เลย —
+                Googlebot ไม่เคยดึง sitemap เองสักครั้ง (บอทของ Bing ดึงวันละหลายรอบ) จึงยังไม่รู้จักหน้าหนังกว่า 18,000 หน้าของเรา<br>
+                วิธีทำ: เข้า <b>search.google.com/search-console</b> → เพิ่ม <b>https://netwix.online</b> → เลือกวิธี <b>HTML tag</b>
+                → ก๊อปแท็กที่เขาให้ (ทั้งแท็กเลยก็ได้) มาวางช่องนี้ → กดบันทึก → กลับไปกด <b>ยืนยัน</b> → แล้วส่ง
+                <b>https://netwix.online/sitemap.xml</b>
+            </span>
+            <input type="text" name="seo_google_verification"
+                   placeholder='วางได้ทั้ง <meta name="google-site-verification" content="..."> หรือเฉพาะรหัส'
+                   class="mt-2 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-cream placeholder:text-cream/30 focus:border-[#b026ff] focus:outline-none"
+                   value="{{ old('seo_google_verification', $keywords['seo_google_verification']) }}">
+        </label>
+
         <label class="block">
             <span class="text-sm font-medium">คีย์เวิร์ดกลาง (ทุกหน้าที่ไม่ได้กำหนดเอง)</span>
             <textarea name="seo_keywords" rows="3" placeholder="เว้นว่าง = ใช้ชุดมาตรฐานในระบบ (ดูหนังออนไลน์ฟรี, ดูซีรี่ย์ออนไลน์ฟรี, …)"

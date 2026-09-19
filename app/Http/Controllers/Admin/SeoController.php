@@ -31,6 +31,7 @@ class SeoController extends Controller
             'seo_kw_series' => (string) Setting::get('seo_kw_series', ''),
             'seo_kw_movie' => (string) Setting::get('seo_kw_movie', ''),
             'seo_kw_vertical' => (string) Setting::get('seo_kw_vertical', ''),
+            'seo_google_verification' => (string) Setting::get('seo_google_verification', ''),
         ];
 
         // ---- Human traffic (last 30 days) ----
@@ -135,14 +136,15 @@ class SeoController extends Controller
             'seo_kw_series' => ['nullable', 'string', 'max:2000'],
             'seo_kw_movie' => ['nullable', 'string', 'max:2000'],
             'seo_kw_vertical' => ['nullable', 'string', 'max:2000'],
+            'seo_google_verification' => ['nullable', 'string', 'max:500'],
         ]);
 
-        foreach (['seo_keywords', 'seo_kw_series', 'seo_kw_movie', 'seo_kw_vertical'] as $key) {
+        foreach (['seo_keywords', 'seo_kw_series', 'seo_kw_movie', 'seo_kw_vertical', 'seo_google_verification'] as $key) {
             $val = trim((string) ($data[$key] ?? ''));
             Setting::write($key, $val !== '' ? $val : null);
         }
 
-        return back()->with('status', 'บันทึกคีย์เวิร์ด SEO แล้ว');
+        return back()->with('status', 'บันทึกการตั้งค่า SEO แล้ว');
     }
 
     /** Friendly Thai label for a logged path (resolves title/genre slugs to their names). */

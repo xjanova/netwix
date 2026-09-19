@@ -2,16 +2,34 @@
     // SEO: every page inherits sensible defaults; any view can override a slot
     // with @section('meta_description', '…') / @section('meta_image', '…') /
     // @section('meta_robots', 'noindex,nofollow') / @section('meta_canonical', '…').
-    $seoTitle = trim($__env->yieldContent('title')) ?: 'สตรีมมิ่งไม่มีสะดุด';
-    $seoDesc = trim($__env->yieldContent('meta_description'))
+    //
+    // Every slot below is read back through $slot(), which un-escapes ONCE. Blade's value form
+    // — @section('name', $value) — runs the value through e() before storing it, and then the
+    // {{ }} that prints it here escapes it a second time. A synopsis containing a plain " came
+    // out of that as &amp;quot;, and Google printed the entity, literally, in the snippet:
+    //     content="เธอคือ&amp;quot;สะใภ้เลี้ยง&amp;quot;ผู้ถูกชะตาทอดทิ้ง…"
+    // 1,669 published titles (8.4%) had a quote, & or apostrophe somewhere in their title or
+    // synopsis and so carried a mangled description into search results. Undoing Laravel's
+    // escape here leaves exactly one — the {{ }} below, which is the one that belongs to the
+    // attribute we are writing into. Every meta_* section in this app uses the value form, so
+    // there is nothing here that was not escaped on the way in.
+    $slot = fn (string $name) => html_entity_decode(trim($__env->yieldContent($name)), ENT_QUOTES, 'UTF-8');
+    $seoTitle = $slot('title') ?: 'สตรีมมิ่งไม่มีสะดุด';
+    $seoDesc = $slot('meta_description')
         ?: 'NetWix — ดูหนัง ซีรีส์ และซีรีส์แนวตั้งออนไลน์ สตรีมไม่จำกัด ดูได้ทุกอุปกรณ์ ทั้งมือถือ แท็บเล็ต และทีวี ปลอดโฆษณาเว็บพนัน ไม่มีป๊อปอัปกวนใจ ไม่ใช่เว็บพนัน';
-    $seoImage = trim($__env->yieldContent('meta_image')) ?: asset('assets/netwix-logo-full.png');
-    $seoRobots = trim($__env->yieldContent('meta_robots')) ?: 'index,follow,max-image-preview:large,max-snippet:-1';
+    $seoImage = $slot('meta_image') ?: asset('assets/netwix-logo-full.png');
+    // Search Console verification code, pasted by the owner at /admin/seo. Accepts either the bare
+    // token or the whole <meta> tag Google shows — people copy the tag, not the token.
+    $googleVerification = trim((string) \App\Models\Setting::get('seo_google_verification', ''));
+    if (preg_match('/content=["\']([^"\']+)["\']/', $googleVerification, $gsc)) {
+        $googleVerification = trim($gsc[1]);
+    }
+    $seoRobots = $slot('meta_robots') ?: 'index,follow,max-image-preview:large,max-snippet:-1';
     // Canonical = the current URL, but ?page=N is kept: page 2+ of a hub/genre listing must be its
     // own canonical. Pointing it back at page 1 (which url()->current() alone does, since it drops
     // the query string) tells Google the deeper pages are duplicates and wastes the crawl path into
     // the catalog. Only `page` survives — tracking params must never end up in a canonical.
-    $seoCanonical = trim($__env->yieldContent('meta_canonical'));
+    $seoCanonical = $slot('meta_canonical');
     if ($seoCanonical === '') {
         $seoCanonical = url()->current();
         $seoPage = (int) request()->query('page', 1);
@@ -19,14 +37,14 @@
             $seoCanonical .= '?page='.$seoPage;
         }
     }
-    $ogType = trim($__env->yieldContent('og_type')) ?: 'website';
+    $ogType = $slot('og_type') ?: 'website';
     $seoFullTitle = $seoTitle.' · NetWix';
     // Keyword set grounded in real Thai streaming search demand (both ซีรี่ย์/ซีรีส์ spellings
     // are searched heavily; include วาย, พากย์ไทย/ซับไทย, แนวตั้ง/โรงหยก, อนิเมะ). Google no longer
     // ranks on this tag, but Bing and Thai SEO tools still read it and it is harmless. A page can
     // override with @section('meta_keywords', '…') to lead with its own title/genre terms.
     // Priority: per-page @section('meta_keywords') → admin-editable Setting('seo_keywords') → default.
-    $seoKeywords = trim($__env->yieldContent('meta_keywords'))
+    $seoKeywords = $slot('meta_keywords')
         ?: (\App\Models\Setting::get('seo_keywords') ?: implode(', ', [
         'ดูหนังออนไลน์', 'ดูหนังออนไลน์ฟรี', 'ดูซีรี่ย์ออนไลน์', 'ดูซีรี่ย์ออนไลน์ฟรี', 'ดูซีรีส์ออนไลน์',
         'ซีรี่ย์เกาหลีซับไทย', 'ซีรี่ย์เกาหลีพากย์ไทย', 'ซีรี่ย์จีนซับไทย', 'ซีรี่ย์จีนพากย์ไทย',
@@ -65,6 +83,13 @@ window.nxHealCover = function (img, url) {
 <meta name="robots" content="{{ $seoRobots }}">
 <meta name="theme-color" content="#07050c">
 <link rel="canonical" href="{{ $seoCanonical }}">
+@if ($googleVerification !== '')
+{{-- Google Search Console ownership proof. Until this is set, Search Console cannot be opened for
+     the site, which means the sitemap is never submitted — and the sitemap is the only way Google
+     learns that 18,000+ title pages exist. Googlebot has never once fetched it on its own; bingbot
+     reads it many times a day. Editable at /admin/seo so verifying needs no deploy. --}}
+<meta name="google-site-verification" content="{{ $googleVerification }}">
+@endif
 
 {{-- Open Graph (Facebook, LINE, Messenger link previews) --}}
 <meta property="og:type" content="{{ $ogType }}">
