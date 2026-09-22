@@ -30,6 +30,21 @@ class StreamController extends Controller
      *  enough that a scraped URL stops working the same day. */
     private const TTL = 21600; // 6h
 
+    /**
+     * Wall-clock ceiling for one segment request, every upstream attempt included (seconds).
+     *
+     * segment() buffers the whole upstream body before it answers, so the PHP-FPM worker is held for
+     * as long as the upstream takes. Three attempts of connectTimeout(8)+timeout(30) let one hung CDN
+     * hold a worker for ~115s — and that worker comes from a pool shared with every other site on the
+     * box, which kept hitting its ceiling at ~2 req/s (2026-09-22). A healthy segment takes 2-4s. Past
+     * this budget we answer 502 and hls.js retries on its own: it waits 60s per fragment and retries 8
+     * times (resources/js/app.js), so the player loses nothing it wasn't already covering.
+     */
+    private const SEGMENT_BUDGET = 20;
+
+    /** No single attempt may take the whole budget, so a hang still leaves room for one retry. */
+    private const SEGMENT_ATTEMPT_TIMEOUT = 12;
+
     public function manifest(Episode $episode, Request $request, SourceRegistry $registry)
     {
         // Require a short-lived token minted by the (authenticated) resolver. Episode ids are
@@ -162,14 +177,23 @@ class StreamController extends Controller
         abort_if($handle === '', 403);
         $opened = $this->unseal($handle, $episode, $request);
         abort_if($opened === null, 403);
-        [$url, $ref] = $opened;
+        [$url, $ref, $exp] = $opened;
 
         // Retry a transient upstream hiccup a couple of times before giving up — one failed segment
         // shouldn't be enough to stall the whole stream (there's no lower rendition to fall back to).
+        // A fast failure (a 5xx, a reset) still gets its retries; a slow one is cut off at the budget.
+        $deadline = now()->getTimestamp() + self::SEGMENT_BUDGET;
         $resp = null;
         for ($attempt = 0; $attempt < 3; $attempt++) {
+            $left = $deadline - now()->getTimestamp();
+            if ($left < 3) {
+                break;   // too little budget left for an attempt that could actually finish
+            }
             try {
-                $resp = Http::withHeaders($this->headers($ref ?: null))->connectTimeout(8)->timeout(30)->get($url);
+                $resp = Http::withHeaders($this->headers($ref ?: null))
+                    ->connectTimeout(min(5, $left))
+                    ->timeout(min(self::SEGMENT_ATTEMPT_TIMEOUT, $left))
+                    ->get($url);
                 if ($resp->ok()) {
                     break;
                 }
@@ -183,9 +207,14 @@ class StreamController extends Controller
         // Strip any fake-image wrapper (torbo007's tiktokcdn PNGs, getplay-cdn) down to the TS payload.
         $data = HlsSegment::stripToTsSync($resp->body());
 
+        // Cloudflare edge-caches this for max-age (Cache Rule on /stream/*/segment). The signature dies
+        // at $exp, so a cached copy must not outlive it: at a flat 86400 a scraped URL kept playing from
+        // the edge for up to 18h after it was meant to stop working.
+        $maxAge = max(0, min(self::TTL, $exp - time()));
+
         return response($data, 200)->withHeaders([
             'Content-Type' => 'video/mp2t',
-            'Cache-Control' => 'public, max-age=86400',
+            'Cache-Control' => "public, max-age={$maxAge}",
         ]);
     }
 
@@ -328,10 +357,10 @@ class StreamController extends Controller
      * manifest request. Same HMAC as a proxied segment, so a caller can only ask for a sub-playlist we
      * ourselves emitted — never an arbitrary URL (SSRF).
      *
-     * Returns [url, referer]: the upstream needs the same Referer for a child playlist as for the
-     * master, and it travels sealed inside the handle rather than in the clear beside it.
+     * Returns [url, referer, expiry]: the upstream needs the same Referer for a child playlist as for
+     * the master, and it travels sealed inside the handle rather than in the clear beside it.
      *
-     * @return array{0:string,1:?string}|null
+     * @return array{0:string,1:?string,2:int}|null
      */
     private function signedNestedUrl(Episode $episode, Request $request): ?array
     {
@@ -365,13 +394,14 @@ class StreamController extends Controller
     }
 
     /**
-     * Reverse of seal(). Returns [url, referer] or null when the handle is forged, corrupt or expired.
+     * Reverse of seal(). Returns [url, referer, expiry] or null when the handle is forged, corrupt or
+     * expired. The expiry is what bounds how long a proxied segment may be cached.
      *
      * Also accepts a bare `https://…` for a short transition: manifests are cached for five minutes,
      * so a deploy would otherwise 403 every segment of every stream already in flight — the site
      * breaking itself in the name of protecting itself. The legacy branch still demands the old HMAC.
      *
-     * @return array{0:string,1:?string}|null
+     * @return array{0:string,1:?string,2:int}|null
      */
     private function unseal(string $u, Episode $episode, Request $request): ?array
     {
@@ -381,7 +411,7 @@ class StreamController extends Controller
                 return null;
             }
 
-            return [$u, ((string) $request->query('r', '')) ?: null];
+            return [$u, ((string) $request->query('r', '')) ?: null, $exp];
         }
 
         try {
@@ -393,7 +423,7 @@ class StreamController extends Controller
             return null;
         }
 
-        return [$parts[1], $parts[2] !== '' ? $parts[2] : null];
+        return [$parts[1], $parts[2] !== '' ? $parts[2] : null, (int) $parts[0]];
     }
 
     /** HMAC over "app.key" — truncated so signed URLs stay short. */

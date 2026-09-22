@@ -145,4 +145,99 @@ class StreamingTest extends TestCase
         // The junk-body guard must not have fired: the title is healthy and must stay published.
         $this->assertNull($episode->content->fresh()->suspended_at);
     }
+
+    /** Four clean MPEG-TS packets — HlsSegment passes a body that starts on the 0x47 sync byte as-is. */
+    private function tsBytes(): string
+    {
+        return str_repeat("\x47".str_repeat("\0", 187), 4);
+    }
+
+    /**
+     * Walk the real path a player takes — manifest → our signed segment URL — and return that URL
+     * (path + query) along with the episode. The upstream segment answers with $segment.
+     *
+     * @return array{0:\App\Models\Episode,1:string}
+     */
+    private function proxiedSegment(\Closure|\GuzzleHttp\Promise\PromiseInterface $segment): array
+    {
+        $episode = $this->makeContent()->episodes()->first();
+        $episode->update(['source' => 'wowdrama', 'source_ref' => '106414', 'video_url' => null]);
+
+        Cache::put("ep_raw:{$episode->id}", [
+            'kind' => RemoteStream::KIND_HLS, 'url' => 'https://cdn.test/api/stream/abc/index.m3u8',
+            'referer' => null, 'source' => 'wowdrama', 'key' => 'the-hidden-shadow', 'ref' => '106414',
+            'primary' => true,
+        ], now()->addMinutes(10));
+
+        Http::fake([
+            'cdn.test/api/stream/abc/index.m3u8' => Http::response(
+                "#EXTM3U\n#EXT-X-TARGETDURATION:5\n#EXTINF:4.800000,\nhttps://cdn.test/seg0.ts\n#EXT-X-ENDLIST\n"
+            ),
+            'cdn.test/seg0.ts' => $segment,
+        ]);
+
+        $manifest = $this->get(route('stream.manifest', $episode).'?t='.StreamController::token($episode));
+        $manifest->assertStatus(200);
+
+        $url = collect(preg_split('/\r?\n/', $manifest->getContent()))
+            ->first(fn (string $line) => str_starts_with(trim($line), 'http'));
+        $this->assertNotNull($url, 'the media playlist should proxy its segment back through us');
+
+        return [$episode, parse_url($url, PHP_URL_PATH).'?'.parse_url($url, PHP_URL_QUERY)];
+    }
+
+    /**
+     * Cloudflare edge-caches segments for their max-age. It used to be a flat 86400 while the signed
+     * URL dies after TTL (6h), so a scraped URL kept playing from the edge for up to 18h after it was
+     * supposed to stop working. The cache lifetime must be bounded by the signature's own expiry.
+     */
+    public function test_a_segment_is_cached_no_longer_than_its_signature_lives(): void
+    {
+        [, $segment] = $this->proxiedSegment(Http::response($this->tsBytes()));
+
+        $res = $this->get($segment);
+        $res->assertStatus(200)->assertHeader('Content-Type', 'video/mp2t');
+
+        $cacheControl = (string) $res->headers->get('Cache-Control');
+        $this->assertStringContainsString('public', $cacheControl);
+        $this->assertMatchesRegularExpression('/max-age=(\d+)/', $cacheControl);
+        preg_match('/max-age=(\d+)/', $cacheControl, $m);
+        $this->assertLessThanOrEqual(21600, (int) $m[1], 'must not outlive the 6h signature');
+        $this->assertGreaterThan(21600 - 120, (int) $m[1], 'a fresh URL should still be cacheable for ~6h');
+
+        // A Set-Cookie makes Cloudflare refuse to cache the response at all.
+        $this->assertFalse($res->headers->has('Set-Cookie'));
+    }
+
+    /**
+     * A hung upstream used to hold the PHP worker for up to ~115s (3 × (8s connect + 30s read)), on a
+     * pool shared with every site on the server. Now every attempt comes out of one 20s budget: two
+     * attempts that each burn their whole 12s leave no room for a third, and the viewer gets a 502
+     * that hls.js retries on its own.
+     */
+    public function test_a_hung_upstream_segment_gives_up_within_the_budget(): void
+    {
+        $attempts = 0;
+        [, $segment] = $this->proxiedSegment(function () use (&$attempts) {
+            $attempts++;
+            $this->travel(12)->seconds();   // this attempt used up its entire per-attempt timeout
+
+            return Http::response('', 504);
+        });
+
+        $this->get($segment)->assertStatus(502);
+        $this->assertSame(2, $attempts, '0s → 12s → 24s: the third attempt would start past the 20s budget');
+    }
+
+    /** The budget must not cost the retry that exists for a quick upstream hiccup. */
+    public function test_a_quick_upstream_hiccup_is_still_retried(): void
+    {
+        $attempts = 0;
+        [, $segment] = $this->proxiedSegment(function () use (&$attempts) {
+            return ++$attempts === 1 ? Http::response('', 503) : Http::response($this->tsBytes());
+        });
+
+        $this->get($segment)->assertStatus(200)->assertHeader('Content-Type', 'video/mp2t');
+        $this->assertSame(2, $attempts);
+    }
 }
