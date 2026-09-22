@@ -76,4 +76,10 @@ sudo systemctl restart php-fpm83.service || true
 echo "▶ Maintenance mode OFF…"
 php artisan up
 
+echo "▶ Firewall blocklist re-sync…"
+# `git checkout -f` above reset the tracked public/.htaccess and took the managed IP blocklist with
+# it, so every ban fell back to PHP until the next ban re-wrote the file. This must run AFTER `up`:
+# sync() probes the live site and rolls the file back if it does not answer 2xx/3xx. Never fatal.
+php artisan netwix:security:firewall-sync || echo "⚠ firewall re-sync failed — bans still apply in PHP"
+
 echo "✅ Deploy complete: $REF"
