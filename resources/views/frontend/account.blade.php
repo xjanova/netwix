@@ -235,7 +235,7 @@
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.56 9.88v-6.99H7.9V12h2.54V9.8c0-2.5 1.49-3.89 3.78-3.89 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56V12h2.78l-.44 2.89h-2.34v6.99A10 10 0 0 0 22 12z"/></svg>
                 Facebook
             </a>
-            <button type="button" @click="copy('{{ $shareText }}', 'link')"
+            <button type="button" @click="copy(@js($shareText), 'link')"
                     class="flex items-center gap-2 rounded-lg border border-white/15 px-4 py-2 text-sm hover:bg-white/5">
                 <span x-text="copied === 'link' ? 'คัดลอกลิงก์แล้ว ✓' : 'คัดลอกลิงก์ชวนเพื่อน'"></span>
             </button>

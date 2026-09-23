@@ -48,7 +48,7 @@
                         <button class="rounded-lg bg-success/15 px-3.5 py-2 text-[13px] font-semibold text-success hover:bg-success/25">↑ เผยแพร่อีกครั้ง</button>
                     </form>
                     <form method="POST" action="{{ route('admin.contents.destroy', $c) }}"
-                          onsubmit="return confirm('ลบ “{{ addslashes($c->title) }}” ทิ้งถาวร?')">
+                          onsubmit="return confirm(@js('ลบ “'.$c->title.'” ทิ้งถาวร?'))">
                         @csrf @method('DELETE')
                         <button class="rounded-lg bg-[#e5484d]/15 px-3.5 py-2 text-[13px] text-[#ff6b81] hover:bg-[#e5484d]/25">🗑 ลบ</button>
                     </form>

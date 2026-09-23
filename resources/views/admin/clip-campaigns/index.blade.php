@@ -236,7 +236,7 @@
                         <button class="rounded-lg bg-brand/20 px-3 py-1.5 text-brand-2 hover:bg-brand/30">▶ โพสต์ทันที</button>
                     </form>
                     <form method="POST" action="{{ route('admin.clip-campaigns.destroy', $c) }}" class="ml-auto"
-                          onsubmit="return confirm('ลบแคมเปญ &quot;{{ $c->name }}&quot; ? (คลิปที่ตัดไว้แล้วจะยังอยู่)')">
+                          onsubmit="return confirm(@js('ลบแคมเปญ "'.$c->name.'" ? (คลิปที่ตัดไว้แล้วจะยังอยู่)'))">
                         @csrf @method('DELETE')
                         <button class="text-[#ff6b81]/70 hover:text-[#ff6b81]">ลบ</button>
                     </form>

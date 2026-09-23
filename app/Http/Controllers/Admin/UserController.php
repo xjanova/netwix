@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AppToken;
 use App\Models\Profile;
 use App\Models\User;
 use App\Support\ImageStore;
@@ -67,6 +68,7 @@ class UserController extends Controller
 
         $membership = app(\App\Services\Membership::class);
         $wasPro = $membership->isPro($user);
+        $wasActive = (bool) $user->is_active;
 
         $user->update([
             'name' => $data['name'],
@@ -80,6 +82,10 @@ class UserController extends Controller
             'coins' => $data['coins'] ?? $user->coins,
             'gold_coins' => $data['gold_coins'] ?? $user->gold_coins,
         ]);
+
+        if ($wasActive && ! $user->is_active) {
+            $this->endEverySession($user);
+        }
 
         // Newly upgraded to Pro (paid plan or a fresh grant) → pay the affiliate dividend up the chain.
         if (! $wasPro && $membership->isPro($user->refresh())) {
@@ -98,8 +104,22 @@ class UserController extends Controller
         }
 
         $user->update(['is_active' => $on]);
+        if (! $on) {
+            $this->endEverySession($user);
+        }
 
         return back()->with('status', $on ? 'เปิดใช้งานบัญชีแล้ว' : 'ระงับบัญชีแล้ว');
+    }
+
+    /**
+     * Suspension has to reach every device, not just the next web page: the app's bearer tokens are
+     * deleted (it signs out on the 401) and the remember token is cycled so no "จดจำฉันไว้" cookie
+     * can log the account back in. Web sessions end on their next request (EndSuspendedSession).
+     */
+    private function endEverySession(User $user): void
+    {
+        AppToken::where('user_id', $user->id)->delete();
+        $user->forceFill(['remember_token' => \Illuminate\Support\Str::random(60)])->saveQuietly();
     }
 
     /** Admin uploads / sets an avatar image for one of the member's viewing profiles. */

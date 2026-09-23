@@ -18,7 +18,7 @@
                     <span class="text-sm text-cream/60">{{ $g->contents_count }}</span>
                     <div class="flex items-center gap-2">
                         <button form="genre-{{ $g->id }}" class="rounded-md bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10">บันทึก</button>
-                        <form method="POST" action="{{ route('admin.genres.destroy', $g) }}" onsubmit="return confirm('ลบหมวด {{ $g->name }}?')">
+                        <form method="POST" action="{{ route('admin.genres.destroy', $g) }}" onsubmit="return confirm(@js('ลบหมวด '.$g->name.'?'))">
                             @csrf @method('DELETE')
                             <button class="rounded-md bg-[#e5484d]/15 px-3 py-1.5 text-xs text-[#ff6b81] hover:bg-[#e5484d]/25">ลบ</button>
                         </form>

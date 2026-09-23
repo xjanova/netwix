@@ -49,6 +49,11 @@ class SocialController extends Controller
 
         $user = $this->findOrCreate($provider, $social);
 
+        // Same refusal as the password login — a suspended account must not come back in by Google.
+        if (! $user->is_active) {
+            return redirect()->route('login')->withErrors(['email' => 'บัญชีนี้ถูกระงับการใช้งาน — ติดต่อผู้ดูแลระบบ']);
+        }
+
         Auth::login($user, remember: true);
         $request->session()->regenerate();
 

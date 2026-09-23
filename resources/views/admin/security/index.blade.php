@@ -87,6 +87,72 @@
     </div>
 </div>
 
+{{-- The Cloudflare secret header (App\Support\EdgeSecret). Three states: none, observing (the old
+     header-presence check still decides while we watch Cloudflare's header arrive), enforcing. The
+     secret itself is only ever shown right after it is made. --}}
+<div class="nx-card mb-6 p-5">
+    <h3 class="mb-1 text-base font-semibold">รหัสลับจาก Cloudflare <span class="text-[12px] font-normal text-cream/45">(กันคนยิงเข้าเซิร์ฟเวอร์ตรง ข้าม Cloudflare)</span></h3>
+    <p class="mb-3 text-[12px] leading-relaxed text-cream/45">
+        ด่านเดิมดูแค่ว่าคำขอ “มี header ของ Cloudflare” ซึ่งใครรู้ IP เซิร์ฟเวอร์ก็พิมพ์ปลอมเองได้ — รหัสลับนี้ Cloudflare เป็นคนแนบให้คนเดียว
+        คำขอที่ไม่มีรหัสจึงไม่ได้มาทาง Cloudflare แน่นอน
+    </p>
+
+    @if (session('edge_secret'))
+        <div class="mb-4 rounded-lg border border-brand/40 bg-brand/10 p-4 text-[13px] leading-relaxed" x-data="{ copied: false }">
+            <div class="mb-2 font-semibold text-brand">รหัสลับ (แสดงครั้งเดียว — คัดลอกตอนนี้)</div>
+            <div class="flex items-center gap-2">
+                <code class="flex-1 break-all rounded bg-black/40 px-2 py-1.5 font-mono text-[12px]">{{ session('edge_secret') }}</code>
+                <button type="button" class="rounded bg-white/10 px-2.5 py-1.5 text-[11px] hover:bg-white/15"
+                        @click="navigator.clipboard.writeText(@js(session('edge_secret'))).then(() => { copied = true; setTimeout(() => copied = false, 1500) })"
+                        x-text="copied ? 'คัดลอกแล้ว' : 'คัดลอก'"></button>
+            </div>
+            <ol class="mt-3 list-decimal space-y-1 pl-5 text-[12px] text-cream/70">
+                <li>Cloudflare → netwix.online → <b>Rules → Transform Rules → Modify Request Header</b> → Create rule</li>
+                <li>ตั้งชื่อ เช่น “NetWix edge secret” · เลือก <b>All incoming requests</b></li>
+                <li><b>Set static</b> · Header name <code class="rounded bg-white/10 px-1">{{ $edge['header'] }}</code> · Value = รหัสด้านบน → Deploy</li>
+                <li>กลับมาหน้านี้ภายในไม่กี่นาที เมื่อขึ้น “เห็นรหัสจาก Cloudflare แล้ว” จึงกด “บังคับใช้”</li>
+            </ol>
+        </div>
+    @endif
+
+    <div class="flex flex-wrap items-center gap-3 text-[12px]">
+        <span class="text-cream/50">สถานะ:
+            @if (! $edge['configured'])
+                <b class="text-cream/70">ยังไม่ได้ตั้ง</b> (ใช้การตรวจแบบเดิม)
+            @elseif ($edge['enforcing'])
+                <b class="text-success">บังคับใช้อยู่</b>
+            @else
+                <b class="text-amber-300">สังเกตอยู่</b> (ยังใช้การตรวจแบบเดิม)
+            @endif
+        </span>
+        @if ($edge['configured'])
+            <span class="text-cream/50">เห็นรหัสจาก Cloudflare ล่าสุด:
+                <b class="{{ $edge['seenRecently'] ? 'text-success' : 'text-cream/70' }}">{{ $edge['lastSeen'] ? \Illuminate\Support\Carbon::createFromTimestamp($edge['lastSeen'])->diffForHumans() : 'ยังไม่เคย' }}</b>
+            </span>
+            <span class="text-cream/50">คำขอที่ไม่มีรหัส (ชั่วโมงนี้): <b class="text-cream/80">{{ number_format($edge['missing']) }}</b></span>
+        @endif
+    </div>
+
+    <form method="POST" action="{{ route('admin.security.edge') }}" class="mt-3 flex flex-wrap gap-2">
+        @csrf
+        <button name="action" value="generate" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] hover:bg-white/15"
+                @if ($edge['configured']) onclick="return confirm(@js('สร้างรหัสใหม่จะหยุดการบังคับใช้ และต้องแก้ค่าใน Cloudflare ตามใหม่ — ทำต่อ?'))" @endif>
+            {{ $edge['configured'] ? 'สร้างรหัสใหม่' : 'สร้างรหัสลับ' }}
+        </button>
+        @if ($edge['configured'] && ! $edge['enforcing'])
+            <button name="action" value="enforce" class="rounded-lg bg-success/15 px-3.5 py-2 text-[13px] font-semibold text-success hover:bg-success/25"
+                    onclick="return confirm(@js('บังคับใช้แล้ว คำขอที่ไม่มีรหัสจะถูกปฏิเสธทั้งหมด — ยืนยัน?'))">บังคับใช้</button>
+        @endif
+        @if ($edge['enforcing'])
+            <button name="action" value="relax" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] hover:bg-white/15">หยุดบังคับ</button>
+        @endif
+        @if ($edge['configured'])
+            <button name="action" value="clear" class="rounded-lg bg-[#e5484d]/15 px-3.5 py-2 text-[13px] text-[#ff6b81] hover:bg-[#e5484d]/25"
+                    onclick="return confirm(@js('ลบรหัสลับ? ด่านจะกลับไปใช้การตรวจแบบเดิม'))">ลบรหัส</button>
+        @endif
+    </form>
+</div>
+
 {{-- IPv6 note: automatic blocks are written as a /64 — the subscriber, not one of the addresses a
      Thai carrier rotates through them every few hours. Blocking a single IPv6 address is evaded by
      reconnecting and fills the list with dead entries. --}}
@@ -193,7 +259,7 @@
                         </td>
                         <td class="px-5 py-2.5 text-right">
                             <form method="POST" action="{{ route('admin.security.unblock', $b) }}"
-                                  onsubmit="return confirm('ปลดบล็อก {{ $b->ip }}?')">
+                                  onsubmit="return confirm(@js('ปลดบล็อก '.$b->ip.'?'))">
                                 @csrf @method('DELETE')
                                 <button class="rounded-md bg-white/5 px-2.5 py-1 text-[12px] hover:bg-white/10">ปลด</button>
                             </form>
@@ -247,7 +313,7 @@
                         </td>
                         <td class="px-5 py-2.5 text-right">
                             <form method="POST" action="{{ route('admin.security.forgive', $o) }}"
-                                  onsubmit="return confirm('ล้างประวัติของ {{ $o->ip }}? ครั้งต่อไปจะเริ่มนับใหม่')">
+                                  onsubmit="return confirm(@js('ล้างประวัติของ '.$o->ip.'? ครั้งต่อไปจะเริ่มนับใหม่'))">
                                 @csrf @method('DELETE')
                                 <button class="rounded-md bg-white/5 px-2.5 py-1 text-[12px] hover:bg-white/10">ล้างประวัติ</button>
                             </form>

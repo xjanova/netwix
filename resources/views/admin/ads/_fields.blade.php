@@ -3,7 +3,7 @@
     $val = fn ($f, $d = '') => old($f, $a?->$f ?? $d);
 @endphp
 <div class="grid gap-3 sm:grid-cols-2"
-     x-data="{ mt: '{{ $val('media_type', 'image') }}', tg: '{{ $val('target', 'all') }}', skippable: {{ $a ? ($a->skippable ? 'true' : 'false') : 'true' }} }">
+     x-data="{ mt: @js((string) $val('media_type', 'image')), tg: @js((string) $val('target', 'all')), skippable: {{ $a ? ($a->skippable ? 'true' : 'false') : 'true' }} }">
 
     <div class="sm:col-span-2">
         <label class="mb-1 block text-xs text-cream/60">ชื่อโฆษณา / แคมเปญ *</label>

@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\Setting;
+use App\Support\EdgeSecret;
 use App\Support\ScrapeGuard;
 use Closure;
 use Illuminate\Http\Request;
@@ -18,10 +19,11 @@ use Symfony\Component\HttpFoundation\Response;
  * restriction, and our own public IP is printed in our own `security_events` table, so finding it
  * takes no skill at all. Every edge protection was one HTTP request away from being irrelevant.
  *
- * Cloudflare stamps `CF-Connecting-IP` on everything it proxies, and a client cannot forge its way
- * *around* the edge — it can only send the header to an origin it has already reached directly, which
- * is exactly what this refuses. That is why the check is presence-based and cheap: it is not
- * authentication, it is "did you come in the front door".
+ * Cloudflare stamps `CF-Connecting-IP` on everything it proxies. Checking for it is only a guess,
+ * though: somebody who has reached the origin directly can type that header themselves (found
+ * 2026-09-23 — a forged header does NOT spoof `$request->ip()`, since mod_remoteip only trusts
+ * Cloudflare's ranges, but it did walk straight past this gate). The real proof is [EdgeSecret]: a
+ * secret header only Cloudflare adds. Until it is set up and enforced, the presence check stands.
  *
  * Deliberately reversible from the database (`require_cloudflare`), because a mistake here takes the
  * whole site off the internet and a deploy is a slow way to undo that.
@@ -49,6 +51,17 @@ class EnsureBehindCloudflare
         if (ScrapeGuard::isOwnServer((string) $request->server->get('REMOTE_ADDR', ''))
             || ScrapeGuard::isOwnServer((string) $request->ip())) {
             return $next($request);
+        }
+
+        // Proof, when it has been set up: Cloudflare adds a secret header to everything it forwards, so
+        // a request carrying it came through the edge. Presence of CF-Ray / CF-Connecting-IP (below) is
+        // only a guess — anyone who reaches the origin directly can type those two headers themselves.
+        $edge = EdgeSecret::check($request);
+        if ($edge === true) {
+            return $next($request);
+        }
+        if ($edge === false && EdgeSecret::enforcing()) {
+            return response('Forbidden', 403);
         }
 
         if ($request->headers->has('CF-Connecting-IP') || $request->headers->has('CF-Ray')) {

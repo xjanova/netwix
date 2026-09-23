@@ -27,6 +27,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // Global (not web-only) so the API and stream surfaces canonicalise too.
         $middleware->prepend(\App\Http\Middleware\CanonicalHost::class);
 
+        // Browser security headers on every response, including errors and the stream proxy.
+        $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
+
         // Watch the content endpoints for scraping-shaped traffic. Appended to BOTH groups rather
         // than prepended globally: on the global stack it ran before StartSession and before route
         // middleware, so it could never see a logged-in admin or a validated app token, and its two
@@ -54,6 +57,8 @@ return Application::configure(basePath: dirname(__DIR__))
         // RefreshRememberCookie keeps "จดจำฉันไว้" perpetual — it needs the session
         // started, hence appended to the group rather than prepended.
         $middleware->web(append: [
+            // First, so a suspended member's session ends before anything else acts on it.
+            \App\Http\Middleware\EndSuspendedSession::class,
             \App\Http\Middleware\RefreshRememberCookie::class,
             \App\Http\Middleware\TrackPageView::class,
             // Dead man's switch for the cron — checked after the response is sent.

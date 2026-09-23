@@ -136,7 +136,11 @@ class AdController extends Controller
         if ($type === 'image') {
             $path = ImageStore::putWebp((string) file_get_contents($file->getRealPath()), 'media/ads', $basename, 1600);
         } else {
-            $ext = strtolower($file->getClientOriginalExtension() ?: 'mp4');
+            // From the file's CONTENT (finfo), never the uploader's filename. `mimes:` above checks the
+            // bytes, but the name's extension was kept as given — a valid MP4 called x.html was served
+            // from our domain as a page, and x.inc/x.phtml could reach the PHP handler.
+            $ext = strtolower((string) $file->guessExtension());
+            $ext = in_array($ext, ['mp4', 'm4v', 'webm', 'mov', 'ogv', 'ogg'], true) ? $ext : 'mp4';
             $path = $file->storeAs('media/ads', $basename.'.'.$ext, 'public') ?: null;
         }
 

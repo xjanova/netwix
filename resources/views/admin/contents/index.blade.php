@@ -138,7 +138,7 @@
                         <td class="px-4 py-3">
                             <div class="flex items-center justify-end gap-2">
                                 <a href="{{ route('admin.contents.edit', $c) }}" class="rounded-md bg-white/5 px-3 py-1.5 text-xs hover:bg-white/10">แก้ไข</a>
-                                <form method="POST" action="{{ route('admin.contents.destroy', $c) }}" onsubmit="return confirm('ลบ {{ $c->title }}?')">
+                                <form method="POST" action="{{ route('admin.contents.destroy', $c) }}" onsubmit="return confirm(@js('ลบ '.$c->title.'?'))">
                                     @csrf @method('DELETE')
                                     <button class="rounded-md bg-[#e5484d]/15 px-3 py-1.5 text-xs text-[#ff6b81] hover:bg-[#e5484d]/25">ลบ</button>
                                 </form>

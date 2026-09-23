@@ -32,6 +32,9 @@ class PlaybackHealth
 
     private const DEAD_WINDOW = 900;         // 15 minutes
 
+    /** How long a handed-out stream counts as proof that a report comes from a real viewer. */
+    private const ISSUED_TTL = 6 * 3600;
+
     /** A viewer couldn't play this title — count them once; suspend at the threshold. */
     public static function recordFailure(Content $content, string $viewer, string $reason): void
     {
@@ -63,8 +66,14 @@ class PlaybackHealth
 
             // Harder safety net: enough DISTINCT viewers can't play it → auto-unpublish. Admin-toggleable
             // (Setting playback_auto_suspend) — off = leave it published, only flag for review.
+            // The same death budget as declareDead: a burst of reports must not be able to take the
+            // catalogue down faster than a human can look at it. Past the budget it is only flagged.
             if (Setting::flag('playback_auto_suspend', true) && (int) Redis::scard($key) >= self::THRESHOLD) {
-                self::suspend($content, $reason);
+                if (self::withinDeathBudget()) {
+                    self::suspend($content, $reason);
+                } else {
+                    self::flagForReview($content);
+                }
             }
         } catch (Throwable $e) {
             // health tracking is best-effort — never break playback over it
@@ -230,7 +239,38 @@ class PlaybackHealth
     /** Stable per-viewer id: the logged-in user if any, else the client IP. */
     public static function viewer(): string
     {
-        return (string) (auth()->id() ?? request()->ip() ?? 'anon');
+        // An IPv6 subscriber holds a whole /64 and rotates through it (privacy addresses), so the raw
+        // address let one household count as any number of "distinct viewers" — five of them unpublish
+        // a title. Group it the way the ban list does; IPv4 stays exact (CGNAT is shared by strangers).
+        return (string) (auth()->id() ?? ScrapeGuard::blockKey((string) (request()->ip() ?? 'anon')));
+    }
+
+    /**
+     * Remember that this viewer was just handed something playable for this title. A player's own
+     * verdict ("it played" / "it didn't") only counts from someone we actually served — see
+     * [self::wasIssued]. Without it the public report endpoint let anyone vote any title dead.
+     */
+    public static function noteIssued(Content $content): void
+    {
+        try {
+            Cache::put(self::issuedKey($content->id, self::viewer()), 1, self::ISSUED_TTL);
+        } catch (Throwable $e) {
+            // best-effort, like the rest of the health tracking
+        }
+    }
+
+    public static function wasIssued(Content $content, string $viewer): bool
+    {
+        try {
+            return Cache::has(self::issuedKey($content->id, $viewer));
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    private static function issuedKey(int $id, string $viewer): string
+    {
+        return "netwix:playissued:{$id}:".sha1($viewer);
     }
 
     private static function suspend(Content $content, string $reason): void

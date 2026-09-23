@@ -35,7 +35,7 @@
                     @if ($profiles->count() > 1)
                         <form method="POST" action="{{ route('profiles.destroy', $profile) }}"
                               x-show="manage" x-cloak class="absolute -right-2 -top-2"
-                              onsubmit="return confirm('ลบโปรไฟล์ {{ $profile->name }}?')">
+                              onsubmit="return confirm(@js('ลบโปรไฟล์ '.$profile->name.'?'))">
                             @csrf @method('DELETE')
                             <button class="flex h-7 w-7 items-center justify-center rounded-full bg-[#e5484d] text-sm">✕</button>
                         </form>

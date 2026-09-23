@@ -5,12 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\Episode;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
-use App\Support\ImageStore;
 use App\Support\MirrorRotation;
+use App\Support\PlaybackHealth;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Storage;
 
 class EpisodeSourceController extends Controller
 {
@@ -54,8 +53,7 @@ class EpisodeSourceController extends Controller
         // than to a dead episode. Costs nothing on the happy path, since it is only ever sent by a
         // client that has already failed once.
         if ($episode->video_url && ! $request->boolean('refresh')) {
-            return response()->json([
-                'ready' => true,
+            return $this->ready($episode, [
                 'kind' => str_contains($episode->video_url, '.m3u8') ? 'hls' : 'mp4',
                 'url' => $episode->video_url,
             ]);
@@ -85,7 +83,7 @@ class EpisodeSourceController extends Controller
         // Embed source (9nung/abyss): playback is a 3rd-party player iframe, not a stream we can proxy.
         // Hand back the embed page for a sandboxed <iframe> in the player (see [EmbedPlayback]).
         if ($stream->kind === RemoteStream::KIND_EMBED) {
-            return response()->json(['ready' => true, 'kind' => 'embed', 'url' => $stream->url]);
+            return $this->ready($episode, ['kind' => 'embed', 'url' => $stream->url]);
         }
 
         // HLS sources (wow-drama / any Halim site / hd432) play through the server-side proxy: it adds
@@ -97,7 +95,19 @@ class EpisodeSourceController extends Controller
             return $this->hlsReady($episode);
         }
 
-        return response()->json(['ready' => true, 'kind' => $stream->kind, 'url' => $stream->url]);
+        return $this->ready($episode, ['kind' => $stream->kind, 'url' => $stream->url]);
+    }
+
+    /**
+     * Every "here is something playable" answer goes through here, so the viewer is on record as having
+     * been served this title — the proof [PlaybackHealth::wasIssued] asks for before their player's
+     * "it didn't play" report may count toward unpublishing it.
+     */
+    private function ready(Episode $episode, array $payload): JsonResponse
+    {
+        PlaybackHealth::noteIssued($episode->content);
+
+        return response()->json(['ready' => true] + $payload);
     }
 
     /**
@@ -106,39 +116,22 @@ class EpisodeSourceController extends Controller
      */
     private function hlsReady(Episode $episode): JsonResponse
     {
-        return response()->json([
-            'ready' => true,
+        return $this->ready($episode, [
             'kind' => 'hls',
             'url' => route('stream.manifest', $episode).'?t='.StreamController::token($episode),
         ]);
     }
 
     /**
-     * Store a small JPEG frame grabbed from the player as this episode's cover — first capture wins
-     * (never overwritten), so an episode gets a real thumbnail the first time anyone watches it and
-     * falls back to the title's main poster until then. Only works for same-origin video (our HLS
-     * proxy / stored mp4); a cross-origin source taints the canvas client-side and just isn't sent.
+     * Kept for players still running the old script, which upload the frame they grabbed. That frame
+     * used to become the episode's cover for everyone — first upload wins, never replaced — so any
+     * signed-in account could plant any picture (porn, a scam QR code) on every uncovered episode by
+     * walking ids. What they send is now ignored: the request is treated as "this episode is playing
+     * and has no cover", and the server takes the frame from the stream itself (genCover).
      */
     public function captureThumb(Request $request, Episode $episode): JsonResponse
     {
-        abort_unless((bool) $episode->content?->is_published, 404);
-
-        if ($episode->thumbnail_path) {
-            return response()->json(['ok' => true, 'skipped' => 'exists']);
-        }
-
-        $data = $request->validate(['image' => ['required', 'string', 'max:600000']]);
-        $bin = ImageStore::decodeDataUrl($data['image'], 600_000);
-        if ($bin === null) {
-            return response()->json(['ok' => false, 'error' => 'invalid'], 422);
-        }
-        $path = ImageStore::putCover($bin, 'media/thumbs', (string) $episode->id, $episode->thumbnail_path, 640);
-        if ($path === null) {
-            return response()->json(['ok' => false, 'error' => 'decode'], 422);
-        }
-        $episode->update(['thumbnail_path' => $path]);
-
-        return response()->json(['ok' => true, 'url' => Storage::disk('public')->url($path)]);
+        return $this->genCover($request, $episode);
     }
 
     /**

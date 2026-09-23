@@ -56,7 +56,9 @@ class AppToken extends Model
     {
         $row = static::with(['user', 'profile'])
             ->where('token_hash', hash('sha256', $plain))->first();
-        if (! $row) {
+        // A suspended member's token stops working here, the one place every app route resolves it.
+        // Suspending on the web used to leave the app fully signed in — buying, commenting, streaming.
+        if (! $row || ! $row->user?->is_active) {
             return null;
         }
         $row->forceFill(['last_used_at' => now()])->saveQuietly();

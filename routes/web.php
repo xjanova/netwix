@@ -390,6 +390,8 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('security', [Admin\SecurityController::class, 'index'])->name('security.index');
     Route::post('security/mode', [Admin\SecurityController::class, 'setMode'])->name('security.mode');
     Route::post('security/firewall', [Admin\SecurityController::class, 'toggleFirewall'])->name('security.firewall');
+    // The Cloudflare secret header (App\Support\EdgeSecret): make one, then enforce it once it arrives.
+    Route::post('security/edge', [Admin\SecurityController::class, 'edge'])->name('security.edge');
     Route::post('security/block', [Admin\SecurityController::class, 'block'])->name('security.block');
     Route::delete('security/blocked/{blockedIp}', [Admin\SecurityController::class, 'unblock'])->name('security.unblock');
     // Extend, shorten or make permanent an existing block — separate from lifting it, so the block's

@@ -10,7 +10,9 @@ class EnsureAdmin
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if (! $request->user() || ! $request->user()->isAdmin()) {
+        // is_active too: EndSuspendedSession normally catches a suspended admin first, but this gate
+        // must not depend on another middleware's place in the stack.
+        if (! $request->user() || ! $request->user()->isAdmin() || ! $request->user()->is_active) {
             abort(403, 'เฉพาะผู้ดูแลระบบเท่านั้น');
         }
 

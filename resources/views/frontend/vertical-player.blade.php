@@ -12,8 +12,7 @@
         // per-episode cover: captured frame if we have one, else the title's main poster
         'thumb' => $e->thumbnail_path ? $e->thumbnail_url : $content->poster_url,
         'has' => (bool) $e->thumbnail_path,
-        // Thumb capture/gen are member-only writes — null for guests (the JS null-guards).
-        'post' => auth()->check() ? route('episode.thumb', $e) : null,
+        // Cover generation is a member-only write — null for guests (the JS null-guards).
         'gen' => auth()->check() ? route('episode.gencover', $e) : null,
     ])->values();
 

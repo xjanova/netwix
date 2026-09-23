@@ -6,6 +6,7 @@ use App\Models\AdCampaign;
 use App\Models\Content;
 use App\Models\Episode;
 use App\Models\User;
+use App\Support\PlaybackHealth;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -53,6 +54,12 @@ class WatchController extends Controller
 
         $content->load(['episodes' => fn ($q) => $q->orderBy('season_id')->orderBy('number')]);
         $content->loadMissing('genres');   // for pre-roll genre targeting
+
+        // Stored/manual episodes are embedded as ready-to-play URLs and never touch the resolver, so
+        // this page is where the viewer is handed them — on record for the playback-report check.
+        if ($content->video_url || $content->episodes->contains(fn ($e) => (bool) $e->video_url)) {
+            PlaybackHealth::noteIssued($content);
+        }
 
         // Pre-roll ad to play before the video starts (null when none is eligible / Pro-hidden / off).
         $ad = $this->preroll($content, $request->user());

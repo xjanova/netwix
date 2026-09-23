@@ -43,7 +43,8 @@
                         <span class="text-cream/40">ฟรี</span>
                     @endif
                 </span>
-                <form method="POST" action="{{ route('admin.users.active', $u) }}" title="เปิด/ปิดการใช้งานบัญชี">
+                <form method="POST" action="{{ route('admin.users.active', $u) }}" title="เปิด/ปิดการใช้งานบัญชี"
+                      @if ($u->is_active) onsubmit="return confirm(@js('ระงับบัญชี '.$u->name.'? — จะถูกออกจากระบบทุกเครื่องทันที รวมถึงในแอป'))" @endif>
                     @csrf
                     <input type="hidden" name="active" value="{{ $u->is_active ? '0' : '1' }}">
                     <button class="flex items-center gap-1.5 text-xs font-semibold {{ $u->is_active ? 'text-success' : 'text-[#ff6b81]' }}">

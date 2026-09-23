@@ -7,6 +7,7 @@ use App\Models\BlockedIp;
 use App\Models\IpOffence;
 use App\Models\SecurityEvent;
 use App\Models\Setting;
+use App\Support\EdgeSecret;
 use App\Support\FirewallBlocklist;
 use App\Support\ScrapeGuard;
 use Illuminate\Http\RedirectResponse;
@@ -68,6 +69,14 @@ class SecurityController extends Controller
                 ->orderByDesc('last_at')->limit(20)->get(),
             'mode' => ScrapeGuard::mode(),
             'firewall' => FirewallBlocklist::enabled(),
+            'edge' => [
+                'configured' => EdgeSecret::configured(),
+                'enforcing' => EdgeSecret::enforcing(),
+                'lastSeen' => EdgeSecret::lastSeen(),
+                'seenRecently' => EdgeSecret::seenRecently(),
+                'missing' => EdgeSecret::missingThisHour(),
+                'header' => EdgeSecret::HEADER,
+            ],
             'blockHours' => ScrapeGuard::blockHours(),
             'repeatHours' => ScrapeGuard::repeatHours(),
             'reason' => $reason,
@@ -98,6 +107,45 @@ class SecurityController extends Controller
      * rather than at some later block. [FirewallBlocklist] restores the previous file by itself if
      * the site stops answering, and says so in the message.
      */
+    /**
+     * The Cloudflare secret header, in the only order that cannot take the site down: make a secret
+     * (shown once, to paste into a Cloudflare Transform Rule), watch it arrive, then enforce. Enforcing
+     * before Cloudflare sends it would refuse every visitor, so that is refused here instead.
+     */
+    public function edge(Request $request): RedirectResponse
+    {
+        $action = (string) $request->input('action');
+
+        if ($action === 'generate') {
+            return back()
+                ->with('edge_secret', EdgeSecret::generate())
+                ->with('status', 'สร้างรหัสลับใหม่แล้ว — คัดลอกไปใส่ใน Cloudflare ตามขั้นตอนด้านล่าง (รหัสนี้แสดงครั้งเดียว)');
+        }
+        if ($action === 'enforce') {
+            if (! EdgeSecret::configured()) {
+                return back()->withErrors(['edge' => 'ยังไม่ได้สร้างรหัสลับ']);
+            }
+            if (! EdgeSecret::seenRecently()) {
+                return back()->withErrors(['edge' => 'ยังไม่เห็นรหัสนี้มากับคำขอจาก Cloudflare ใน 10 นาทีที่ผ่านมา — ถ้าบังคับตอนนี้ผู้ชมทุกคนจะเข้าเว็บไม่ได้ ตั้ง Transform Rule ให้เสร็จก่อน']);
+            }
+            Setting::write('cf_edge_enforce', '1');
+
+            return back()->with('status', 'บังคับใช้รหัสลับแล้ว — คำขอที่ไม่ได้มาทาง Cloudflare จะถูกปฏิเสธทั้งหมด');
+        }
+        if ($action === 'relax') {
+            Setting::write('cf_edge_enforce', '0');
+
+            return back()->with('status', 'หยุดบังคับรหัสลับแล้ว (กลับไปใช้การตรวจแบบเดิม)');
+        }
+        if ($action === 'clear') {
+            EdgeSecret::clear();
+
+            return back()->with('status', 'ลบรหัสลับแล้ว — อย่าลืมลบ Transform Rule ใน Cloudflare ด้วย');
+        }
+
+        return back();
+    }
+
     public function toggleFirewall(Request $request): RedirectResponse
     {
         $on = $request->boolean('enabled');

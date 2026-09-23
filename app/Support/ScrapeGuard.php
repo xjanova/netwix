@@ -386,7 +386,8 @@ class ScrapeGuard
     {
         try {
             return (bool) Cache::remember('guard:apptok:'.sha1($bearer), now()->addMinutes(10),
-                fn () => AppToken::where('token_hash', hash('sha256', $bearer))->exists());
+                fn () => AppToken::where('token_hash', hash('sha256', $bearer))
+                    ->whereHas('user', fn ($q) => $q->where('is_active', true))->exists());
         } catch (\Throwable) {
             return false;   // never let a lookup failure turn into a block
         }

@@ -11,8 +11,7 @@
         'resolve' => ($e->source && ! $e->video_url) ? route('episode.source', $e) : null,
         'thumb' => $e->thumbnail_path ? $e->thumbnail_url : $content->poster_url,
         'has' => (bool) $e->thumbnail_path,
-        // Thumb capture/gen are member-only writes — null for guests (the JS null-guards).
-        'post' => auth()->check() ? route('episode.thumb', $e) : null,
+        // Cover generation is a member-only write — null for guests (the JS null-guards).
         'gen' => auth()->check() ? route('episode.gencover', $e) : null,
         // Per-episode marker override, else the content default (0 = off).
         'introEnd' => (int) ($e->intro_end_seconds ?? $content->intro_end_seconds ?? 0),
@@ -23,7 +22,7 @@
         $eps = collect([[
             'n' => 1, 'title' => $content->title, 'id' => null,
             'url' => $content->video_url, 'resolve' => null,
-            'thumb' => $content->poster_url, 'has' => true, 'post' => null,
+            'thumb' => $content->poster_url, 'has' => true, 'gen' => null,
             'introEnd' => (int) ($content->intro_end_seconds ?? 0),
             'outroSeconds' => (int) ($content->outro_seconds ?? 0),
         ]]);

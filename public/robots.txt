@@ -42,4 +42,18 @@ Allow: /
 User-agent: ClaudeBot
 Allow: /
 
+# SEO-tool crawlers index us for other people's keyword research and send no visitors: on 2026-09-22
+# AhrefsBot + SemrushBot were 85% of all requests that reached the server. public/.htaccess refuses
+# them as well; this is the polite half, so they stop asking.
+User-agent: AhrefsBot
+Disallow: /
+User-agent: AhrefsSiteAudit
+Disallow: /
+User-agent: SemrushBot
+Disallow: /
+User-agent: SiteAuditBot
+Disallow: /
+User-agent: SplitSignalBot
+Disallow: /
+
 Sitemap: https://netwix.online/sitemap.xml

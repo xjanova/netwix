@@ -16,10 +16,18 @@ class PlaybackController extends Controller
      */
     public function report(Request $request, Content $content): JsonResponse
     {
+        // Only a viewer we actually handed a stream for this title gets a vote. The endpoint is public
+        // (guests watch too), and five unproven "it didn't play" posts used to unpublish any title.
+        // Unproven reports are dropped quietly — the answer is the same either way.
+        $viewer = PlaybackHealth::viewer();
+        if (! PlaybackHealth::wasIssued($content, $viewer)) {
+            return response()->json(['ok' => true]);
+        }
+
         if ($request->boolean('ok')) {
             PlaybackHealth::recordSuccess($content);
         } else {
-            PlaybackHealth::recordFailure($content, PlaybackHealth::viewer(), 'player');
+            PlaybackHealth::recordFailure($content, $viewer, 'player');
         }
 
         return response()->json(['ok' => true]);

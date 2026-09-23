@@ -48,6 +48,28 @@
 </IfModule>
 <IfModule mod_headers.c>
     Header set Cache-Control "public, max-age=31536000, immutable" env=NX_IMMUTABLE
+    Header set X-Content-Type-Options "nosniff" env=NX_IMMUTABLE
+</IfModule>
+
+# /storage/ serves media and nothing else. Uploads land in storage/app/public under names we choose,
+# but one path (pre-roll video) kept the uploader's extension, so a valid MP4 named x.html was served
+# from our own domain as a web page. Whatever is ever written there, only these types get out; a
+# script, a page or an SVG is refused before Apache hands it to anything that would run or render it.
+<IfModule mod_rewrite.c>
+    RewriteCond %{REQUEST_URI} ^(/public)?/storage/ [NC]
+    RewriteCond %{REQUEST_URI} !\.(webp|avif|png|jpe?g|gif|mp4|m4v|webm|mov|ogv|ogg)$ [NC]
+    RewriteRule ^ - [F,L]
+</IfModule>
+
+# SEO-tool crawlers (owner's decision, 2026-09-23). AhrefsBot and SemrushBot were 85% of every request
+# that reached PHP on 2026-09-22 (22,825 of 26,940) while Google sent 17 — they index us for other
+# people's keyword research and send no visitors. robots.txt tells them the same thing; this refuses
+# them outright, since a polite crawler takes up to a day to re-read robots.txt. robots.txt itself
+# stays reachable so they can learn why.
+<IfModule mod_rewrite.c>
+    RewriteCond %{HTTP_USER_AGENT} (AhrefsBot|AhrefsSiteAudit|SemrushBot|SiteAuditBot|SplitSignalBot) [NC]
+    RewriteCond %{REQUEST_URI} !^(/public)?/robots\.txt$ [NC]
+    RewriteRule ^ - [F,L]
 </IfModule>
 
 # Hotlink protection for the images we store ourselves.
@@ -76,8 +98,8 @@
 <IfModule mod_rewrite.c>
     RewriteCond %{REQUEST_URI} ^(/public)?/storage/media/ [NC]
     RewriteCond %{HTTP_REFERER} !^$
-    RewriteCond %{HTTP_REFERER} !^https?://([a-z0-9-]+\.)*netwix\.online [NC]
-    RewriteCond %{HTTP_REFERER} !^https?://([a-z0-9-]+\.)*google\. [NC]
-    RewriteCond %{HTTP_REFERER} !^https?://([a-z0-9-]+\.)*bing\.com [NC]
+    RewriteCond %{HTTP_REFERER} !^https?://([a-z0-9-]+\.)*netwix\.online(:[0-9]+)?(/|$) [NC]
+    RewriteCond %{HTTP_REFERER} !^https?://([a-z0-9-]+\.)*google\.(com|[a-z]{2}|com?\.[a-z]{2})(/|$) [NC]
+    RewriteCond %{HTTP_REFERER} !^https?://([a-z0-9-]+\.)*bing\.com(/|$) [NC]
     RewriteRule ^ - [F,L]
 </IfModule>

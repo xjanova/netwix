@@ -197,14 +197,14 @@ window.nxAttachVideo = async function (video, src, reportUrl = null, kind = null
 };
 
 /**
- * ON-DEMAND episode cover: grab the CURRENT frame of a playing episode and POST it as the cover
- * (first-capture-wins server-side — see EpisodeSourceController::captureThumb). Light + gradual: no
- * server ffmpeg, no download — it's a frame the viewer already has. Only works when the canvas isn't
- * tainted (our same-origin HLS proxy + the CORS mp4 that nxAttachVideo opts into); a cross-origin
- * source throws and we skip. Near-black frames are rejected so covers aren't black.
+ * Read the CURRENT frame of a playing episode, for showing to this viewer only (the live grid swap).
+ * It is never uploaded: a frame sent by a browser became the episode's cover for everyone, so any
+ * account could plant any picture on an uncovered episode. The stored cover is taken server-side
+ * from the stream itself (EpisodeSourceController::genCover). Returns the data URL, 'tainted' for a
+ * cross-origin canvas (no CORS), or false when the frame is not ready / near-black.
  */
-window.nxCaptureThumb = function (video, postUrl) {
-    if (!video || !postUrl || !video.videoWidth || video.readyState < 2) return false;
+window.nxCaptureThumb = function (video) {
+    if (!video || !video.videoWidth || video.readyState < 2) return false;
     try {
         const w = 640;
         const h = Math.round(w * video.videoHeight / video.videoWidth) || 360;
@@ -220,10 +220,9 @@ window.nxCaptureThumb = function (video, postUrl) {
         if (n && sum / n < 24) return false;               // near-black → skip, try again a bit later
         const data = c.toDataURL('image/jpeg', 0.72);      // also throws if tainted
         if (!data || data.length < 1200) return false;
-        window.nxPost(postUrl, { image: data }).catch(() => {});
         return data;                                       // the caller shows this frame at once (live cover)
     } catch (e) {
-        return 'tainted';                                  // cross-origin canvas (no CORS) → caller asks the server to make it
+        return 'tainted';                                  // cross-origin canvas (no CORS) — nothing to show
     }
 };
 
@@ -232,20 +231,18 @@ window.nxCaptureThumb = function (video, postUrl) {
  * to capture its cover once. Short clips (verticals) capture earlier so a 1-min drama still gets one.
  */
 window.nxMaybeThumb = function (video, ep) {
-    if (!ep || ep.has || !ep.post || ep._thumbDone || !video || video.paused || !video.videoWidth) return;
+    if (!ep || ep.has || !ep.gen || ep._thumbDone || !video || video.paused || !video.videoWidth) return;
     const d = video.duration || 0;
     const thr = (d && d < 120) ? Math.max(8, d * 0.2) : 40;   // past the intro, not too late
     if ((video.currentTime || 0) < thr) return;
-    const frame = window.nxCaptureThumb(video, ep.post);
-    if (frame === 'tainted') {
-        // Browser can't read this CDN's frames (no CORS, e.g. anifume) → ask the server to ffmpeg the
-        // cover once. It shows on the next grid open / reload (can't live-swap what we can't read).
-        if (ep.gen && !ep._srvAsked) { ep._srvAsked = true; window.nxPost(ep.gen, {}).catch(() => {}); }
-        return;
-    }
-    // Swap the just-captured frame into the episode-grid cover NOW (Alpine reactive) so it appears
-    // while you're still watching — no page refresh. On next load it serves the saved media/thumbs file.
-    if (frame) { ep._thumbDone = true; ep.has = true; ep.thumb = frame; }
+    const frame = window.nxCaptureThumb(video);
+    if (!frame) return;                                       // near-black / not ready → try again later
+    // Once per episode: the server takes the real cover from the stream (ffmpeg, budgeted + deduped).
+    ep._thumbDone = true;
+    window.nxPost(ep.gen, {}).catch(() => {});
+    // A frame this browser could read is shown in the episode grid NOW (Alpine reactive), so the
+    // viewer sees it while still watching; everyone else gets the server's copy on their next load.
+    if (frame !== 'tainted') { ep.has = true; ep.thumb = frame; }
 };
 
 /**
