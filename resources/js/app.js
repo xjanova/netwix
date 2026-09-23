@@ -141,6 +141,9 @@ window.nxAttachVideo = async function (video, src, reportUrl = null, kind = null
             // freezing forever (the #1 cause of "it just stops loading half-way").
             const hls = new Hls({
                 enableWorker: true,
+                // Fetch the first fragment while the media element is still being attached, instead of
+                // after — the first frame no longer waits on MSE setup and the fragment in series.
+                startFragPrefetch: true,
                 maxBufferLength: 30,
                 maxMaxBufferLength: 600,
                 backBufferLength: 30,

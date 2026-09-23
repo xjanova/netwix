@@ -116,6 +116,18 @@ class EpisodeSourceController extends Controller
      */
     private function hlsReady(Episode $episode): JsonResponse
     {
+        // Build the playlist the moment its URL goes out. The player still has to load its script and
+        // send the request across Cloudflare; by then the upstream fetch (0.5–2s cold, measured
+        // 2026-09-23) is already under way, and the player's request waits on the build lock instead
+        // of starting a second fetch. Runs after the response is sent, so the viewer never waits on it.
+        app()->terminating(function () use ($episode) {
+            try {
+                app(StreamController::class)->topLevelPlaylist($episode, app(SourceRegistry::class));
+            } catch (\Throwable) {
+                // best-effort: the player's own request reports and retries exactly as it always has
+            }
+        });
+
         return $this->ready($episode, [
             'kind' => 'hls',
             'url' => route('stream.manifest', $episode).'?t='.StreamController::token($episode),

@@ -7,8 +7,10 @@ use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
 use App\Support\HlsManifest;
 use App\Support\HlsSegment;
+use App\Support\MirrorLink;
 use App\Support\MirrorRotation;
 use App\Support\PlaybackHealth;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
@@ -26,9 +28,21 @@ class StreamController extends Controller
 {
     private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
-    /** Stream token + segment-signature lifetime (seconds). Long enough for one sitting, short
-     *  enough that a scraped URL stops working the same day. */
+    /** Manifest-token lifetime (seconds). Long enough for one sitting, short enough that a scraped
+     *  URL stops working the same day. */
     private const TTL = 21600; // 6h
+
+    /**
+     * Segment URLs are minted per 3-hour bucket and stay IDENTICAL for every viewer inside it.
+     *
+     * They used to be sealed with a random IV and an expiry of "now + 6h", so every manifest rebuild
+     * (every 10 minutes) produced a brand-new set of URLs. Cloudflare keys its cache on the full URL,
+     * so two people watching the same episode more than ten minutes apart never shared a single
+     * cached segment — measured 2026-09-23, practically every segment was a MISS that our PHP proxied.
+     * A URL minted at the start of a bucket lives two buckets, one minted at its end lives one: 3h–6h,
+     * so a scraped URL still dies the same day, exactly as before.
+     */
+    private const SEAL_BUCKET = 10800; // 3h
 
     /**
      * Wall-clock ceiling for one segment request, every upstream attempt included (seconds).
@@ -47,124 +61,154 @@ class StreamController extends Controller
 
     public function manifest(Episode $episode, Request $request, SourceRegistry $registry)
     {
-        // Require a short-lived token minted by the (authenticated) resolver. Episode ids are
-        // sequential, so without this anyone could enumerate them and hotlink our streams with no
-        // account. The web player AND the app both receive this token from EpisodeSourceController,
-        // so neither needs to send cookies here.
-        abort_unless($this->tokenOk($episode, (string) $request->query('t', '')), 403);
+        // A NESTED playlist (a variant or an audio rendition of a master this route already served)
+        // arrives with its own sealed handle. Only we can mint one, so — exactly like a segment URL —
+        // it authorises itself, and its URL stays the same for every viewer (no per-viewer token).
+        // The episode's own top-level playlist still requires the short-lived token minted by the
+        // (authenticated) resolver: episode ids are sequential, so without it anyone could enumerate
+        // them and hotlink our streams with no account. Web player and app both get it from
+        // EpisodeSourceController, so neither needs to send cookies here.
+        $nested = $this->nestedHandle($episode, $request);
+        if ($nested === null) {
+            abort_unless($this->tokenOk($episode, (string) $request->query('t', '')), 403);
+        }
         $this->blockForeignEmbed($request);
 
         // NB: no gateAdult() here — this route is cookieless (so Cloudflare can cache it) and has no
         // session/auth. The Pro/adult gate is enforced upstream in EpisodeSourceController::resolve,
         // which is the ONLY thing that mints a manifest token, so an unentitled viewer never gets here.
-        //
-        // `u` = a NESTED playlist (a variant or an audio rendition of a master this route already
-        // served), signed exactly like a proxied segment so it can't be used as an open proxy. Without
-        // it we're serving the episode's own top-level stream.
-        $nested = $this->signedNestedUrl($episode, $request);
-        $link = null;
-        if ($nested !== null) {
-            // The Referer rides *inside* the sealed handle, not beside it on the query string — that
-            // is the whole point of seal(). Reading it from `?r=` here meant every child playlist of a
-            // master was fetched with no Referer at all: getplay-cdn answers those 403, the body isn't
-            // a playlist, and the guard below then benched the link and recorded a playback failure.
-            // A source that checks Referer and serves a master (wowdrama) was therefore 100% dead
-            // while looking healthy at every other layer — the master itself is fetched on the
-            // top-level request, which does have the Referer.
-            [$nestedUrl, $nestedReferer] = $nested;
-            $stream = new RemoteStream(RemoteStream::KIND_HLS, $nestedUrl, $nestedReferer);
-            $cacheKey = "ep_manifest:{$episode->id}:".sha1($nestedUrl);
-        } else {
-            $resolved = $this->resolveWithLink($episode, $registry);
-            $stream = $resolved['stream'] ?? null;
-            $link = $resolved['link'] ?? null;
-            if (! $stream || $stream->kind !== RemoteStream::KIND_HLS) {
-                // Upstream link is dead — count this viewer toward auto-suspend (see PlaybackHealth).
-                if ($episode->content) {
-                    PlaybackHealth::recordFailure($episode->content, PlaybackHealth::viewer(), 'no_source');
-                }
-                abort(404);
-            }
-            $cacheKey = "ep_manifest:{$episode->id}";
-        }
-
-        // Rewriting the upstream playlist means fetching a big (100k+) manifest and signing every one
-        // of its ~700 segment URLs — slow (several seconds) on a cold hit. Cache the finished playlist
-        // briefly so re-plays / seeks start instantly; segment signatures stay valid far longer.
-        $out = Cache::remember($cacheKey, now()->addMinutes(10), function () use ($episode, $stream, $request, $link) {
-            // A dead/slow upstream (e.g. a rotated tiktokcdn link) must not bubble up as an uncaught
-            // ConnectionException — that spammed the ERROR log. Fail fast on connect, return a clean 504.
-            try {
-                $resp = Http::withHeaders($this->headers($stream->referer))->connectTimeout(8)->timeout(30)->get($stream->url);
-            } catch (\Throwable $e) {
-                abort(504, 'upstream manifest unavailable');
-            }
-            // Some players wrap the playlist (animeruka/animemami serves it as JSON-base64 in a .txt) —
-            // normalise that to a raw #EXTM3U body before the checks + rewrite below.
-            $body = HlsManifest::unwrap($resp->body());
-
-            // Resolving can "succeed" yet hand back a dead link: some sources (getplay-cdn's token
-            // gate, an expired signed URL) answer the manifest fetch with a short "Access Denied"
-            // (HTTP 403) instead of a playlist. Rewriting that produces a 200 with junk segment URLs
-            // and the player just freezes — and, because resolve() didn't fail, PlaybackHealth never
-            // hears about it. So when the body isn't a real playlist (every valid HLS manifest starts
-            // with #EXTM3U), treat it as a playback failure and hand the viewer a clean 404.
-            //
-            // BUT only when the upstream itself said the link is bad (a definitive 2xx-junk or 4xx).
-            // A 5xx is the CDN having a transient moment (e.g. getplay 502/504) — that must NOT count
-            // toward auto-suspend, or a brief upstream outage would mass-suspend the whole catalogue.
-            if (! str_contains($body, '#EXTM3U')) {
-                if ($resp->serverError()) {
-                    abort(504, 'upstream manifest unavailable');   // transient — no failure recorded
-                }
-                // This link resolved but doesn't actually play. Bench it so the next request rotates
-                // on to the next link in the chain instead of re-serving the same dead one.
-                if ($link !== null) {
-                    MirrorRotation::markDead($episode, $link);
-                }
-                if ($episode->content) {
-                    PlaybackHealth::recordFailure($episode->content, PlaybackHealth::viewer(), 'dead_manifest');
-                }
-                abort(404);   // thrown inside Cache::remember → the junk is never cached
-            }
-            $base = $this->baseUrl($stream->url);
-
-            // A MASTER playlist lists variant streams + alternate renditions; a MEDIA playlist lists
-            // segments. That one fact decides how every child URI is rewritten — children of a master
-            // are playlists (re-proxy through this route), children of a media playlist are segments.
-            // Don't test the .m3u8 extension: hd432's renditions have no extension at all.
-            // HLS allows exactly two levels (master → media). A third would mean a self-referencing
-            // playlist, so stop rewriting there rather than proxying in a circle.
-            $isMaster = str_contains($body, '#EXT-X-STREAM-INF') && (int) $request->query('d', 0) < 1;
-            $token = (string) $request->query('t', '');
-
-            return collect(preg_split('/\r?\n/', $body))->map(function (string $line) use ($base, $episode, $stream, $isMaster, $token) {
-                $trim = trim($line);
-                if ($trim === '') {
-                    return $line;
-                }
-                // URIs inside tags: #EXT-X-MEDIA renditions (master) vs #EXT-X-KEY (media playlist).
-                if (str_starts_with($trim, '#')) {
-                    return preg_replace_callback('/URI="([^"]+)"/', function ($m) use ($base, $episode, $stream, $isMaster, $token) {
-                        $abs = $this->absolute($m[1], $base);
-
-                        return 'URI="'.($isMaster
-                            ? $this->nestedManifestUrl($episode, $abs, $stream->referer, $token)
-                            : $this->proxyUrl($episode, $abs, $stream->referer)).'"';
-                    }, $line);
-                }
-                $abs = $this->absolute($trim, $base);
-
-                return $isMaster
-                    ? $this->nestedManifestUrl($episode, $abs, $stream->referer, $token)
-                    : $this->proxyUrl($episode, $abs, $stream->referer);
-            })->implode("\n");
-        });
+        $out = $nested !== null
+            ? $this->nestedPlaylist($episode, $nested)
+            : $this->topLevelPlaylist($episode, $registry);
 
         return response($out, 200)->withHeaders([
             'Content-Type' => 'application/vnd.apple.mpegurl',
             'Cache-Control' => 'public, max-age=300',
         ]);
+    }
+
+    /**
+     * The episode's own playlist, rewritten through us and cached. Public so the resolver can build it
+     * the moment it hands out the manifest URL — the player's own request then finds it ready (or waits
+     * on the build lock) instead of starting the upstream fetch from scratch. Aborts (404/504) exactly
+     * as the route would.
+     */
+    public function topLevelPlaylist(Episode $episode, SourceRegistry $registry): string
+    {
+        $resolved = $this->resolveWithLink($episode, $registry);
+        $stream = $resolved['stream'] ?? null;
+        $link = $resolved['link'] ?? null;
+        if (! $stream || $stream->kind !== RemoteStream::KIND_HLS) {
+            // Upstream link is dead — count this viewer toward auto-suspend (see PlaybackHealth).
+            if ($episode->content) {
+                PlaybackHealth::recordFailure($episode->content, PlaybackHealth::viewer(), 'no_source');
+            }
+            abort(404);
+        }
+
+        return $this->cachedPlaylist("ep_manifest:{$episode->id}", fn () => $this->rewrite($episode, $stream, $link, false));
+    }
+
+    /**
+     * A child playlist of a master. The Referer rides *inside* the sealed handle, not beside it on the
+     * query string — reading it from `?r=` meant every child of a master was fetched with no Referer at
+     * all: getplay-cdn answers those 403, and a source that checks Referer and serves a master
+     * (wowdrama) was 100% dead while looking healthy at every other layer.
+     *
+     * @param  array{0:string,1:?string,2:int}  $nested
+     */
+    private function nestedPlaylist(Episode $episode, array $nested): string
+    {
+        [$url, $referer] = $nested;
+        $stream = new RemoteStream(RemoteStream::KIND_HLS, $url, $referer);
+
+        return $this->cachedPlaylist("ep_manifest:{$episode->id}:".sha1($url), fn () => $this->rewrite($episode, $stream, null, true));
+    }
+
+    /**
+     * Rewriting the upstream playlist means fetching a big (100k+) manifest and sealing every one of its
+     * ~700 segment URLs — slow (seconds) on a cold hit. Cache the finished playlist briefly so re-plays
+     * and seeks start instantly. One build at a time per playlist: the resolver warms it while the
+     * player is still loading, and the player's request should wait for that build, not start another.
+     */
+    private function cachedPlaylist(string $key, \Closure $build): string
+    {
+        $hit = Cache::get($key);
+        if (is_string($hit)) {
+            return $hit;
+        }
+        try {
+            return Cache::lock($key.':build', 45)->block(12, fn () => Cache::remember($key, now()->addMinutes(10), $build));
+        } catch (LockTimeoutException) {
+            return Cache::remember($key, now()->addMinutes(10), $build);   // a stuck build must not stall play
+        }
+    }
+
+    /** Fetch one upstream playlist and rewrite every URI in it to come back through us. */
+    private function rewrite(Episode $episode, RemoteStream $stream, ?MirrorLink $link, bool $nested): string
+    {
+        // A dead/slow upstream (e.g. a rotated tiktokcdn link) must not bubble up as an uncaught
+        // ConnectionException — that spammed the ERROR log. Fail fast on connect, return a clean 504.
+        try {
+            $resp = Http::withHeaders($this->headers($stream->referer))->connectTimeout(8)->timeout(30)->get($stream->url);
+        } catch (\Throwable $e) {
+            abort(504, 'upstream manifest unavailable');
+        }
+        // Some players wrap the playlist (animeruka/animemami serves it as JSON-base64 in a .txt) —
+        // normalise that to a raw #EXTM3U body before the checks + rewrite below.
+        $body = HlsManifest::unwrap($resp->body());
+
+        // Resolving can "succeed" yet hand back a dead link: some sources (getplay-cdn's token gate, an
+        // expired signed URL) answer the manifest fetch with a short "Access Denied" (HTTP 403) instead
+        // of a playlist. Rewriting that produces a 200 with junk segment URLs and the player just
+        // freezes — and, because resolve() didn't fail, PlaybackHealth never hears about it. So when the
+        // body isn't a real playlist (every valid HLS manifest starts with #EXTM3U), treat it as a
+        // playback failure and hand the viewer a clean 404.
+        //
+        // BUT only when the upstream itself said the link is bad (a definitive 2xx-junk or 4xx). A 5xx
+        // is the CDN having a transient moment (e.g. getplay 502/504) — that must NOT count toward
+        // auto-suspend, or a brief upstream outage would mass-suspend the whole catalogue.
+        if (! str_contains($body, '#EXTM3U')) {
+            if ($resp->serverError()) {
+                abort(504, 'upstream manifest unavailable');   // transient — no failure recorded
+            }
+            // This link resolved but doesn't actually play. Bench it so the next request rotates on to
+            // the next link in the chain instead of re-serving the same dead one.
+            if ($link !== null) {
+                MirrorRotation::markDead($episode, $link);
+            }
+            if ($episode->content) {
+                PlaybackHealth::recordFailure($episode->content, PlaybackHealth::viewer(), 'dead_manifest');
+            }
+            abort(404);   // thrown inside Cache::remember → the junk is never cached
+        }
+        $base = $this->baseUrl($stream->url);
+
+        // A MASTER playlist lists variant streams + alternate renditions; a MEDIA playlist lists
+        // segments. That one fact decides how every child URI is rewritten — children of a master are
+        // playlists (re-proxy through this route), children of a media playlist are segments. Don't
+        // test the .m3u8 extension: hd432's renditions have no extension at all. HLS allows exactly two
+        // levels (master → media); a third would mean a self-referencing playlist, so a nested playlist
+        // is never rewritten as a master rather than proxying in a circle.
+        $isMaster = str_contains($body, '#EXT-X-STREAM-INF') && ! $nested;
+
+        // One sealed context per playlist — expiry, base URL and Referer — shared by every line, so the
+        // repeated part of each line is identical and compresses to almost nothing.
+        $ctx = self::sivSeal('c|'.$episode->id, self::bucketExpiry().'|'.$base.'|'.(string) $stream->referer);
+        $child = fn (string $uri) => $this->childUrl($episode, $ctx, $base, $this->absolute($uri, $base), $isMaster);
+
+        return collect(preg_split('/\r?\n/', $body))->map(function (string $line) use ($child) {
+            $trim = trim($line);
+            if ($trim === '') {
+                return $line;
+            }
+            // URIs inside tags: #EXT-X-MEDIA renditions (master) vs #EXT-X-KEY / #EXT-X-MAP (media).
+            if (str_starts_with($trim, '#')) {
+                return preg_replace_callback('/URI="([^"]+)"/', fn ($m) => 'URI="'.$child($m[1]).'"', $line);
+            }
+
+            return $child($trim);
+        })->implode("\n");
     }
 
     public function segment(Episode $episode, Request $request)
@@ -173,9 +217,7 @@ class StreamController extends Controller
         // stolen manifest is only useful if its segments load, so the rule has to hold on both.
         $this->blockForeignEmbed($request);
 
-        $handle = (string) $request->query('u', '');
-        abort_if($handle === '', 403);
-        $opened = $this->unseal($handle, $episode, $request);
+        $opened = $this->openHandle($episode, $request);
         abort_if($opened === null, 403);
         [$url, $ref, $exp] = $opened;
 
@@ -210,7 +252,7 @@ class StreamController extends Controller
         // Cloudflare edge-caches this for max-age (Cache Rule on /stream/*/segment). The signature dies
         // at $exp, so a cached copy must not outlive it: at a flat 86400 a scraped URL kept playing from
         // the edge for up to 18h after it was meant to stop working.
-        $maxAge = max(0, min(self::TTL, $exp - time()));
+        $maxAge = max(0, min(2 * self::SEAL_BUCKET, $exp - now()->getTimestamp()));
 
         return response($data, 200)->withHeaders([
             'Content-Type' => 'video/mp2t',
@@ -327,103 +369,158 @@ class StreamController extends Controller
         ]);
     }
 
-    private function proxyUrl(Episode $episode, string $abs, ?string $referer): string
+    /**
+     * The URL a rewritten playlist line points at: a segment, or — for the children of a master — a
+     * nested playlist back through manifest(). RELATIVE on purpose: every player resolves it against
+     * the playlist it came from, so the ~30 bytes of scheme + host + /stream/{id}/ are not repeated on
+     * every one of ~700 lines.
+     *
+     * The line carries the playlist's sealed context `c` (identical on every line) plus its own sealed
+     * remainder `p`, bound to that context. When the upstream URL lives under the playlist's base — the
+     * usual case — only the tail after the base is sealed, which is what keeps `p` short.
+     */
+    private function childUrl(Episode $episode, string $ctx, string $base, string $abs, bool $playlist): string
     {
-        $exp = time() + self::TTL;
+        $rest = str_starts_with($abs, $base) ? 'r'.substr($abs, strlen($base)) : 'a'.$abs;
+        $query = ['c' => $ctx, 'p' => self::sivSeal('p|'.$episode->id.'|'.$ctx, $rest)];
 
-        return route('stream.segment', $episode).'?'.http_build_query([
-            'u' => $this->seal($abs, $referer, $exp),
-        ]);
+        return $playlist
+            ? 'index.m3u8?'.http_build_query($query + ['d' => 1])   // d: a nested playlist never nests again
+            : 'segment?'.http_build_query($query);
     }
 
     /**
-     * Proxy URL for a child playlist of a master (a bitrate variant or an alternate audio rendition):
-     * back through this same route with the sub-playlist as a signed `u`, so it gets its own segment
-     * rewriting. Carries the caller's manifest token — this route refuses to serve without one.
-     */
-    private function nestedManifestUrl(Episode $episode, string $abs, ?string $referer, string $token): string
-    {
-        $exp = time() + self::TTL;
-
-        return route('stream.manifest', $episode).'?'.http_build_query([
-            't' => $token,
-            'u' => $this->seal($abs, $referer, $exp),
-            'd' => 1,   // depth marker — a nested playlist never nests again
-        ]);
-    }
-
-    /**
-     * Validate the signed `u` on a nested-playlist request, or null when this is a plain top-level
-     * manifest request. Same HMAC as a proxied segment, so a caller can only ask for a sub-playlist we
-     * ourselves emitted — never an arbitrary URL (SSRF).
+     * The sealed handle on a nested-playlist request, opened — or null when this is a plain top-level
+     * manifest request. A handle that does not open is refused outright: a caller can only ask for a
+     * sub-playlist we ourselves emitted, never an arbitrary URL (SSRF).
      *
-     * Returns [url, referer, expiry]: the upstream needs the same Referer for a child playlist as for
-     * the master, and it travels sealed inside the handle rather than in the clear beside it.
-     *
-     * @return array{0:string,1:?string,2:int}|null
+     * @return array{0:string,1:?string,2:int}|null  [url, referer, expiry]
      */
-    private function signedNestedUrl(Episode $episode, Request $request): ?array
+    private function nestedHandle(Episode $episode, Request $request): ?array
     {
-        $handle = (string) $request->query('u', '');
-        if ($handle === '') {
+        if (! $request->filled('p') && ! $request->filled('u')) {
             return null;
         }
-        $opened = $this->unseal($handle, $episode, $request);
+        $opened = $this->openHandle($episode, $request);
         abort_if($opened === null, 403);
 
         return $opened;
     }
 
     /**
-     * Wrap an upstream URL (and the Referer it needs) into an opaque, tamper-proof, expiring handle.
+     * Open the handle on a segment / nested-playlist request. Returns [url, referer, expiry], or null
+     * when it is forged, corrupt, expired, or was minted for another episode.
      *
-     * Until now the proxied manifest we serve carried the source's real CDN address in the clear:
-     * `?u=https://master.steamhls88.com/…&r=https://ssplayer168.xyz/`. Anyone who could fetch one
-     * manifest — which is anyone who can press play — got our entire supply chain in a single line:
-     * which site the stream comes from, which CDN serves it, and the exact Referer needed to fetch it
-     * without us. They could then pull the video straight from the source, at the source's expense,
-     * and our proxy would never see the request. It also told a source exactly who was reselling it.
-     *
-     * `encryptString` is authenticated (AES-256-CBC + HMAC), so this both hides the URL and makes it
-     * unforgeable; the expiry rides inside the sealed payload rather than beside it, where it could be
-     * edited. Nothing about the upstream leaves this server any more.
-     */
-    private function seal(string $abs, ?string $referer, int $exp): string
-    {
-        return Crypt::encryptString(implode('|', [$exp, $abs, (string) $referer]));
-    }
-
-    /**
-     * Reverse of seal(). Returns [url, referer, expiry] or null when the handle is forged, corrupt or
-     * expired. The expiry is what bounds how long a proxied segment may be cached.
-     *
-     * Also accepts a bare `https://…` for a short transition: manifests are cached for five minutes,
-     * so a deploy would otherwise 403 every segment of every stream already in flight — the site
-     * breaking itself in the name of protecting itself. The legacy branch still demands the old HMAC.
+     * Nothing about the upstream ever leaves this server: before 2026-08-21 the manifest carried the
+     * source's CDN address and the Referer it needs in the clear, which handed anyone who pressed play
+     * our whole supply chain — and told the source who was reselling it.
      *
      * @return array{0:string,1:?string,2:int}|null
      */
-    private function unseal(string $u, Episode $episode, Request $request): ?array
+    private function openHandle(Episode $episode, Request $request): ?array
     {
-        if (str_starts_with($u, 'https://')) {
-            $exp = (int) $request->query('e', 0);
-            if ($exp < time() || ! hash_equals($this->segSig($episode, $u, $exp), (string) $request->query('s', ''))) {
-                return null;
-            }
-
-            return [$u, ((string) $request->query('r', '')) ?: null, $exp];
+        $c = (string) $request->query('c', '');
+        $p = (string) $request->query('p', '');
+        if ($c === '' || $p === '') {
+            return $this->openLegacyHandle((string) $request->query('u', ''));
         }
 
+        $ctx = self::sivOpen('c|'.$episode->id, $c);
+        $parts = $ctx === null ? [] : explode('|', $ctx, 3);
+        if (count($parts) !== 3 || (int) $parts[0] < now()->getTimestamp()) {
+            return null;
+        }
+        [$exp, $base, $referer] = $parts;
+
+        $rest = self::sivOpen('p|'.$episode->id.'|'.$c, $p);
+        $url = match ($rest === null ? '' : $rest[0]) {
+            'r' => $base.substr($rest, 1),
+            'a' => substr($rest, 1),
+            default => '',
+        };
+        if (! str_starts_with($url, 'https://')) {
+            return null;
+        }
+
+        return [$url, $referer !== '' ? $referer : null, (int) $exp];
+    }
+
+    /**
+     * Handles minted before the stable format (`u` = Crypt::encryptString("exp|url|referer")). A player
+     * already mid-episode holds URLs like this for up to six hours after a deploy; refusing them would
+     * break every stream in flight. Nothing mints them any more — delete this after 2026-09-30.
+     *
+     * @return array{0:string,1:?string,2:int}|null
+     */
+    private function openLegacyHandle(string $u): ?array
+    {
+        if ($u === '') {
+            return null;
+        }
         try {
             $parts = explode('|', Crypt::decryptString($u), 3);
         } catch (\Throwable) {
             return null;
         }
-        if (count($parts) !== 3 || (int) $parts[0] < time() || ! str_starts_with($parts[1], 'https://')) {
+        if (count($parts) !== 3 || (int) $parts[0] < now()->getTimestamp() || ! str_starts_with($parts[1], 'https://')) {
             return null;
         }
 
         return [$parts[1], $parts[2] !== '' ? $parts[2] : null, (int) $parts[0]];
+    }
+
+    /** End of the NEXT bucket: a URL minted now lives between one and two buckets (3h–6h). */
+    private static function bucketExpiry(): int
+    {
+        return (intdiv(now()->getTimestamp(), self::SEAL_BUCKET) + 2) * self::SEAL_BUCKET;
+    }
+
+    /**
+     * Deterministic authenticated encryption (SIV construction): the IV is an HMAC of the context and
+     * the plaintext, so the same input always seals to the same handle — which is what lets Cloudflare
+     * serve one cached segment to every viewer — while the only thing it reveals is that two handles
+     * are equal. Opening re-derives the IV from the decrypted text, so any change to a single byte, or
+     * a handle presented under another context (episode, playlist), fails. Keys are derived from
+     * APP_KEY and kept apart from each other and from every other use of it.
+     */
+    private static function sivSeal(string $context, string $plaintext): string
+    {
+        [$enc, $mac] = self::sealKeys();
+        $iv = substr(hash_hmac('sha256', $context."\0".$plaintext, $mac, true), 0, 16);
+        $cipher = (string) openssl_encrypt($plaintext, 'aes-256-ctr', $enc, OPENSSL_RAW_DATA, $iv);
+
+        return rtrim(strtr(base64_encode($iv.$cipher), '+/', '-_'), '=');
+    }
+
+    private static function sivOpen(string $context, string $handle): ?string
+    {
+        if ($handle === '' || strspn($handle, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_') !== strlen($handle)) {
+            return null;
+        }
+        $bin = base64_decode(strtr($handle, '-_', '+/'), true);
+        if ($bin === false || strlen($bin) < 17) {
+            return null;
+        }
+        [$enc, $mac] = self::sealKeys();
+        $iv = substr($bin, 0, 16);
+        $plaintext = openssl_decrypt(substr($bin, 16), 'aes-256-ctr', $enc, OPENSSL_RAW_DATA, $iv);
+        if ($plaintext === false) {
+            return null;
+        }
+        $expected = substr(hash_hmac('sha256', $context."\0".$plaintext, $mac, true), 0, 16);
+
+        return hash_equals($expected, $iv) ? $plaintext : null;
+    }
+
+    /** @return array{0:string,1:string} [encryption key, MAC key] */
+    private static function sealKeys(): array
+    {
+        $key = (string) config('app.key');
+        if (str_starts_with($key, 'base64:')) {
+            $key = (string) base64_decode(substr($key, 7), true);
+        }
+
+        return [hash_hmac('sha256', 'netwix:stream-seal:enc', $key, true), hash_hmac('sha256', 'netwix:stream-seal:mac', $key, true)];
     }
 
     /** HMAC over "app.key" — truncated so signed URLs stay short. */
@@ -432,19 +529,13 @@ class StreamController extends Controller
         return substr(hash_hmac('sha256', $data, (string) config('app.key')), 0, 40);
     }
 
-    /** Expiring signature for one proxied segment (bound to the episode + upstream url + expiry). */
-    private function segSig(Episode $episode, string $url, int $exp): string
-    {
-        return self::sig('seg|'.$episode->id.'|'.$url.'|'.$exp);
-    }
-
     /**
      * Short-lived manifest token, minted by EpisodeSourceController (the single, authenticated
      * resolver) and required by manifest(). Public so the resolver can call it.
      */
     public static function token(Episode $episode): string
     {
-        $exp = time() + self::TTL;
+        $exp = now()->getTimestamp() + self::TTL;
 
         return $exp.'.'.self::sig('m|'.$episode->id.'|'.$exp);
     }
@@ -453,7 +544,7 @@ class StreamController extends Controller
     {
         [$exp, $s] = array_pad(explode('.', $tok, 2), 2, '');
 
-        return ctype_digit((string) $exp) && (int) $exp >= time()
+        return ctype_digit((string) $exp) && (int) $exp >= now()->getTimestamp()
             && hash_equals(self::sig('m|'.$episode->id.'|'.$exp), (string) $s);
     }
 
@@ -462,7 +553,8 @@ class StreamController extends Controller
     private function blockForeignEmbed(Request $request): void
     {
         $ref = (string) $request->headers->get('referer', '');
-        if ($ref !== '' && ! preg_match('~^https?://(www\.)?netwix\.online~i', $ref)) {
+        // Anchored at the end of the host: unanchored, `https://netwix.online.evil.tld/` counted as us.
+        if ($ref !== '' && ! preg_match('~^https?://(www\.)?netwix\.online(?::\d+)?(?:[/?#]|$)~i', $ref)) {
             abort(403);
         }
     }

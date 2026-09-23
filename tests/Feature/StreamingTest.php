@@ -8,7 +8,9 @@ use App\Models\Genre;
 use App\Models\User;
 use App\Services\Import\RemoteStream;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -134,11 +136,12 @@ class StreamingTest extends TestCase
         $master = $this->get(route('stream.manifest', $episode).'?t='.$token);
         $master->assertStatus(200);
 
-        $child = collect(preg_split('/\r?\n/', $master->getContent()))
-            ->first(fn (string $line) => str_starts_with(trim($line), 'http'));
+        $child = $this->uris($master->getContent())[0] ?? null;
         $this->assertNotNull($child, 'the master playlist should proxy its variant back through us');
+        $this->assertStringStartsWith('index.m3u8?', $child, 'a child playlist comes back through us, relative');
+        $this->assertStringNotContainsString('t=', $child, 'a sealed child authorises itself — no per-viewer token');
 
-        $this->get(parse_url($child, PHP_URL_PATH).'?'.parse_url($child, PHP_URL_QUERY))
+        $this->get($this->follow(route('stream.manifest', $episode, false), $child))
             ->assertStatus(200)
             ->assertSee('#EXTINF', false);
 
@@ -150,6 +153,64 @@ class StreamingTest extends TestCase
     private function tsBytes(): string
     {
         return str_repeat("\x47".str_repeat("\0", 187), 4);
+    }
+
+    /** Every URI line of a playlist (not tags, not blanks). */
+    private function uris(string $playlist): array
+    {
+        return collect(preg_split('/\r?\n/', $playlist))
+            ->map(fn (string $line) => trim($line))
+            ->filter(fn (string $line) => $line !== '' && ! str_starts_with($line, '#'))
+            ->values()->all();
+    }
+
+    /** The query parameters of a playlist line. */
+    private function query(string $line): array
+    {
+        parse_str((string) parse_url($line, PHP_URL_QUERY), $query);
+
+        return $query;
+    }
+
+    /** Resolve a playlist line the way a player does: relative to the playlist's own path. */
+    private function follow(string $playlistPath, string $line): string
+    {
+        if (str_starts_with($line, 'http')) {
+            return parse_url($line, PHP_URL_PATH).'?'.parse_url($line, PHP_URL_QUERY);
+        }
+
+        return rtrim(dirname(parse_url($playlistPath, PHP_URL_PATH)), '/').'/'.$line;
+    }
+
+    /** Seed an HLS episode whose upstream playlist lists $segments (absolute or relative URIs). */
+    private function hlsEpisode(array $segments = ['https://cdn.test/seg0.ts']): \App\Models\Episode
+    {
+        $episode = $this->makeContent()->episodes()->first();
+        $episode->update(['source' => 'wowdrama', 'source_ref' => '106414', 'video_url' => null]);
+
+        Cache::put("ep_raw:{$episode->id}", [
+            'kind' => RemoteStream::KIND_HLS, 'url' => 'https://cdn.test/api/stream/abc/index.m3u8',
+            'referer' => 'https://player.test/', 'source' => 'wowdrama', 'key' => 'the-hidden-shadow', 'ref' => '106414',
+            'primary' => true,
+        ], now()->addHours(12));
+
+        $lines = collect($segments)->map(fn ($u) => "#EXTINF:4.800000,\n{$u}")->implode("\n");
+        Http::fake([
+            'cdn.test/api/stream/abc/index.m3u8' => Http::response("#EXTM3U\n#EXT-X-TARGETDURATION:5\n{$lines}\n#EXT-X-ENDLIST\n"),
+            'cdn.test/*' => Http::response($this->tsBytes()),
+        ]);
+
+        return $episode;
+    }
+
+    /** The manifest a fresh viewer gets (new token, cache cleared as if ten minutes had passed). */
+    private function freshManifest(\App\Models\Episode $episode): string
+    {
+        Cache::forget("ep_manifest:{$episode->id}");
+        $res = $this->get(route('stream.manifest', $episode).'?t='.StreamController::token($episode));
+        $res->assertStatus(200);
+
+        return $res->getContent();
     }
 
     /**
@@ -179,11 +240,10 @@ class StreamingTest extends TestCase
         $manifest = $this->get(route('stream.manifest', $episode).'?t='.StreamController::token($episode));
         $manifest->assertStatus(200);
 
-        $url = collect(preg_split('/\r?\n/', $manifest->getContent()))
-            ->first(fn (string $line) => str_starts_with(trim($line), 'http'));
+        $url = $this->uris($manifest->getContent())[0] ?? null;
         $this->assertNotNull($url, 'the media playlist should proxy its segment back through us');
 
-        return [$episode, parse_url($url, PHP_URL_PATH).'?'.parse_url($url, PHP_URL_QUERY)];
+        return [$episode, $this->follow(route('stream.manifest', $episode, false), $url)];
     }
 
     /**
@@ -202,8 +262,8 @@ class StreamingTest extends TestCase
         $this->assertStringContainsString('public', $cacheControl);
         $this->assertMatchesRegularExpression('/max-age=(\d+)/', $cacheControl);
         preg_match('/max-age=(\d+)/', $cacheControl, $m);
-        $this->assertLessThanOrEqual(21600, (int) $m[1], 'must not outlive the 6h signature');
-        $this->assertGreaterThan(21600 - 120, (int) $m[1], 'a fresh URL should still be cacheable for ~6h');
+        $this->assertLessThanOrEqual(21600, (int) $m[1], 'must not outlive the signature (at most two 3h buckets)');
+        $this->assertGreaterThan(10800 - 120, (int) $m[1], 'a fresh URL should still be cacheable for at least one bucket');
 
         // A Set-Cookie makes Cloudflare refuse to cache the response at all.
         $this->assertFalse($res->headers->has('Set-Cookie'));
@@ -239,5 +299,137 @@ class StreamingTest extends TestCase
 
         $this->get($segment)->assertStatus(200)->assertHeader('Content-Type', 'video/mp2t');
         $this->assertSame(2, $attempts);
+    }
+
+    /**
+     * The whole point of the stable format: two viewers of the same episode inside one 3-hour bucket
+     * must get byte-identical segment URLs, or Cloudflare (which keys on the full URL) can never serve
+     * the second viewer from the first viewer's copy. With the old random-IV seal every rebuild of the
+     * playlist — every ten minutes — minted a fresh set, and practically every segment was a MISS.
+     */
+    public function test_every_viewer_in_a_bucket_gets_the_same_segment_urls(): void
+    {
+        $this->travelTo(Carbon::createFromTimestamp(intdiv(time(), 10800) * 10800 + 600));
+        $episode = $this->hlsEpisode(['https://cdn.test/api/stream/abc/seg-1.ts', 'https://cdn.test/api/stream/abc/seg-2.ts']);
+
+        $first = $this->uris($this->freshManifest($episode));
+        $this->travel(95)->minutes();   // same bucket, long after the 10-minute playlist cache expired
+        $second = $this->uris($this->freshManifest($episode));
+
+        $this->assertCount(2, $first);
+        $this->assertSame($first, $second);
+    }
+
+    /** A new bucket mints new URLs, and yesterday's URLs stop working — a scraped link still dies. */
+    public function test_segment_urls_rotate_with_the_bucket_and_then_expire(): void
+    {
+        $this->travelTo(Carbon::createFromTimestamp(intdiv(time(), 10800) * 10800 + 600));
+        $episode = $this->hlsEpisode();
+
+        $old = $this->uris($this->freshManifest($episode))[0];
+        $this->travel(3)->hours();
+        $new = $this->uris($this->freshManifest($episode))[0];
+        $this->assertNotSame($old, $new);
+
+        $path = route('stream.manifest', $episode, false);
+        $this->get($this->follow($path, $old))->assertStatus(200);   // still inside its 3h–6h life
+        $this->travel(3)->hours();
+        $this->get($this->follow($path, $old))->assertStatus(403);   // past it
+        $this->get($this->follow($path, $new))->assertStatus(200);
+    }
+
+    /**
+     * The repeated part of a line (the playlist's context) is identical on every line, the per-line
+     * part is short, and the line is relative — so a 561-segment playlist that was 344 KB (201 KB
+     * gzipped) on 2026-09-23 shrinks to a fraction of that on the wire.
+     */
+    public function test_segment_lines_are_relative_short_and_share_one_context(): void
+    {
+        $episode = $this->hlsEpisode(array_map(fn ($i) => "https://cdn.test/api/stream/abc/seg-{$i}.ts", range(1, 40)));
+        $lines = $this->uris($this->freshManifest($episode));
+
+        $this->assertCount(40, $lines);
+        foreach ($lines as $line) {
+            $this->assertStringStartsWith('segment?c=', $line);
+            $this->assertLessThan(260, strlen($line));
+        }
+        $contexts = array_unique(array_map(fn ($l) => $this->query($l)['c'] ?? null, $lines));
+        $this->assertCount(1, $contexts, 'every line of one playlist carries the same sealed context');
+
+        $raw = implode("\n", $lines);
+        $this->assertLessThan(strlen($raw) / 2, strlen(gzencode($raw)), 'the shared context must compress away');
+    }
+
+    /** Nothing about a handle can be edited, moved to another episode, or mixed with another playlist's. */
+    public function test_a_forged_or_misplaced_handle_is_refused(): void
+    {
+        $this->travelTo(Carbon::createFromTimestamp(intdiv(time(), 10800) * 10800 + 600));
+        $episode = $this->hlsEpisode(['https://cdn.test/api/stream/abc/seg-1.ts']);
+        $segment = route('stream.segment', $episode, false);
+
+        $a = $this->query($this->uris($this->freshManifest($episode))[0]);
+        $this->get($segment.'?'.http_build_query($a))->assertStatus(200);
+
+        $flip = fn (string $h) => substr($h, 0, 20).($h[20] === 'A' ? 'B' : 'A').substr($h, 21);
+        $this->get($segment.'?'.http_build_query(['c' => $a['c'], 'p' => $flip($a['p'])]))->assertStatus(403);
+        $this->get($segment.'?'.http_build_query(['c' => $flip($a['c']), 'p' => $a['p']]))->assertStatus(403);
+        $this->get($segment.'?'.http_build_query(['c' => $a['c']]))->assertStatus(403);
+
+        // A tail sealed under one playlist context cannot be replayed under another (here: the next
+        // bucket's context for the very same playlist) — it is bound to the context it was minted with.
+        $this->travel(3)->hours();
+        $b = $this->query($this->uris($this->freshManifest($episode))[0]);
+        $this->assertNotSame($a['c'], $b['c']);
+        $this->get($segment.'?'.http_build_query(['c' => $b['c'], 'p' => $a['p']]))->assertStatus(403);
+        $this->get($segment.'?'.http_build_query($b))->assertStatus(200);
+
+        // Nor can a handle minted for one episode be spent on another.
+        $other = $episode->content->episodes()->create([
+            'season_id' => $episode->season_id, 'number' => 2, 'title' => 'ตอนที่ 2', 'video_url' => null,
+        ]);
+        $this->get(route('stream.segment', $other, false).'?'.http_build_query($b))->assertStatus(403);
+    }
+
+    /** The playlist itself still needs the resolver's token; only its children authorise themselves. */
+    public function test_the_top_level_playlist_still_requires_the_token(): void
+    {
+        $episode = $this->hlsEpisode();
+
+        $this->get(route('stream.manifest', $episode))->assertStatus(403);
+        $this->get(route('stream.manifest', $episode).'?t=123.abc')->assertStatus(403);
+        $this->get(route('stream.manifest', $episode).'?t='.StreamController::token($episode))->assertStatus(200);
+    }
+
+    /** A viewer mid-episode during a deploy holds URLs in the previous format; they must keep playing. */
+    public function test_handles_minted_before_the_stable_format_still_play(): void
+    {
+        $episode = $this->hlsEpisode();
+        $legacy = Crypt::encryptString(implode('|', [now()->addHours(5)->getTimestamp(), 'https://cdn.test/seg0.ts', '']));
+
+        $this->get(route('stream.segment', $episode, false).'?'.http_build_query(['u' => $legacy]))
+            ->assertStatus(200)->assertHeader('Content-Type', 'video/mp2t');
+    }
+
+    /** The plain-URL form retired on 2026-08-21 (upstream URL in the clear, HMAC beside it) is gone. */
+    public function test_the_retired_plain_url_handle_is_refused(): void
+    {
+        $episode = $this->hlsEpisode();
+        $exp = now()->addHours(5)->getTimestamp();
+        $url = 'https://cdn.test/seg0.ts';
+        $sig = substr(hash_hmac('sha256', 'seg|'.$episode->id.'|'.$url.'|'.$exp, (string) config('app.key')), 0, 40);
+
+        $this->get(route('stream.segment', $episode, false).'?'.http_build_query(['u' => $url, 'e' => $exp, 's' => $sig]))
+            ->assertStatus(403);
+    }
+
+    /** A foreign page embedding our stream is refused — including one that merely starts with our name. */
+    public function test_a_lookalike_referer_is_not_our_own(): void
+    {
+        [, $segment] = $this->proxiedSegment(Http::response($this->tsBytes()));
+
+        $this->get($segment, ['Referer' => 'https://netwix.online.evil.test/watch'])->assertStatus(403);
+        $this->get($segment, ['Referer' => 'https://evil.test/netwix.online'])->assertStatus(403);
+        $this->get($segment, ['Referer' => 'https://netwix.online/watch/1'])->assertStatus(200);
+        $this->get($segment)->assertStatus(200);   // the app and hls.js may send none
     }
 }
