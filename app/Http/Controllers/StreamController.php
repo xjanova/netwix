@@ -182,7 +182,17 @@ class StreamController extends Controller
             }
             abort(404);   // thrown inside Cache::remember → the junk is never cached
         }
-        $base = $this->baseUrl($stream->url);
+        $dir = $this->baseUrl($stream->url);
+        $lines = preg_split('/\r?\n/', $body);
+
+        // The context carries what every child URI has in common, so each line seals only what
+        // differs. The playlist's own directory is not that: 24hdx serves its segments from another
+        // host, 124 characters each with 113 of them shared, and sealing the whole URL on every line
+        // kept a 561-segment playlist at 86 KB gzipped when the part that changes is 11 characters.
+        $base = self::sharedPrefix(array_map(
+            fn (string $l) => $this->absolute($l, $dir),
+            array_values(array_filter(array_map('trim', $lines), fn (string $l) => $l !== '' && $l[0] !== '#')),
+        ), $dir);
 
         // A MASTER playlist lists variant streams + alternate renditions; a MEDIA playlist lists
         // segments. That one fact decides how every child URI is rewritten — children of a master are
@@ -192,12 +202,12 @@ class StreamController extends Controller
         // is never rewritten as a master rather than proxying in a circle.
         $isMaster = str_contains($body, '#EXT-X-STREAM-INF') && ! $nested;
 
-        // One sealed context per playlist — expiry, base URL and Referer — shared by every line, so the
-        // repeated part of each line is identical and compresses to almost nothing.
+        // One sealed context per playlist — expiry, shared prefix and Referer — the same on every line,
+        // so the repeated part of each line is identical and compresses to almost nothing.
         $ctx = self::sivSeal('c|'.$episode->id, self::bucketExpiry().'|'.$base.'|'.(string) $stream->referer);
-        $child = fn (string $uri) => $this->childUrl($episode, $ctx, $base, $this->absolute($uri, $base), $isMaster);
+        $child = fn (string $uri) => $this->childUrl($episode, $ctx, $base, $this->absolute($uri, $dir), $isMaster);
 
-        return collect(preg_split('/\r?\n/', $body))->map(function (string $line) use ($child) {
+        return collect($lines)->map(function (string $line) use ($child) {
             $trim = trim($line);
             if ($trim === '') {
                 return $line;
@@ -467,6 +477,34 @@ class StreamController extends Controller
         }
 
         return [$parts[1], $parts[2] !== '' ? $parts[2] : null, (int) $parts[0]];
+    }
+
+    /**
+     * The longest prefix every one of $urls starts with — or $fallback when there is nothing useful to
+     * share (no URIs, or not even a scheme in common). Deterministic for a given playlist, so the
+     * context it goes into stays the same across rebuilds, which is what keeps the URLs stable.
+     *
+     * @param  list<string>  $urls
+     */
+    private static function sharedPrefix(array $urls, string $fallback): string
+    {
+        if ($urls === []) {
+            return $fallback;
+        }
+        $prefix = $urls[0];
+        foreach ($urls as $url) {
+            $len = min(strlen($prefix), strlen($url));
+            $i = 0;
+            while ($i < $len && $prefix[$i] === $url[$i]) {
+                $i++;
+            }
+            $prefix = substr($prefix, 0, $i);
+            if ($prefix === '') {
+                break;
+            }
+        }
+
+        return str_starts_with($prefix, 'https://') && strlen($prefix) > strlen('https://') ? $prefix : $fallback;
     }
 
     /** End of the NEXT bucket: a URL minted now lives between one and two buckets (3h–6h). */

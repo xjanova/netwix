@@ -360,6 +360,27 @@ class StreamingTest extends TestCase
         $this->assertLessThan(strlen($raw) / 2, strlen(gzencode($raw)), 'the shared context must compress away');
     }
 
+    /**
+     * 24hdx serves segments from another host than the playlist: 124-character URLs, 113 characters of
+     * them identical. Sealing the whole URL per line kept its 561-segment playlist at 86 KB gzipped;
+     * the shared part belongs in the context, and only the tail that differs is sealed per line.
+     */
+    public function test_segments_on_another_host_seal_only_the_part_that_differs(): void
+    {
+        $prefix = 'https://master17.cdn-other.test/txt/hls15/'.str_repeat('Ab3', 20).'/';
+        $episode = $this->hlsEpisode(array_map(fn ($i) => $prefix."seg-{$i}.aaa?m=m17", range(1, 30)));
+        Http::fake(['master17.cdn-other.test/*' => Http::response($this->tsBytes())]);
+
+        $lines = $this->uris($this->freshManifest($episode));
+
+        $this->assertCount(30, $lines);
+        foreach ($lines as $line) {
+            $this->assertLessThan(64, strlen($this->query($line)['p']), 'only the differing tail is sealed per line');
+        }
+        $this->get($this->follow(route('stream.manifest', $episode, false), $lines[7]))
+            ->assertStatus(200)->assertHeader('Content-Type', 'video/mp2t');
+    }
+
     /** Nothing about a handle can be edited, moved to another episode, or mixed with another playlist's. */
     public function test_a_forged_or_misplaced_handle_is_refused(): void
     {
