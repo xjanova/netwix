@@ -101,6 +101,11 @@ class WatermarkCovers extends Command
 
                 continue;
             }
+            // GD cannot write a palette image as WebP ("Palette image not supported by webp"): the
+            // GIF / PNG-8 covers failed on every run and were picked up again by every next batch.
+            if (! imageistruecolor($img)) {
+                imagepalettetotruecolor($img);
+            }
 
             if (! PosterWatermark::apply($img, $cfg)) {
                 imagedestroy($img);
