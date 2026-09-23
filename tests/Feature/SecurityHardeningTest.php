@@ -254,6 +254,21 @@ class SecurityHardeningTest extends TestCase
         $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.9'])->get('/.well-known/acme-challenge/x')->assertNotFound();
     }
 
+    /** The admin page shows the secret exactly once — on the response right after it is made. */
+    public function test_the_security_page_shows_a_new_secret_once(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->get(route('admin.security.index'))->assertOk()->assertSee('รหัสลับจาก Cloudflare');
+
+        $this->actingAs($admin)->from(route('admin.security.index'))
+            ->post(route('admin.security.edge'), ['action' => 'generate'])->assertRedirect(route('admin.security.index'));
+        $secret = EdgeSecret::secret();
+
+        $this->actingAs($admin)->get(route('admin.security.index'))->assertOk()->assertSee($secret, false);
+        $this->actingAs($admin)->get(route('admin.security.index'))->assertOk()->assertDontSee($secret, false);
+    }
+
     /** Enforcing before Cloudflare sends the header would refuse every visitor — so it is refused. */
     public function test_enforcement_waits_until_cloudflare_is_seen_sending_the_secret(): void
     {
