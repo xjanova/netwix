@@ -8,11 +8,10 @@ use App\Services\Import\JsonExtract;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
 use App\Support\PosterCandidate;
-use GuzzleHttp\Psr7\Uri;
+use App\Support\RongYokRelay;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-use Psr\Http\Message\RequestInterface;
 
 /**
  * rongyok.com (โรงหยก) — Chinese short-drama. Three GET endpoints, no auth/captcha/ad-gate:
@@ -74,33 +73,16 @@ class RongYokSource implements MediaSource, SearchesPosters
      * is the thing being fingerprinted. If it ever stops working, the block page carries the site's own
      * LINE (lin.ee/EQP22ad) and Facebook (facebook.com/seriesrongyok) contacts for an appeal.
      *
-     * It did stop working on 2026-09-28: rongyok now blocks this server's IP (and the neighbouring
-     * .250, and Cloudflare Worker egress) regardless of ALPN, while a residential line still gets 200.
-     * So when services.rongyok.relay_url is set, every request is re-pointed at a relay on a residential
-     * line that forwards the path, query, UA and Referer to rongyok.com unchanged.
+     * It did stop working on 2026-09-28: rongyok now blocks this server's IP regardless of ALPN, so the
+     * client also goes through [RongYokRelay] when one is configured.
      */
     private function http(): PendingRequest
     {
-        $req = Http::withHeaders([
+        return RongYokRelay::apply(Http::withHeaders([
             'User-Agent' => self::UA,
             'Accept-Language' => 'th,en;q=0.8',
         ])->withOptions(['curl' => [CURLOPT_SSL_ENABLE_ALPN => false]])
-            ->timeout(60)->retry(2, 400);
-
-        $relay = rtrim((string) config('services.rongyok.relay_url'), '/');
-        if ($relay === '') {
-            return $req;
-        }
-        $to = new Uri($relay);
-
-        return $req->withHeaders(['X-Relay-Key' => (string) config('services.rongyok.relay_key')])
-            ->withRequestMiddleware(function (RequestInterface $r) use ($to): RequestInterface {
-                if ($r->getUri()->getHost() !== 'rongyok.com') {
-                    return $r;
-                }
-
-                return $r->withUri($r->getUri()->withScheme($to->getScheme())->withHost($to->getHost())->withPort($to->getPort()));
-            });
+            ->timeout(60)->retry(2, 400));
     }
 
     /** Titles per page of the /category/all/page/N/ grid (fixed by the site — per_page is ignored). */
@@ -197,8 +179,12 @@ class RongYokSource implements MediaSource, SearchesPosters
     }
 
     /**
-     * The newest ~300 titles from the homepage's `seriesData` literal — one request, and the only
-     * source that still carries view_count / created_at.
+     * The newest titles from the homepage — one request.
+     *
+     * It used to embed a `seriesData` literal of the newest ~300 (the only place with view_count /
+     * created_at). By 2026-09-29 that literal is gone and the homepage renders ~60 `movie-card`s in the
+     * same markup as the grid, while every /category/* page sits behind a "ยืนยันว่าคุณไม่ใช่บอท"
+     * interstitial. So the cards are read when the literal is missing, and they are all a sync gets.
      *
      * @return RemoteSeries[]
      */
@@ -211,13 +197,24 @@ class RongYokSource implements MediaSource, SearchesPosters
         }
         $json = JsonExtract::catalogArray($html);
         $arr = $json ? json_decode($json, true) : null;
-        if (! is_array($arr)) {
-            return [];
-        }
 
         $out = [];
-        foreach ($arr as $el) {
-            if (is_array($el) && ($s = $this->parseSeries($el))) {
+        if (is_array($arr)) {
+            foreach ($arr as $el) {
+                if (is_array($el) && ($s = $this->parseSeries($el))) {
+                    $out[] = $s;
+                }
+            }
+        }
+        if ($out !== []) {
+            return $out;
+        }
+
+        // The same title appears in several homepage rows (new, popular, …) — keep the first.
+        $seen = [];
+        foreach ($this->parseGrid($html) as $s) {
+            if (! isset($seen[$s->sourceKey])) {
+                $seen[$s->sourceKey] = true;
                 $out[] = $s;
             }
         }
