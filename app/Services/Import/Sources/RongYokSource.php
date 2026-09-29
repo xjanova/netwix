@@ -8,9 +8,11 @@ use App\Services\Import\JsonExtract;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
 use App\Support\PosterCandidate;
+use GuzzleHttp\Psr7\Uri;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Psr\Http\Message\RequestInterface;
 
 /**
  * rongyok.com (โรงหยก) — Chinese short-drama. Three GET endpoints, no auth/captcha/ad-gate:
@@ -71,14 +73,34 @@ class RongYokSource implements MediaSource, SearchesPosters
      * So this is not a header trick that will rot next week — it changes the TLS handshake itself, which
      * is the thing being fingerprinted. If it ever stops working, the block page carries the site's own
      * LINE (lin.ee/EQP22ad) and Facebook (facebook.com/seriesrongyok) contacts for an appeal.
+     *
+     * It did stop working on 2026-09-28: rongyok now blocks this server's IP (and the neighbouring
+     * .250, and Cloudflare Worker egress) regardless of ALPN, while a residential line still gets 200.
+     * So when services.rongyok.relay_url is set, every request is re-pointed at a relay on a residential
+     * line that forwards the path, query, UA and Referer to rongyok.com unchanged.
      */
     private function http(): PendingRequest
     {
-        return Http::withHeaders([
+        $req = Http::withHeaders([
             'User-Agent' => self::UA,
             'Accept-Language' => 'th,en;q=0.8',
         ])->withOptions(['curl' => [CURLOPT_SSL_ENABLE_ALPN => false]])
             ->timeout(60)->retry(2, 400);
+
+        $relay = rtrim((string) config('services.rongyok.relay_url'), '/');
+        if ($relay === '') {
+            return $req;
+        }
+        $to = new Uri($relay);
+
+        return $req->withHeaders(['X-Relay-Key' => (string) config('services.rongyok.relay_key')])
+            ->withRequestMiddleware(function (RequestInterface $r) use ($to): RequestInterface {
+                if ($r->getUri()->getHost() !== 'rongyok.com') {
+                    return $r;
+                }
+
+                return $r->withUri($r->getUri()->withScheme($to->getScheme())->withHost($to->getHost())->withPort($to->getPort()));
+            });
     }
 
     /** Titles per page of the /category/all/page/N/ grid (fixed by the site — per_page is ignored). */

@@ -47,6 +47,14 @@ return [
         'server_ips' => env('NETWIX_SERVER_IPS', '123.253.62.251'),
     ],
 
+    // rongyok blocks this server's IP range and Cloudflare Worker egress (2026-09-28). When relay_url
+    // is set, every rongyok request goes through a relay on a residential line instead — see
+    // RongYokSource::http(). Empty = talk to rongyok.com directly.
+    'rongyok' => [
+        'relay_url' => env('RONGYOK_RELAY_URL'),
+        'relay_key' => env('RONGYOK_RELAY_KEY'),
+    ],
+
     'ingest' => [
         'token' => env('NETWIX_INGEST_TOKEN'),
         'max_gb' => (float) env('NETWIX_MEDIA_MAX_GB', 100),
