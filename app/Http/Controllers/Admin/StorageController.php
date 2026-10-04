@@ -264,7 +264,7 @@ class StorageController extends Controller
 
         $ok = 0;
         $fail = 0;
-        foreach ($content->episodes()->whereNull('mirrored_at')->whereNotNull('source_ref')->orderBy('number')->get() as $ep) {
+        foreach ($content->episodes()->whereNull('mirrored_at')->whereNull('manual_link_at')->whereNotNull('source_ref')->orderBy('number')->get() as $ep) {
             if ($mirror->store($ep)['ok']) {
                 $ok++;
             } else {

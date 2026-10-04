@@ -56,6 +56,12 @@ class MediaMirror
      */
     public function store(Episode $episode): array
     {
+        // An admin-entered link is the episode's video now. Downloading from the source would overwrite
+        // it; and it is not a failure, so it must not count toward mirror_attempts either.
+        if ($episode->is_manual_link) {
+            return ['ok' => false, 'error' => 'ตอนนี้ใช้ลิงก์ที่แอดมินใส่เอง — ไม่โหลดเก็บทับ'];
+        }
+
         $r = $this->attempt($episode);
 
         // Count the failure on the episode HERE rather than in the caller. The worker used to do it and

@@ -440,6 +440,9 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('contents/{content}/episodes', [Admin\EpisodeController::class, 'store'])->name('contents.episodes.store');
     Route::delete('contents/{content}/episodes/{episode}', [Admin\EpisodeController::class, 'destroy'])->name('contents.episodes.destroy');
     Route::post('contents/{content}/episodes/{episode}/markers', [Admin\EpisodeController::class, 'setMarkers'])->name('contents.episodes.markers');
+    Route::post('contents/{content}/episodes/{episode}/link', [Admin\EpisodeController::class, 'setLink'])->name('contents.episodes.link');
+    Route::delete('contents/{content}/episodes/{episode}/link', [Admin\EpisodeController::class, 'clearLink'])->name('contents.episodes.link.clear');
+    Route::post('contents/{content}/episode-links', [Admin\EpisodeController::class, 'bulkLinks'])->name('contents.episodes.links');
 
     Route::get('genres', [Admin\GenreController::class, 'index'])->name('genres.index');
     Route::post('genres', [Admin\GenreController::class, 'store'])->name('genres.store');

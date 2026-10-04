@@ -33,6 +33,8 @@
                     @if ($ep->is_mirrored)
                         <span class="rounded-full bg-success/15 px-2 py-0.5 text-[11px] text-success" title="เก็บไฟล์ในเซิร์ฟเวอร์แล้ว">● มิเรอร์แล้ว</span>
                         @if ($ep->file_size)<span class="text-[11px] text-cream/45">{{ number_format($ep->file_size / 1e6, 1) }} MB</span>@endif
+                    @elseif ($ep->is_manual_link)
+                        <span class="rounded-full bg-brand/15 px-2 py-0.5 text-[11px] text-brand" title="ใช้ลิงก์ที่แอดมินใส่เอง ({{ $ep->manual_link_at?->format('d/m/Y H:i') }}) — เล่นก่อนแหล่งอื่น">🔗 ลิงก์แอดมิน</span>
                     @elseif ($ep->source)
                         <span class="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-cream/50" title="ยังไม่ได้ดาวน์โหลดมาเก็บ">○ ต้นทาง</span>
                     @endif
@@ -49,7 +51,7 @@
                             @csrf @method('DELETE')
                             <button class="rounded-md bg-white/5 px-2.5 py-1 text-xs hover:bg-white/10" title="ลบไฟล์ที่เก็บไว้ในเซิร์ฟเวอร์">ลบไฟล์</button>
                         </form>
-                    @elseif ($ep->source && $canMirror)
+                    @elseif ($ep->source && $canMirror && ! $ep->is_manual_link)
                         <form method="POST" action="{{ route('admin.storage.mirror', $ep) }}">
                             @csrf
                             <button class="rounded-md bg-brand/15 px-2.5 py-1 text-xs text-brand hover:bg-brand/25" title="ดาวน์โหลดตอนนี้มาเก็บที่เซิร์ฟเวอร์">⬇ โหลดเก็บ</button>
@@ -71,9 +73,57 @@
                       <button class="rounded bg-white/10 px-2.5 py-1 font-semibold hover:bg-white/15">บันทึก</button>
                       <span class="text-cream/35">(เว้นว่าง = ใช้ค่าของเรื่อง)</span>
                   </form>
+                  {{-- Hand-entered video link. Plays ahead of the episode's source; a stored file has to be deleted first. --}}
+                  @if ($ep->is_mirrored)
+                      <div class="mt-2 pl-16 text-xs text-cream/35">🔗 ตอนนี้เล่นจากไฟล์ในเซิร์ฟเวอร์ — ถ้าจะใช้ลิงก์เอง กด "ลบไฟล์" ก่อน</div>
+                  @else
+                      <div class="mt-2 flex flex-wrap items-center gap-2 pl-16 text-xs text-cream/55">
+                          <form method="POST" action="{{ route('admin.contents.episodes.link', [$content, $ep]) }}" class="flex min-w-0 flex-1 items-center gap-2"
+                                onsubmit="@if ($ep->video_url)if (!confirm('แทนที่ลิงก์เดิมของตอนที่ {{ $ep->number }}?')) return false; @endif this.querySelector('button').disabled = true;">
+                              @csrf
+                              <span class="shrink-0">🔗 ลิงก์วิดีโอ</span>
+                              <input name="video_url" type="url" inputmode="url" required maxlength="2048"
+                                     value="{{ $ep->is_manual_link ? $ep->video_url : '' }}" placeholder="https://… (.mp4 / .m3u8)"
+                                     class="min-w-0 flex-1 rounded border border-white/10 bg-surface-2 px-2 py-1 outline-none focus:border-brand">
+                              <button class="shrink-0 rounded bg-white/10 px-2.5 py-1 font-semibold hover:bg-white/15 disabled:opacity-50">บันทึก</button>
+                          </form>
+                          @if ($ep->is_manual_link)
+                              <form method="POST" action="{{ route('admin.contents.episodes.link.clear', [$content, $ep]) }}"
+                                    onsubmit="if (!confirm('ลบลิงก์ของตอนที่ {{ $ep->number }}?{{ $ep->source ? ' (จะกลับไปใช้แหล่งเดิม)' : ' (ตอนนี้จะไม่มีวิดีโอ)' }}')) return false; this.querySelector('button').disabled = true;">
+                                  @csrf @method('DELETE')
+                                  <button class="rounded bg-[#e5484d]/15 px-2.5 py-1 text-[#ff6b81] hover:bg-[#e5484d]/25 disabled:opacity-50">ลบลิงก์</button>
+                              </form>
+                          @endif
+                      </div>
+                  @endif
                 </div>
             @endforeach
         </div>
+
+        {{-- Bulk paste: many episodes of this title in one go (all-or-nothing, see EpisodeController::bulkLinks). --}}
+        <details class="mb-5 rounded-lg border border-white/5 p-4" @if ($errors->has('links')) open @endif>
+            <summary class="cursor-pointer text-sm font-semibold text-cream/70">🔗 วางลิงก์หลายตอนพร้อมกัน</summary>
+            <form method="POST" action="{{ route('admin.contents.episodes.links', $content) }}" class="mt-3 grid gap-3"
+                  onsubmit="if (this.overwrite.checked && !confirm('แทนที่ลิงก์เดิมของตอนที่มีลิงก์อยู่แล้วด้วย?')) return false; this.querySelector('button').disabled = true;">
+                @csrf
+                <p class="text-xs leading-relaxed text-cream/50">
+                    บรรทัดละ 1 ตอน แบบ <code class="text-cream/70">ตอนที่ ลิงก์</code> เช่น <code class="text-cream/70">1 https://cdn.example.com/ep1.m3u8</code>
+                    — หรือวางเฉพาะลิงก์ เรียงตามลำดับตอนในรายการด้านบน (ใส่ <code class="text-cream/70">-</code> เพื่อข้ามตอน)
+                    · รับเฉพาะ https:// (.mp4 / .m3u8) · ถ้ามีบรรทัดผิดแม้แต่บรรทัดเดียว จะยังไม่บันทึกอะไรเลย
+                </p>
+                <textarea name="links" rows="8" required class="nx-input font-mono text-xs" placeholder="1 https://…&#10;2 https://…">{{ old('links') }}</textarea>
+                @if ($errors->has('links'))
+                    <ul class="list-disc space-y-0.5 pl-5 text-xs text-[#ff6b81]">
+                        @foreach ($errors->get('links') as $err)<li>{{ $err }}</li>@endforeach
+                    </ul>
+                @endif
+                <label class="flex items-center gap-2 text-xs text-cream/60">
+                    <input type="checkbox" name="overwrite" value="1" @checked(old('overwrite'))>
+                    แทนที่ลิงก์เดิม (ถ้าไม่ติ๊ก ตอนที่มีลิงก์อยู่แล้วจะถูกข้าม)
+                </label>
+                <div><button class="rounded-lg bg-white/10 px-5 py-2.5 text-sm font-semibold hover:bg-white/15 disabled:opacity-50">บันทึกลิงก์</button></div>
+            </form>
+        </details>
     @endif
 
     <form method="POST" action="{{ route('admin.contents.episodes.store', $content) }}" class="grid gap-3 rounded-lg border border-white/5 p-4 sm:grid-cols-2">

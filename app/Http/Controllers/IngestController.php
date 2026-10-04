@@ -91,6 +91,7 @@ class IngestController extends Controller
 
         $episode->update([
             'video_url' => Storage::disk('public')->url($path),
+            'manual_link_at' => null,   // the uploaded file replaces any admin-entered link
             'mirrored_at' => now(),
             'file_size' => Storage::disk('public')->size($path),
             'mirror_trigger' => 'admin',

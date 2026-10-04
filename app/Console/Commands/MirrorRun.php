@@ -157,6 +157,7 @@ class MirrorRun extends Command
             ->whereHas('content', fn ($q) => $q->where('source', $job->source)->whereNotNull('source_key'))
             ->whereNotNull('source_ref')
             ->where('source_ref', '<>', '')
+            ->whereNull('manual_link_at')   // admin-entered link — MediaMirror::store refuses it, so never pick it
             ->when($job->scope !== 'all', fn ($q) => $q->whereNull('mirrored_at'))
             ->where('mirror_attempts', '<', Episode::MIRROR_MAX_ATTEMPTS)
             ->with('content')
