@@ -8,6 +8,8 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
+Schedule::command('netwix:rongyok-proxies')->everyFiveMinutes()->withoutOverlapping(3)->runInBackground();
+
 // ---- Automatic catalogue pipeline -----------------------------------------
 // Requires ONE cron line on the server:
 //   * * * * * cd <app> && php artisan schedule:run >> /dev/null 2>&1

@@ -8,7 +8,9 @@ use App\Services\Import\JsonExtract;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
 use App\Support\PosterCandidate;
-use App\Support\RongYokRelay;
+use App\Support\RongYokClientResolver;
+use App\Support\RongYokProxyPool;
+use App\Support\RongYokTransport;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -29,7 +31,8 @@ use Illuminate\Support\Facades\Http;
 class RongYokSource implements MediaSource, SearchesPosters
 {
     public const BASE = 'https://rongyok.com';
-    private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+
+    private const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36';
 
     public function id(): string
     {
@@ -74,15 +77,16 @@ class RongYokSource implements MediaSource, SearchesPosters
      * LINE (lin.ee/EQP22ad) and Facebook (facebook.com/seriesrongyok) contacts for an appeal.
      *
      * It did stop working on 2026-09-28: rongyok now blocks this server's IP regardless of ALPN, so the
-     * client also goes through [RongYokRelay] when one is configured.
+     * client uses the optional server proxy when configured.
      */
     private function http(): PendingRequest
     {
-        return RongYokRelay::apply(Http::withHeaders([
+        return RongYokTransport::apply(Http::withHeaders([
             'User-Agent' => self::UA,
             'Accept-Language' => 'th,en;q=0.8',
         ])->withOptions(['curl' => [CURLOPT_SSL_ENABLE_ALPN => false]])
-            ->timeout(60)->retry(2, 400));
+            ->connectTimeout(RongYokClientResolver::enabled() ? 3 : 10)
+            ->timeout(RongYokClientResolver::enabled() ? 7 : 60)->retry(RongYokClientResolver::enabled() ? 1 : 2, 400));
     }
 
     /** Titles per page of the /category/all/page/N/ grid (fixed by the site — per_page is ignored). */
@@ -442,6 +446,13 @@ class RongYokSource implements MediaSource, SearchesPosters
 
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream
     {
+        if (RongYokClientResolver::enabled() && ($assisted = RongYokClientResolver::cached($sourceKey, $sourceRef))) {
+            return $assisted;
+        }
+        // Without a configured proxy, hand resolution to the viewer immediately.
+        if (RongYokClientResolver::proxyUrl() === '' && RongYokClientResolver::descriptor($sourceKey, $sourceRef)) {
+            return null;
+        }
         // rongyok rotates the resolver endpoint filename to deter scrapers; the OLD get_video.php
         // now returns already-expired Discord URLs. Use the cached endpoint first.
         $cached = Cache::get(self::ENDPOINT_CACHE_KEY);
@@ -491,16 +502,21 @@ class RongYokSource implements MediaSource, SearchesPosters
 
     private function callResolve(string $endpoint, string $sourceKey, string $sourceRef): ?RemoteStream
     {
+        $proxy = RongYokClientResolver::proxyUrl();
         try {
             $resp = $this->http()->withHeaders([
                 'Referer' => self::BASE."/watch/?series_id={$sourceKey}&ep={$sourceRef}",
                 'X-Requested-With' => 'XMLHttpRequest',
             ])->get(self::BASE."/watch/{$endpoint}", ['series_id' => $sourceKey, 'ep' => $sourceRef]);
         } catch (\Throwable) {
+            RongYokProxyPool::failed($proxy);
+
             return null;
         }
 
         if (! $resp->ok()) {
+            RongYokProxyPool::failed($proxy);
+
             return null;
         }
         $data = $resp->json();

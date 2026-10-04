@@ -47,12 +47,12 @@ return [
         'server_ips' => env('NETWIX_SERVER_IPS', '123.253.62.251'),
     ],
 
-    // rongyok blocks this server's IP range and Cloudflare Worker egress (2026-09-28). When relay_url
-    // is set, every rongyok request goes through a relay on a residential line instead — see
-    // RongYokSource::http(). Empty = talk to rongyok.com directly.
+    // Use the viewer's connection for RongYok; optionally try a server proxy first.
     'rongyok' => [
-        'relay_url' => env('RONGYOK_RELAY_URL'),
-        'relay_key' => env('RONGYOK_RELAY_KEY'),
+        'proxy_url' => env('RONGYOK_PROXY_URL'),
+        'free_proxy_auto' => env('RONGYOK_FREE_PROXY_AUTO', true),
+        // Opt in after installing a client with direct-resolution support; preserves old clients.
+        'client_fallback' => env('RONGYOK_CLIENT_FALLBACK', true),
     ],
 
     'ingest' => [

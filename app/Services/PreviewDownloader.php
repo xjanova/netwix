@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Storage;
 class PreviewDownloader
 {
     private const MIN_BYTES = 10_000;          // reject error pages / truncated files
+
     private const MAX_BYTES = 200_000_000;     // a single short-drama ep is a few–tens of MB; cap at 200MB
 
     public function __construct(private SourceRegistry $registry) {}

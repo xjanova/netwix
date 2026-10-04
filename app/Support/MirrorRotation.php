@@ -137,6 +137,13 @@ class MirrorRotation
                 ];
             }
 
+            // A supported device handoff is not proof of a dead episode. Source adapters keep
+            // their nullable contract so background mirrors/previews also defer cleanly.
+            if ($link->source === 'rongyok' && RongYokClientResolver::descriptor($link->key, $link->ref)) {
+                $transient = true;
+
+                continue;
+            }
             self::recordFailure($link);
         }
 

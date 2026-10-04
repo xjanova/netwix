@@ -7,8 +7,11 @@ use App\Models\Genre;
 use App\Models\Setting;
 use App\Services\AppRelease;
 use App\Support\HeroBillboard;
+use App\Support\RongYokClientResolver;
+use App\Support\RongYokProxyPool;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 
 class SettingController extends Controller
@@ -41,6 +44,10 @@ class SettingController extends Controller
             'previewBillboard' => Setting::flag('preview_billboard_enabled', true),
             // Auto-unpublish a title when enough viewers can't play it (off = only flag for review).
             'playbackAutoSuspend' => Setting::flag('playback_auto_suspend', true),
+            'hasRongYokProxy' => filled(RongYokClientResolver::proxyUrl()),
+            'rongYokClientFallback' => RongYokClientResolver::enabled(),
+            'rongYokFreeProxyAuto' => RongYokProxyPool::enabled(),
+            'rongYokProxyCheck' => Cache::get('rongyok:proxy:last_check'),
             'genres' => Genre::orderBy('sort')->get(['id', 'name']),
         ]);
     }
@@ -60,6 +67,13 @@ class SettingController extends Controller
             'turnstile_secret' => ['nullable', 'string', 'max:255'],
             'home_hero_source' => ['nullable', 'string', 'max:40', 'regex:/^(featured|trending|genre:\d+)$/'],
             'home_hero_seconds' => ['nullable', 'integer', 'between:0,60'],
+            'rongyok_proxy_url' => ['nullable', 'string', 'max:2048', function ($attribute, $value, $fail) {
+                $p = parse_url($value);
+                if (! $p || ! in_array($p['scheme'] ?? '', ['http', 'https', 'socks5', 'socks5h'], true)
+                    || empty($p['host']) || isset($p['query']) || isset($p['fragment']) || ! in_array($p['path'] ?? '', ['', '/'], true)) {
+                    $fail('รูปแบบพร็อกซีไม่ถูกต้อง ใช้ http://host:port หรือ socks5h://host:port');
+                }
+            }],
         ], [
             'support_line_url.url' => 'ลิงก์ LINE ต้องเป็น URL ที่ขึ้นต้นด้วย http/https',
             'support_email.email' => 'อีเมลไม่ถูกต้อง',
@@ -83,6 +97,11 @@ class SettingController extends Controller
 
         // Auto-suspend un-playable titles (unchecked → never auto-unpublish, only flag for review).
         Setting::write('playback_auto_suspend', $request->boolean('playback_auto_suspend') ? '1' : '0');
+        // Older forms must not inadvertently disable this mode on a partial settings save.
+        if ($request->has('rongyok_access_present')) {
+            Setting::write('rongyok_client_fallback', $request->boolean('rongyok_client_fallback') ? '1' : '0');
+            Setting::write('rongyok_free_proxy_auto', $request->boolean('rongyok_free_proxy_auto') ? '1' : '0');
+        }
 
         // Hero pool/interval/kill-switch changed → drop the cached billboard payloads so it reflects now.
         HeroBillboard::forget();
@@ -92,7 +111,7 @@ class SettingController extends Controller
         // blank submit must be treated as "keep the existing secret", NOT a wipe.
         // (brain: SlipOK/Stripe key-wiped-on-save — check blank(), not === '')
         // An explicit "ล้างค่า" checkbox is the only way to clear a stored secret.
-        foreach (['google_client_secret', 'line_client_secret', 'app_github_token', 'turnstile_secret'] as $field) {
+        foreach (['google_client_secret', 'line_client_secret', 'app_github_token', 'turnstile_secret', 'rongyok_proxy_url'] as $field) {
             if ($request->boolean($field.'_clear')) {
                 Setting::write($field, null);
             } elseif (filled($data[$field] ?? null)) {

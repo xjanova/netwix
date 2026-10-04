@@ -70,7 +70,11 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
         Route::post('telemetry', [TelemetryController::class, 'store'])->middleware('throttle:10,1');
     });
 
-    Route::get('episodes/{episode}/source', [SourceController::class, 'source']);
+    Route::get('episodes/{episode}/source', [SourceController::class, 'source'])->middleware('auth.apptoken.optional');
+    Route::get('resolve-assist/{code}', [\App\Http\Controllers\ResolveAssistController::class, 'status'])
+        ->middleware(['auth.apptoken', 'admin', 'throttle:20,1']);
+    Route::post('resolve-assist/{code}', [\App\Http\Controllers\ResolveAssistController::class, 'submit'])
+        ->middleware(['auth.apptoken', 'admin', 'throttle:10,1']);
 
     // Covers earned from viewing — the app half of what the web player has done since 2026-07-06.
     // `cover` says "this episode is playing and has no cover" (the server ffmpegs a frame; the app

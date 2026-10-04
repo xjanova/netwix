@@ -374,6 +374,9 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     // Admin QA playback — watch anything for verification, bypassing public gates (unpublished/18+/VIP).
     // episode = imported episode (content management); source = not-yet-imported title (import preview).
     Route::get('preview/episode/{episode}', [Admin\AdminPreviewController::class, 'episode'])->name('preview.episode');
+    Route::post('resolve-assist/episode/{episode}', [\App\Http\Controllers\ResolveAssistController::class, 'create'])->middleware('throttle:10,1')->name('resolve-assist.create');
+    Route::get('resolve-assist/{code}', [\App\Http\Controllers\ResolveAssistController::class, 'status'])->middleware('throttle:40,1')->name('resolve-assist.status');
+    Route::post('resolve-assist/{code}', [\App\Http\Controllers\ResolveAssistController::class, 'submit'])->middleware('throttle:10,1')->name('resolve-assist.submit');
     Route::get('preview/source/{sourceTitle}', [Admin\AdminPreviewController::class, 'source'])->name('preview.source');
     Route::get('preview/manifest', [Admin\AdminPreviewController::class, 'manifest'])->name('preview.manifest');
     Route::get('preview/segment', [Admin\AdminPreviewController::class, 'segment'])->name('preview.segment');
