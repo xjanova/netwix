@@ -46,6 +46,7 @@ class PreviewDownloaderTest extends TestCase
 
     public function test_returns_null_when_source_hands_back_an_expired_url(): void
     {
+        config(['services.rongyok.proxy_url' => 'http://proxy.example:8080']);
         Cache::flush();
         $c = $this->rongyokContent();
 
@@ -57,5 +58,16 @@ class PreviewDownloaderTest extends TestCase
 
         $this->assertNull(app(PreviewDownloader::class)->downloadFirstEpisode($c));
         $this->assertNull($c->episodes()->where('number', 1)->first()->video_url);
+    }
+
+    public function test_device_assistance_defers_preview_without_failing_or_fetching(): void
+    {
+        Cache::flush();
+        config(['services.rongyok.client_fallback' => true, 'services.rongyok.proxy_url' => null, 'services.rongyok.free_proxy_auto' => false]);
+        Http::preventStrayRequests();
+        $c = $this->rongyokContent();
+        $this->assertNull(app(PreviewDownloader::class)->downloadFirstEpisode($c));
+        $this->assertNull($c->episodes()->first()->video_url);
+        Http::assertNothingSent();
     }
 }
