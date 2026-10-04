@@ -214,6 +214,16 @@ class Content extends Model
         return $q->orderByDesc('views')->orderByDesc('id');
     }
 
+    /**
+     * "มาใหม่" — the titles that entered the catalogue most recently. There is no published_at, and
+     * ids only grow on import, so id desc is arrival order (same as the genre page's "ล่าสุด" sort
+     * and the app's มาใหม่ rail).
+     */
+    public function scopeNewest(Builder $q): Builder
+    {
+        return $q->orderByDesc('id');
+    }
+
     // ---- Accessors -----------------------------------------------------
 
     public function primaryGenre(): ?Genre

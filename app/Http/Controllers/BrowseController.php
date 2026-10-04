@@ -43,6 +43,10 @@ class BrowseController extends Controller
             'items' => Content::published()->trending()->with(['genres', 'previewEpisode'])->take(10)->get(),
         ];
 
+        if ($n = $this->newestRow(null, 'notanime')) {
+            $rows[] = $n;
+        }
+
         // My list
         $myList = $profile->myList()->published()->with(['genres', 'previewEpisode'])->get();
         if ($myList->isNotEmpty()) {
@@ -104,6 +108,9 @@ class BrowseController extends Controller
             'items' => Content::published()->where($isAnime)->trending()
                 ->with(['genres', 'previewEpisode'])->take(10)->get(),
         ];
+        if ($n = $this->newestRow(null, 'anime')) {
+            $rows[] = $n;
+        }
 
         $rowSeed = random_int(1, 999999);
         foreach (Genre::orderBy('sort')->get() as $genre) {
@@ -257,6 +264,23 @@ class BrowseController extends Controller
         return ['title' => 'ดูต่อสำหรับ '.$profile->name, 'en' => 'Continue Watching', 'genre' => null, 'items' => $items];
     }
 
+    /**
+     * "มาใหม่ / New Arrivals" row — the newest titles inside a page's own category (owner: แต่ละหมวด
+     * ต้องมีแท็บมาใหม่). Same type/scope split as that page's other rows, so /anime gets new anime and
+     * /movies new non-anime movies. A fixed newest-first strip, not a lazy rail: sliding on forever
+     * would end in years-old titles. Returns null when the category is empty.
+     */
+    private function newestRow(?string $type, ?string $scope): ?array
+    {
+        $q = Content::published()->inCategory($scope, $type)->newest()->with(['genres', 'previewEpisode']);
+        if ($type === 'vertical') {
+            $q->withCount('episodes');
+        }
+        $items = $q->take(30)->get();
+
+        return $items->isEmpty() ? null : ['title' => 'มาใหม่', 'en' => 'New Arrivals', 'genre' => null, 'items' => $items];
+    }
+
     public function series(Request $request): View
     {
         return $this->grouped($request, 'series', 'ซีรี่ส์');
@@ -279,6 +303,9 @@ class BrowseController extends Controller
         // Continue watching first (this type only).
         if ($c = $this->continueRow($profile, $type, 'notanime')) {
             $rows[] = $c;
+        }
+        if ($n = $this->newestRow($type, 'notanime')) {
+            $rows[] = $n;
         }
 
         foreach (Genre::orderBy('sort')->get() as $genre) {
@@ -392,6 +419,9 @@ class BrowseController extends Controller
             ->with(['genres', 'previewEpisode'])->withCount('episodes')->take(14)->get();
         if ($trending->isNotEmpty()) {
             $rows[] = ['title' => 'แนวตั้งมาแรง', 'en' => 'Trending Shorts', 'genre' => null, 'items' => $trending];
+        }
+        if ($n = $this->newestRow('vertical', null)) {
+            $rows[] = $n;
         }
 
         // One row per genre — slides through EVERY vertical in that genre (lazy, page 2+ via browse.row).

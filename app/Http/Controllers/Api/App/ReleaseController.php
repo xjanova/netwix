@@ -10,7 +10,7 @@ use Illuminate\Http\JsonResponse;
  * Update manifest for the mobile app (GET /api/app/version).
  *
  * The app polls this to decide whether to offer an in-app update. It returns the
- * latest version + release notes + APK size and a download URL that points at
+ * latest version + APK size and a download URL that points at
  * OUR domain (/download/apk). The real build origin (GitHub's browser_download_url)
  * is resolved server-side by {@see AppRelease} and is NEVER exposed here, so the
  * app neither contacts nor reveals GitHub — the whole update flow lives on
@@ -38,24 +38,14 @@ class ReleaseController extends Controller
         return response()->json(['success' => true, 'data' => [
             'version' => $clean,
             'tag' => $tag,
-            'notes' => $this->cleanNotes((string) ($rel['notes'] ?? '')),
+            // Always empty: customers must not see what changed in a release (owner: อย่าให้เห็น
+            // รายละเอียดการอัพเดท). The key stays because every shipped build reads it — an empty
+            // value makes them fall back to a generic "fixes & improvements" line.
+            'notes' => '',
+            // Exact APK bytes. The app divides by this for its progress bar, because Cloudflare
+            // drops Content-Length on /download/apk and the download plugin can't count without it.
             'size' => (int) ($rel['size'] ?? 0),
             'url' => secure_url('/download/apk'),
         ]]);
-    }
-
-    /**
-     * The release body is GitHub's, and its auto-generated changelog embeds the
-     * repo URL ("**Full Changelog**: https://github.com/owner/repo/compare/..."),
-     * which the app shows verbatim in its "What's New" sheet. Strip that line and
-     * any github links so a customer never sees where the build actually lives.
-     * An emptied body falls back to the app's generic "fixes & improvements".
-     */
-    private function cleanNotes(string $notes): string
-    {
-        $notes = (string) preg_replace('/^\s*\*{0,2}Full Changelog\*{0,2}:.*$/mi', '', $notes);
-        $notes = (string) preg_replace('#https?://\S*github(usercontent)?\.com/\S*#i', '', $notes);
-
-        return trim((string) preg_replace("/\n{3,}/", "\n\n", $notes));
     }
 }
