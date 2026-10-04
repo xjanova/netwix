@@ -189,8 +189,8 @@ class PosterBackfill
      * Sources have begun answering a hotlinked poster request with a house advert instead of the
      * artwork — rongyok serves a green "rongyok.com ดูฟรีเต็มๆ" banner (2026-08-19). One banner reused
      * across every title is exactly what a duplicate hash detects, and unlike a colour or text rule it
-     * needs no idea of what the next placeholder will look like: two different films never produce
-     * byte-identical covers, so a collision is always a placeholder of some kind.
+     * needs no idea of what the next placeholder will look like. Dubbed/subtitled imports of the SAME
+     * title legitimately share a cover; only collisions with unrelated titles count as placeholders.
      *
      * Returns the number of OTHER titles already wearing this picture — 0 means keep it.
      */
@@ -201,9 +201,13 @@ class PosterBackfill
             return 0;
         }
 
+        $titleKey = Content::dedupeKey($content->title);
+
         return Content::withoutGlobalScopes()
             ->where('poster_hash', $hash)
             ->whereKeyNot($content->getKey())
+            ->when($titleKey !== '', fn ($q) => $q->where(fn ($other) => $other
+                ->whereNull('dedupe_key')->orWhere('dedupe_key', '!=', $titleKey)))
             ->count();
     }
 

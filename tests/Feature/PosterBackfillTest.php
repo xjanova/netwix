@@ -170,6 +170,46 @@ class PosterBackfillTest extends TestCase
         $this->assertNull($this->backfill()->recover($this->content('https://x.test/p.jpg')));
     }
 
+    public function test_dubbed_and_subtitled_versions_can_store_the_same_cover(): void
+    {
+        Http::fake(fn () => Http::response(self::image(), 200, ['Content-Type' => 'image/jpeg']));
+        $sub = $this->content('https://rongyok.com/images/poster/sub.webp');
+        $sub->forceFill(['title' => 'ข้ามเส้นรักพี่ชายต่างพ่อ', 'dub_type' => 'thai_sub'])->save();
+        $stored = $this->backfill()->localize($sub);
+        $this->assertNotNull($stored);
+        $this->backfill()->apply($sub, $stored);
+
+        $dub = $sub->replicate();
+        $dub->forceFill([
+            'slug' => 'dub-cover', 'source_key' => 'k2', 'dub_type' => 'thai_dub',
+            'poster_path' => 'https://rongyok.com/images/poster/dub.webp', 'poster_hash' => null,
+        ])->save();
+        $path = $this->backfill()->localize($dub);
+
+        $this->assertNotNull($path, 'the same artwork for the same story is not a house advert');
+        Storage::disk('public')->assertExists($path);
+        $this->assertSame(PosterBackfill::hashOf($stored), PosterBackfill::hashOf($path));
+        $this->assertSame(0, PosterBackfill::duplicateTitles($path, $dub));
+    }
+
+    public function test_identical_artwork_for_an_unrelated_title_is_still_rejected(): void
+    {
+        Http::fake(fn () => Http::response(self::image(), 200, ['Content-Type' => 'image/jpeg']));
+        $first = $this->content('https://rongyok.com/images/poster/first.webp');
+        $stored = $this->backfill()->localize($first);
+        $this->assertNotNull($stored);
+        $this->backfill()->apply($first, $stored);
+
+        $other = $first->replicate();
+        $other->forceFill([
+            'title' => 'อีกเรื่องที่ไม่เกี่ยวข้อง', 'slug' => 'unrelated-cover', 'source_key' => 'k2',
+            'poster_path' => 'https://rongyok.com/images/poster/other.webp', 'poster_hash' => null,
+        ])->save();
+
+        $this->assertNull($this->backfill()->localize($other));
+        Storage::disk('public')->assertExists($stored);
+    }
+
     private function backfill(): PosterBackfill
     {
         return app(PosterBackfill::class);
