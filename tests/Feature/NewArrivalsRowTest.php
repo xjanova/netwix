@@ -131,6 +131,12 @@ class NewArrivalsRowTest extends TestCase
                     'size' => 62240328, 'published_at' => null,
                 ];
             }
+
+            // Its APK is on our disk; only then is a release offered (see AppReleaseMirrorTest).
+            public function isMirrored(array $rel): bool
+            {
+                return true;
+            }
         });
 
         $this->getJson('/api/app/version')->assertOk()
