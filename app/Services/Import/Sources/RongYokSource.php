@@ -7,7 +7,6 @@ use App\Services\Import\Contracts\SearchesPosters;
 use App\Services\Import\JsonExtract;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
-use App\Support\ClientResolutionRequired;
 use App\Support\PosterCandidate;
 use App\Support\RongYokClientResolver;
 use App\Support\RongYokProxyPool;
@@ -452,7 +451,7 @@ class RongYokSource implements MediaSource, SearchesPosters
         }
         // Without a configured proxy, hand resolution to the viewer immediately.
         if (RongYokClientResolver::proxyUrl() === '' && RongYokClientResolver::descriptor($sourceKey, $sourceRef)) {
-            throw new ClientResolutionRequired('Client-side resolution is available');
+            return null;
         }
         // rongyok rotates the resolver endpoint filename to deter scrapers; the OLD get_video.php
         // now returns already-expired Discord URLs. Use the cached endpoint first.
@@ -476,10 +475,6 @@ class RongYokSource implements MediaSource, SearchesPosters
             if ($fresh !== $endpoint && ($stream = $this->callResolve($fresh, $sourceKey, $sourceRef))) {
                 return $stream;
             }
-        }
-
-        if (RongYokClientResolver::descriptor($sourceKey, $sourceRef)) {
-            throw new ClientResolutionRequired('Client-side resolution is available');
         }
 
         return null;

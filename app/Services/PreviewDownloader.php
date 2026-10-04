@@ -6,7 +6,6 @@ use App\Models\Content;
 use App\Models\Episode;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
-use App\Support\ClientResolutionRequired;
 use Illuminate\Http\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -46,11 +45,7 @@ class PreviewDownloader
             return null;
         }
 
-        try {
-            $stream = $source->resolveByRef((string) $content->source_key, (string) $ep->source_ref);
-        } catch (ClientResolutionRequired) {
-            return null; // A device-assisted link can be retried once available.
-        }
+        $stream = $source->resolveByRef((string) $content->source_key, (string) $ep->source_ref);
         if (! $stream || $stream->kind !== RemoteStream::KIND_MP4 || $stream->url === '') {
             return null;   // source down / rotated again — a later run retries
         }

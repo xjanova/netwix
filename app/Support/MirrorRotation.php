@@ -116,11 +116,6 @@ class MirrorRotation
 
             try {
                 $stream = $source->resolveByRef($link->key, $link->ref);
-            } catch (ClientResolutionRequired) {
-                // Device resolution is a supported route, not a failed episode link.
-                $transient = true;
-
-                continue;
             } catch (\Throwable $e) {
                 // Threw rather than answered → upstream/network trouble, not proof the link is dead.
                 $transient = true;
@@ -142,6 +137,13 @@ class MirrorRotation
                 ];
             }
 
+            // A supported device handoff is not proof of a dead episode. Source adapters keep
+            // their nullable contract so background mirrors/previews also defer cleanly.
+            if ($link->source === 'rongyok' && RongYokClientResolver::descriptor($link->key, $link->ref)) {
+                $transient = true;
+
+                continue;
+            }
             self::recordFailure($link);
         }
 
