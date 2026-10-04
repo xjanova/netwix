@@ -275,6 +275,10 @@ class BrowseController extends Controller
         $q = Content::published()->inCategory($scope, $type)->newest()->with(['genres', 'previewEpisode']);
         if ($type === 'vertical') {
             $q->withCount('episodes');
+        } elseif ($type === null) {
+            // Shorts arrive by the dozen per sync — on prod they were 28 of home's 30 newest — and have
+            // their own มาใหม่ on /vertical. Elsewhere this row means new films and series.
+            $q->where('type', '!=', 'vertical');
         }
         $items = $q->take(30)->get();
 

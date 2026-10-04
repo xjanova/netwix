@@ -103,6 +103,15 @@ class NewArrivalsRowTest extends TestCase
         $this->assertSame([$s->id, $m->id], $this->newRow('browse'));
     }
 
+    public function test_home_new_row_is_not_flooded_by_vertical_shorts(): void
+    {
+        $m = $this->title('A Movie', 'movie');
+        $this->title('Short One', 'vertical');
+        $this->title('Short Two', 'vertical');
+
+        $this->assertSame([$m->id], $this->newRow('browse'));
+    }
+
     public function test_empty_category_shows_no_new_row(): void
     {
         $this->title('A Series', 'series');
