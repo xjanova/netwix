@@ -311,7 +311,7 @@ class PosterBackfill
         }
         try {
             // rongyok blocks our IP — its covers come through the relay like everything else from it.
-            $resp = RongYokRelay::apply(Http::withHeaders($headers)->connectTimeout(8)->timeout(25))->get($url);
+            $resp = RongYokTransport::apply(Http::withHeaders($headers)->connectTimeout(8)->timeout(25))->get($url);
         } catch (\Throwable) {
             return null;
         }

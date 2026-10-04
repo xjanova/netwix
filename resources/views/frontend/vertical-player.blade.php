@@ -88,9 +88,10 @@
 
         {{-- preparing overlay (episode not resolvable yet) --}}
         <div x-show="preparing" x-cloak class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/85 px-8 text-center">
-            <div class="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-brand"></div>
-            <div class="text-lg font-semibold">กำลังเตรียมไฟล์ไว้…</div>
-            <div class="max-w-xs text-sm text-cream/60">ตอนนี้กำลังเตรียมพร้อมให้รับชม อีกสักครู่ — เมื่อพร้อมจะเล่นอัตโนมัติ</div>
+            <div x-show="!clientBlocked" class="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-brand"></div>
+            <div class="text-lg font-semibold" x-text="clientBlocked ? 'ยังขอลิงก์ไม่ได้' : 'กำลังเตรียมไฟล์ไว้…'"></div>
+            <div class="max-w-xs text-sm text-cream/60" x-text="clientBlocked ? 'กรุณาลองอีกครั้ง หรือรับชมในแอป NetWix' : 'ตอนนี้กำลังเตรียมพร้อมให้รับชม อีกสักครู่ — เมื่อพร้อมจะเล่นอัตโนมัติ'"></div>
+            <button x-show="clientBlocked" @click.stop="load()" class="rounded-lg bg-brand px-5 py-3 font-semibold text-white">ลองอีกครั้ง</button>
         </div>
 
         {{-- branded "connecting to server" loader (buffering, when not preparing) --}}
@@ -238,6 +239,7 @@
             lock: false,
             touchY: 0,
             preparing: false,
+            clientBlocked: false,
             ...nxEpPicker(),
             _poll: null,
             _stallT: null,
@@ -313,6 +315,7 @@
             async load() {
                 this.stopPoll();
                 this.preparing = false;
+                this.clientBlocked = false;
                 this._reResolves = 0;
                 const ep = this.episodes[this.index];
                 if (!ep) return;
@@ -320,7 +323,9 @@
                 if (ep.url) { this.attach(ep.url); return; }
 
                 const data = await this.tryResolve(ep);
+                if (this.episodes[this.index] !== ep) return;
                 if (data && data.ready && data.url) { this.attach(data.url); return; }
+                if (data?.client_blocked) { this.showClientBlocked(data); return; }
 
                 // Not resolvable yet — show "preparing" and poll until it becomes available.
                 this.preparing = true;
@@ -328,6 +333,8 @@
                 this._poll = setInterval(async () => {
                     if (this.index !== myIndex) { this.stopPoll(); return; }
                     const d = await this.tryResolve(ep);
+                    if (this.index !== myIndex) return;
+                    if (d?.client_blocked) { this.showClientBlocked(d); return; }
                     if (d && d.ready && d.url) { this.stopPoll(); this.preparing = false; this.attach(d.url); }
                 }, 10000);
             },
@@ -360,10 +367,11 @@
                 try {
                     const sep = (ep.resolve || '').includes('?') ? '&' : '?';
                     const r = await fetch(ep.resolve + sep + 'refresh=1', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                    d = await r.json();
+                    d = await window.nxResolveEpisodeResponse(r);
                 } catch (e) { /* handled below */ }
                 this._reResolving = false;
                 if (this.index !== myIndex) return;   // the viewer swiped away while we were asking
+                if (d?.client_blocked) { this.showClientBlocked(d); return; }
 
                 if (d && d.ready && d.url) {
                     this.attach(d.url);
@@ -383,8 +391,12 @@
                 if (!ep.resolve) return null;
                 try {
                     const r = await fetch(ep.resolve, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                    return await r.json();
+                    return await window.nxResolveEpisodeResponse(r);
                 } catch (e) { return null; }
+            },
+
+            showClientBlocked(d) {
+                this.stopPoll(); this.resume(); this.preparing = true; this.clientBlocked = true;
             },
 
             attach(url) {

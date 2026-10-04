@@ -116,6 +116,11 @@ class MirrorRotation
 
             try {
                 $stream = $source->resolveByRef($link->key, $link->ref);
+            } catch (ClientResolutionRequired) {
+                // Device resolution is a supported route, not a failed episode link.
+                $transient = true;
+
+                continue;
             } catch (\Throwable $e) {
                 // Threw rather than answered → upstream/network trouble, not proof the link is dead.
                 $transient = true;

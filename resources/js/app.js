@@ -1,5 +1,8 @@
 import './bootstrap';
 import Alpine from 'alpinejs';
+import { resolveRongYokClient, resolveEpisodeResponse } from './rongyok-client';
+window.nxResolveRongYokClient = resolveRongYokClient;
+window.nxResolveEpisodeResponse = resolveEpisodeResponse;
 
 /**
  * POST helper that carries the CSRF token and JSON headers.

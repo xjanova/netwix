@@ -38,7 +38,7 @@
                     @endif
                     <span class="text-xs text-cream/45">{{ $ep->duration_label }}</span>
                     <span class="text-xs text-cream/45" title="ยอดวิวตอนนี้ (นับจากคนที่กดดูจริง 1 ครั้ง/คน/6 ชม.)">👁 {{ number_format($ep->views ?? 0) }}</span>
-                    @php $epView = ['num' => $ep->number, 'resolve' => route('admin.preview.episode', $ep), 'post' => route('admin.storage.set-thumb', $ep)]; @endphp
+                    @php $epView = ['num' => $ep->number, 'resolve' => route('admin.preview.episode', $ep), 'post' => route('admin.storage.set-thumb', $ep), 'assist' => \App\Support\RongYokClientResolver::forEpisode($ep) ? route('admin.resolve-assist.create', $ep) : null]; @endphp
                     <button type="button" @click="open(@js($epView))"
                             class="rounded-md bg-brand/15 px-2.5 py-1 text-xs text-brand hover:bg-brand/25"
                             title="ดูตอนนี้จากหลังบ้านเพื่อตรวจสอบ — เล่นได้ทุกแหล่ง แม้ยังไม่เผยแพร่ / 18+ / VIP">▶ ดู</button>
@@ -104,6 +104,11 @@
                     class="mb-3 aspect-video max-h-[58vh] w-full rounded-lg border-0 bg-black"></iframe>
             <div x-show="loading" x-cloak class="mb-3 rounded-lg border border-dashed border-white/10 bg-white/[0.02] py-10 text-center text-sm text-cream/50">⏳ กำลังเตรียมวิดีโอจากแหล่ง…</div>
             <div x-show="playError" x-cloak class="mb-3 rounded-lg border border-dashed border-[#ff6b81]/20 bg-[#ff6b81]/[0.05] py-10 text-center text-sm text-[#ff6b81]">เล่นไม่ได้ — แหล่งอาจไม่ตอบสนอง หรือลิงก์หมดอายุ (ยังอัปโหลดรูปปกเองได้)</div>
+            <div x-show="ep?.assist && !loading" x-cloak class="mb-3 rounded-lg border border-white/10 p-3 text-sm">
+                <button type="button" @click="assist()" :disabled="assistBusy" class="rounded-lg bg-brand/15 px-3 py-2 text-brand disabled:opacity-50">ขอผ่านอุปกรณ์</button>
+                <p class="mt-2 text-xs text-cream/60" x-text="assistMessage"></p>
+                <template x-if="assistCode"><div class="mt-2"><p class="text-xs text-cream/60">เปิดเมนู “ช่วยหลังบ้านขอลิงก์” ในแอป เข้าสู่ระบบด้วยบัญชีผู้ดูแลเดียวกัน แล้ววางรหัสนี้ (หมดอายุใน 5 นาที)</p><input readonly :value="assistCode" @click="$el.select()" class="nx-input mt-2 font-mono"></div></template>
+            </div>
             <div class="flex flex-wrap items-center gap-3">
                 <button type="button" x-show="ep && !loading && !playError && !embedUrl" @click="capture()" x-bind:disabled="saving"
                         class="btn-brand px-5 py-2.5 text-sm disabled:opacity-50" x-text="saving ? 'กำลังบันทึก…' : '📸 ใช้เฟรมนี้เป็นปก'"></button>
@@ -121,8 +126,10 @@
         function thumbPicker() {
             return {
                 ep: null, loading: false, playError: false, embedUrl: null, saving: false, ok: false, msg: '',
+                assistCode: '', assistMessage: '', assistBusy: false, assistTimer: null,
                 // Resolve the episode through the admin QA endpoint (gate-free, every source) then play.
                 open(ep) {
+                    this.stopAssist(); this.assistMessage = ''; this.assistCode = '';
                     this.ep = ep; this.msg = ''; this.ok = false; this.playError = false; this.embedUrl = null; this.loading = true;
                     this.$nextTick(async () => {
                         const v = this.$refs.vid;
@@ -144,9 +151,47 @@
                     });
                 },
                 close() {
+                    this.stopAssist(); this.assistCode = ''; this.assistMessage = '';
                     const v = this.$refs.vid;
                     if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
                     this.ep = null; this.loading = false; this.playError = false; this.embedUrl = null;
+                },
+                stopAssist() { if (this.assistTimer) clearInterval(this.assistTimer); this.assistTimer = null; this.assistBusy = false; },
+                async assist() {
+                    const ep = this.ep;
+                    if (!ep?.assist || this.assistBusy) return;
+                    this.stopAssist(); this.assistBusy = true; this.assistCode = ''; this.assistMessage = 'กำลังลองขอลิงก์ผ่านเน็ตของเบราว์เซอร์นี้…';
+                    try {
+                        const job = await window.nxPost(ep.assist);
+                        if (this.ep !== ep) return;
+                        this.assistCode = job.code;
+                        const url = await window.nxResolveRongYokClient?.(job.descriptor);
+                        if (this.ep !== ep) return;
+                        if (url) {
+                            try { await window.nxPost(job.submit_url, {video_url: url}); }
+                            catch (_) { this.assistMessage = 'ยังยืนยันลิงก์ไม่ได้ ให้แอปมือถือช่วยด้วยรหัสด้านล่าง'; }
+                        } else this.assistMessage = 'เบราว์เซอร์อ่านข้อมูลต้นทางไม่ได้ อาจติดข้อจำกัดข้ามเว็บ ให้แอปมือถือช่วยด้วยรหัสด้านล่าง';
+                        let checking = false;
+                        const until = Date.now() + 300000;
+                        const check = async () => {
+                            if (checking || this.ep !== ep || this.assistCode !== job.code) return;
+                            if (Date.now() > until) { this.stopAssist(); this.assistCode = ''; this.assistMessage = 'รหัสหมดอายุ กดขอผ่านอุปกรณ์อีกครั้ง'; return; }
+                            checking = true;
+                            try {
+                                const r = await fetch(job.status_url, {headers: {Accept: 'application/json'}});
+                                if (r.status === 410) { this.stopAssist(); this.assistCode = ''; this.assistMessage = 'รหัสหมดอายุ กรุณาขอใหม่'; return; }
+                                const d = r.ok ? (await r.json()).data : null;
+                                if (this.ep === ep && this.assistCode === job.code && d?.ready && d.url) {
+                                    this.stopAssist(); this.playError = false; this.embedUrl = null; this.assistCode = ''; this.assistMessage = 'ได้ลิงก์แล้ว ✓';
+                                    window.nxAttachVideo ? window.nxAttachVideo(this.$refs.vid, d.url, null, 'mp4') : (this.$refs.vid.src = d.url);
+                                    this.$refs.vid.play?.().catch(() => {});
+                                }
+                            } finally { checking = false; }
+                        };
+                        await check();
+                        if (this.ep === ep && this.assistCode === job.code) this.assistTimer = setInterval(() => check().catch(() => {}), 5000);
+                    } catch (_) { if (this.ep === ep) this.assistMessage = 'ขอลิงก์ไม่สำเร็จ กรุณาลองใหม่'; }
+                    finally { if (this.ep === ep) this.assistBusy = false; }
                 },
                 async capture() {
                     const v = this.$refs.vid;

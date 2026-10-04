@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\GenerateEpisodeThumb;
 use App\Models\Episode;
+use App\Services\GoldWallet;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
 use App\Support\MirrorRotation;
 use App\Support\PlaybackHealth;
+use App\Support\RongYokClientResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -37,7 +40,7 @@ class EpisodeSourceController extends Controller
         // so a stream is never handed out for a VIP title without a member who's paid for it.
         if ($episode->content->is_vip) {
             $viewer = auth()->user();
-            $access = $viewer ? app(\App\Services\GoldWallet::class)->vipAccess($viewer, $episode->content) : 'locked';
+            $access = $viewer ? app(GoldWallet::class)->vipAccess($viewer, $episode->content) : 'locked';
             if ($access === 'locked') {
                 return response()->json(['ready' => false, 'error' => 'vip_required'], 403);
             }
@@ -67,6 +70,10 @@ class EpisodeSourceController extends Controller
         // source, then every mirror ([App\Support\MirrorRotation]). The link that WINS decides how the
         // stream is played back, which is why this resolves before choosing a response shape — a
         // progressive-source title can perfectly well end up playing from an HLS mirror.
+        $client = RongYokClientResolver::forEpisode($episode);
+        if ($client && ($assisted = RongYokClientResolver::cached($client['series_id'], $client['episode']))) {
+            return $this->ready($episode, ['kind' => $assisted->kind, 'url' => $assisted->url]);
+        }
         $resolved = MirrorRotation::resolve($episode, $registry);
         if ($resolved === null) {
             // Every link failed (or is mid-cooldown) — the client shows "preparing" and retries. If the
@@ -75,7 +82,9 @@ class EpisodeSourceController extends Controller
                 return response()->json(['ready' => false, 'error' => 'no_source'], 404);
             }
 
-            return response()->json(['ready' => false], 202);
+            $client = RongYokClientResolver::forEpisode($episode);
+
+            return response()->json(['ready' => false] + ($client ? ['client_resolve' => $client] : []), 202);
         }
 
         $stream = $resolved['stream'];
@@ -175,7 +184,7 @@ class EpisodeSourceController extends Controller
 
             return response()->json(['ok' => true, 'queued' => false, 'status' => 'busy']);
         }
-        \App\Jobs\GenerateEpisodeThumb::dispatch($episode->id)->onQueue('thumbs');
+        GenerateEpisodeThumb::dispatch($episode->id)->onQueue('thumbs');
 
         return response()->json(['ok' => true, 'queued' => true]);
     }

@@ -34,12 +34,13 @@ class MirrorRequestTest extends TestCase
 
     public function test_unmirrored_rongyok_resolves_a_fresh_url_on_demand(): void
     {
+        config(['services.rongyok.proxy_url' => 'http://proxy.example:8080']);
         Cache::flush();
         $this->actingWithProfile();
         $ep = $this->rongyokEpisode();
 
         // rongyok advertises its current (rotating) resolver endpoint in watch.js; it returns a
-        // freshly-signed Discord URL (ex in the future). NetWix resolves this itself — no agent.
+        // freshly-signed Discord URL (ex in the future). A configured proxy resolves before the device.
         $freshUrl = 'https://cdn.discordapp.com/attachments/1/2/1.mp4?ex='.dechex(time() + 86400).'&is=x&hm=y';
         Http::fake([
             'rongyok.com/watch/watch.js' => Http::response('const r = await fetch(`/watch/xq7bza9k.php?series_id=${id}&ep=${n}`);'),
@@ -53,6 +54,7 @@ class MirrorRequestTest extends TestCase
 
     public function test_stale_expired_url_is_rejected(): void
     {
+        config(['services.rongyok.proxy_url' => 'http://proxy.example:8080']);
         Cache::flush();
         $this->actingWithProfile();
         $ep = $this->rongyokEpisode();

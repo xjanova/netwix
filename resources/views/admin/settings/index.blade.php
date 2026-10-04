@@ -12,6 +12,28 @@
 <form method="POST" action="{{ route('admin.settings.update') }}" class="mx-auto flex max-w-3xl flex-col gap-6">
     @csrf @method('PUT')
 
+    <div class="nx-card p-6">
+        <h3 class="mb-3 text-base font-bold">การเชื่อมต่อโรงหยก</h3>
+        <input type="hidden" name="rongyok_access_present" value="1">
+        <label class="mb-3 flex items-center gap-3 text-sm"><input type="checkbox" name="rongyok_free_proxy_auto" value="1" @checked($rongYokFreeProxyAuto) class="h-5 w-5 accent-brand">ค้นหาและตรวจพร็อกซีฟรีอัตโนมัติทุก 5 นาที</label>
+        @if ($rongYokProxyCheck)
+            <p class="mb-3 text-xs text-cream/50">ตรวจล่าสุด {{ $rongYokProxyCheck['at'] }} · ใช้งานได้ {{ $rongYokProxyCheck['healthy'] }} จาก {{ $rongYokProxyCheck['tested'] }} ตัวที่ตรวจ</p>
+        @endif
+        <label class="mb-3 flex items-center gap-3 text-sm">
+            <input type="checkbox" name="rongyok_client_fallback" value="1" @checked($rongYokClientFallback) class="h-5 w-5 accent-brand">
+            ขอลิงก์ผ่านเน็ตของผู้ชม (แอปและหน้าเว็บ)
+        </label>
+        <p class="mb-3 text-xs leading-relaxed text-cream/50">ใช้แอปรุ่นที่รองรับเพื่อขอลิงก์ผ่านเน็ตของผู้ชม หน้าเว็บเล่นลิงก์จากพร็อกซีหรือที่แอดมินขอผ่านอุปกรณ์ไว้แล้ว หากตั้งพร็อกซีจะลองผ่านพร็อกซีก่อน ระบบนี้ไม่ใช้ relay บนเครื่องบ้าน</p>
+        <label class="text-sm text-cream/60">ที่อยู่พร็อกซี (รวมชื่อผู้ใช้และรหัสผ่านถ้ามี)
+            <input type="password" name="rongyok_proxy_url" autocomplete="new-password" class="nx-input mt-1"
+                   placeholder="{{ $hasRongYokProxy ? 'ตั้งค่าแล้ว — เว้นว่างเพื่อคงค่าเดิม' : 'http://user:password@host:port หรือ socks5h://host:port' }}">
+        </label>
+        @if ($hasRongYokProxy)
+            <label class="mt-2 flex items-center gap-2 text-xs text-cream/50"><input type="checkbox" name="rongyok_proxy_url_clear" value="1"> ล้างพร็อกซีที่บันทึกในหลังบ้าน</label>
+        @endif
+        <p class="mt-2 text-xs text-cream/40">พร็อกซีใช้เฉพาะคำขอไปโรงหยก ไฟล์วิดีโอดึงตรงจาก CDN ค่าพร็อกซีถูกเข้ารหัสและไม่ส่งไปยังแอป</p>
+    </div>
+
     {{-- ============ HOME HERO ============ --}}
     <div class="nx-card p-6">
         <div class="mb-4 flex items-center gap-2.5">

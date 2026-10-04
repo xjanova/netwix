@@ -173,7 +173,10 @@
         </div>
 
         <div x-show="err" x-cloak class="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-cream/70">
-            <span x-text="err"></span>
+            <div>
+                <span x-text="err"></span>
+                <button x-show="clientBlocked" @click="load()" class="pointer-events-auto mx-auto mt-4 block w-fit rounded-lg bg-brand px-5 py-3 font-semibold text-white">ลองอีกครั้ง</button>
+            </div>
         </div>
 
         {{-- episode picker (covers = captured frame, else main poster) — tap to jump.
@@ -283,6 +286,7 @@
             index: Math.min(cfg.start || 0, Math.max(0, (cfg.episodes || []).length - 1)),
             ...nxEpPicker(),
             err: '',
+            clientBlocked: false,
             fs: false,
             muted: false,        // mirror of the <video>'s real muted state (volumechange keeps it honest)
             soundSettled: false, // heard audio, or muted on purpose → stop offering "tap for sound"
@@ -410,9 +414,11 @@
                 try {
                     const sep = (ep.resolve || '').includes('?') ? '&' : '?';
                     const r = await fetch(ep.resolve + sep + 'refresh=1', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                    d = await r.json();
+                    d = await window.nxResolveEpisodeResponse(r);
                 } catch (e) { /* fall through to the error message below */ }
                 this._reResolving = false;
+
+                if (d?.client_blocked) { this.showClientBlocked(d); return; }
 
                 if (d && d.ready && d.url && d.url !== this._url) {
                     this.attach(d.url, d.kind);
@@ -452,6 +458,7 @@
             async load() {
                 this.stopPoll();
                 this.err = '';
+                this.clientBlocked = false;
                 this._outroFired = false; this.showSkip = false; this.dismissNext();   // fresh markers per episode
                 this._reResolves = 0;
                 const ep = this.episodes[this.index];
@@ -460,7 +467,9 @@
                 if (ep.url) { this.attach(ep.url); return; }
 
                 const d = await this.tryResolve(ep);
+                if (this.episodes[this.index] !== ep) return;
                 if (d && d.ready && d.url) { this.attach(d.url, d.kind); return; }
+                if (d?.client_blocked) { this.showClientBlocked(d); return; }
 
                 // Not resolvable yet — show the loader and poll until it becomes available.
                 this.stall();
@@ -468,6 +477,8 @@
                 this._poll = setInterval(async () => {
                     if (this.index !== my) { this.stopPoll(); return; }
                     const r = await this.tryResolve(ep);
+                    if (this.index !== my) return;
+                    if (r?.client_blocked) { this.showClientBlocked(r); return; }
                     if (r && r.ready && r.url) { this.stopPoll(); this.attach(r.url, r.kind); }
                 }, 10000);
             },
@@ -475,8 +486,12 @@
                 if (!ep.resolve) return null;
                 try {
                     const r = await fetch(ep.resolve, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                    return await r.json();
+                    return await window.nxResolveEpisodeResponse(r);
                 } catch (e) { return null; }
+            },
+            showClientBlocked(d) {
+                this.stopPoll(); this.resume(); this.clientBlocked = true;
+                this.err = 'ยังขอลิงก์ไม่ได้ กรุณาลองอีกครั้ง หรือรับชมในแอป NetWix';
             },
             attach(url, kind) {
                 // 9nung/abyss: a 3rd-party player iframe, not a stream — show the sandboxed iframe instead
