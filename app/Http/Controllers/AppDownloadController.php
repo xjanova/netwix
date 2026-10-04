@@ -44,8 +44,12 @@ class AppDownloadController extends Controller
         // Count it only once we know we're actually handing over the file.
         AppDownload::record($request, $version);
 
+        // The app's updater draws its progress bar from Content-Length alone, so the file must reach it
+        // exactly as stored. no-transform keeps Cloudflare from re-compressing it; Apache's half (gzip +
+        // dropping the length PHP sends) is switched off for this path in public/.htaccess.
         return response()->download($disk->path($rel_path), "NetWix-{$version}.apk", [
             'Content-Type' => 'application/vnd.android.package-archive',
+            'Cache-Control' => 'public, no-transform',
         ]);
     }
 }

@@ -42,8 +42,8 @@ class ReleaseController extends Controller
             // รายละเอียดการอัพเดท). The key stays because every shipped build reads it — an empty
             // value makes them fall back to a generic "fixes & improvements" line.
             'notes' => '',
-            // Exact APK bytes. The app divides by this for its progress bar, because Cloudflare
-            // drops Content-Length on /download/apk and the download plugin can't count without it.
+            // Exact APK bytes. v1.6.2+ divide by this for their progress bar instead of trusting
+            // Content-Length, which Apache used to strip from /download/apk (see public/.htaccess).
             'size' => (int) ($rel['size'] ?? 0),
             'url' => secure_url('/download/apk'),
         ]]);
