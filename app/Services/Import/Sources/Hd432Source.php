@@ -9,11 +9,13 @@ use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Services\Import\Contracts\SearchesPosters;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\PlaybackProbe;
 use App\Support\PosterCandidate;
 use App\Support\PosterScraper;
 use App\Support\PosterSearch;
 use App\Support\SynopsisScraper;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
@@ -200,7 +202,7 @@ class Hd432Source implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
 
             foreach ($chunk as $i => $url) {
                 $resp = $responses[$i] ?? null;
-                if (! $resp instanceof \Illuminate\Http\Client\Response || ! $resp->ok()) {
+                if (! $resp instanceof Response || ! $resp->ok()) {
                     continue;
                 }
                 $series = $this->parseTitlePage($this->slugOf($url), $resp->body());
@@ -462,8 +464,10 @@ class Hd432Source implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
 
     /**
      * Pull the HLS master out of the player. The landing page (`index.php?id=…`) only links its
-     * variant players, so try those in turn — v5/jw/antplayer all embed the SAME master, but a given
-     * host doesn't necessarily serve all three. Each 302s to the player's backup host on its own, so
+     * variant players, so try those in turn. They can now use DIFFERENT CDNs: in October 2026 v5's
+     * steamhls88 playlist was blocked while jw's fastfastcdn playlist still played. Check the master
+     * and its child before selecting a candidate, rather than returning the first URL in the HTML.
+     * Each 302s to the player's backup host on its own, so
      * the URLs are built from the site's own player link, no redirect bookkeeping needed.
      *
      * What comes back is a MASTER playlist whose audio is a separate rendition, so it's returned as-is:
@@ -477,18 +481,39 @@ class Hd432Source implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
             return null;
         }
         $dir = $this->dirname($playerUrl);
+        $probeError = null;
 
-        foreach (['v5/index.php', 'jw/main.php', 'antplayer.php'] as $variant) {
-            $html = $this->fetchPlayer($dir.'/'.$variant.'?id='.rawurlencode($id));
-            if ($html !== null && ($m3u8 = $this->firstM3u8($html)) !== null) {
+        foreach (['jw/main.php', 'v5/index.php', 'antplayer.php'] as $variant) {
+            if (($m3u8 = $this->playableMaster($dir.'/'.$variant.'?id='.rawurlencode($id), $probeError)) !== null) {
                 return $m3u8;
             }
         }
 
         // Last resort: the landing page itself, in case the theme ever inlines the stream there.
-        $html = $this->fetchPlayer($playerUrl);
+        $master = $this->playableMaster($playerUrl, $probeError);
+        if ($master === null && $probeError !== null) {
+            throw $probeError;   // a network outage must not trigger permanent title suspension
+        }
 
-        return $html !== null ? $this->firstM3u8($html) : null;
+        return $master;
+    }
+
+    private function playableMaster(string $playerUrl, ?\Throwable &$probeError): ?string
+    {
+        $html = $this->fetchPlayer($playerUrl);
+        $master = $html !== null ? $this->firstM3u8($html) : null;
+        if ($master === null) {
+            return null;
+        }
+
+        try {
+            return PlaybackProbe::plays(new RemoteStream(RemoteStream::KIND_HLS, $master, $this->origin($playerUrl).'/'))
+                ? $master : null;
+        } catch (\Throwable $e) {
+            $probeError ??= $e;
+
+            return null;   // a refused or unreachable CDN must not hide a working variant
+        }
     }
 
     /** Absolute .m3u8 URL in a player page, or null. */
