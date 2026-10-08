@@ -481,18 +481,24 @@ class Hd432Source implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
             return null;
         }
         $dir = $this->dirname($playerUrl);
+        $probeError = null;
 
         foreach (['jw/main.php', 'v5/index.php', 'antplayer.php'] as $variant) {
-            if (($m3u8 = $this->playableMaster($dir.'/'.$variant.'?id='.rawurlencode($id))) !== null) {
+            if (($m3u8 = $this->playableMaster($dir.'/'.$variant.'?id='.rawurlencode($id), $probeError)) !== null) {
                 return $m3u8;
             }
         }
 
         // Last resort: the landing page itself, in case the theme ever inlines the stream there.
-        return $this->playableMaster($playerUrl);
+        $master = $this->playableMaster($playerUrl, $probeError);
+        if ($master === null && $probeError !== null) {
+            throw $probeError;   // a network outage must not trigger permanent title suspension
+        }
+
+        return $master;
     }
 
-    private function playableMaster(string $playerUrl): ?string
+    private function playableMaster(string $playerUrl, ?\Throwable &$probeError): ?string
     {
         $html = $this->fetchPlayer($playerUrl);
         $master = $html !== null ? $this->firstM3u8($html) : null;
@@ -503,7 +509,9 @@ class Hd432Source implements BackupPoolSource, MediaSource, ProvidesPoster, Prov
         try {
             return PlaybackProbe::plays(new RemoteStream(RemoteStream::KIND_HLS, $master, $this->origin($playerUrl).'/'))
                 ? $master : null;
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            $probeError ??= $e;
+
             return null;   // a refused or unreachable CDN must not hide a working variant
         }
     }

@@ -70,4 +70,17 @@ class Hd432PlaybackTest extends TestCase
 
         $this->assertNull((new Hd432Source)->resolveByRef('film', '1'));
     }
+
+    public function test_a_network_outage_stays_transient_when_no_player_recovers(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake([
+            'hd432.com/film/' => Http::response('<iframe src="https://hd432.com/embed/?link=https://ssplayer168.xyz/api/embed/index.php?id=2810"></iframe>'),
+            'ssplayer168.xyz/*' => Http::response('<script>file="https://dead.test/master.m3u8"</script>'),
+            'dead.test/*' => fn () => throw new ConnectionException('CDN timeout'),
+        ]);
+
+        $this->expectException(ConnectionException::class);
+        (new Hd432Source)->resolveByRef('film', '1');
+    }
 }
