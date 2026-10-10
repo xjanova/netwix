@@ -2,13 +2,14 @@
 
 namespace App\Support;
 
+use App\Models\Content;
 use App\Models\Setting;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
-/** Public proxies are admitted only after a fixed HTTPS source + MP4 canary succeeds. */
+/** Public proxies are admitted only after a catalogue source + MP4 canary succeeds. */
 final class RongYokProxyPool
 {
     public const LIST_URL = 'https://raw.githubusercontent.com/ProxyScrape/free-proxy-list/main/proxies/protocols/https/data.json';
@@ -56,7 +57,7 @@ final class RongYokProxyPool
         }
     }
 
-    /** Run in the scheduler, never inside a viewer's playback request. At most 8 probes per run. */
+    /** Background only: at most 8 proxies and 3 catalogue canaries per scan. */
     public static function refresh(): int
     {
         if (! self::enabled()) {
@@ -117,43 +118,75 @@ final class RongYokProxyPool
         if (! preg_match('/^[a-z0-9_]{4,64}\.php$/iD', $endpoint)) {
             $endpoint = 'playseries.php';
         }
+        // Choose from actual published catalogue entries, not a permanently hardcoded title.
+        $canaries = Content::query()->where('source', 'rongyok')->where('is_published', true)
+            ->whereHas('episodes', fn ($q) => $q->where('source', 'rongyok')->where('source_ref', '1'))
+            ->orderByDesc('id')->limit(30)->pluck('source_key')->unique()
+            ->filter(fn ($key) => is_string($key) && preg_match('/^\d{1,20}$/D', $key))
+            ->shuffle()->take(3)->values()->all();
         $healthy = [];
         $verifiedVideos = [];
-        if ($candidates) {
-            $responses = Http::pool(function (Pool $pool) use ($candidates, $endpoint) {
+        $pending = $candidates;
+        $definiteFailures = 0;
+        $tested = [];
+        $canariesChecked = 0;
+        foreach ($canaries as $seriesId) {
+            if (! $pending) {
+                break;
+            }
+            $canariesChecked++;
+            foreach ($pending as $proxy) {
+                $tested[$proxy] = true;
+            }
+            $responses = Http::pool(function (Pool $pool) use ($pending, $endpoint, $seriesId) {
                 $requests = [];
-                foreach ($candidates as $i => $proxy) {
+                foreach ($pending as $i => $proxy) {
                     $requests[] = $pool->as((string) $i)->withHeaders([
                         'Accept' => 'application/json',
                         'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
-                        'Referer' => 'https://rongyok.com/watch/?series_id=100762957&ep=1',
+                        'Referer' => 'https://rongyok.com/watch/?series_id='.$seriesId.'&ep=1',
                     ])->connectTimeout(3)->timeout(7)->withOptions(['proxy' => $proxy, 'allow_redirects' => false,
                         'curl' => [CURLOPT_SSL_ENABLE_ALPN => false]])
-                        ->get('https://rongyok.com/watch/'.$endpoint, ['series_id' => '100762957', 'ep' => '1']);
+                        ->get('https://rongyok.com/watch/'.$endpoint, ['series_id' => $seriesId, 'ep' => '1']);
                 }
 
                 return $requests;
             });
-            foreach ($candidates as $i => $proxy) {
+            $next = [];
+            foreach ($pending as $i => $proxy) {
                 $r = $responses[$i] ?? null;
                 $data = $r instanceof Response && $r->ok() ? $r->json() : null;
                 $url = is_array($data) ? ($data['video_url'] ?? null) : null;
                 if (is_array($data) && in_array($data['ok'] ?? null, [true, 'true'], true) && is_string($url)
-                    && ($verifiedVideos[$url] ??= RongYokClientResolver::accept(['series_id' => '100762957', 'episode' => '1'], $url))) {
+                    && ($verifiedVideos[$seriesId.':'.$url] ??= RongYokClientResolver::accept(['series_id' => $seriesId, 'episode' => '1'], $url))) {
                     $healthy[] = $proxy;
-                } else {
+                } elseif (! ($r instanceof Response) || (! $r->successful() && ! in_array($r->status(), [404, 410], true))) {
                     Cache::put(self::badKey($proxy), true, 600);
+                    $definiteFailures++;
+                } else {
+                    // Missing content, an obsolete endpoint, or a CDN failure proves nothing
+                    // about the proxy. Try another title, without putting the proxy on cooldown.
+                    $next[] = $proxy;
                 }
             }
+            $pending = $next;
         }
         // A real playback failure during this check wins over its earlier successful canary.
         $healthy = array_values(array_filter($healthy, fn ($p) => ! Cache::has(self::badKey($p))));
-        Cache::put(self::HEALTHY, $healthy, 900);
+        $inconclusive = ! $healthy && $definiteFailures === 0 && count($candidates) > 0;
+        if (! $inconclusive) {
+            Cache::put(self::HEALTHY, $healthy, 900);
+        }
+        // An inconclusive canary must not erase or extend previously verified entries.
+        // They keep their original expiry and still honour live-playback failure cooldowns.
+        $available = $inconclusive ? count(self::available()) : count($healthy);
         if ($healthy) {
             Cache::put('rongyok:video_endpoint', $endpoint, 3600);
         }
-        Cache::put('rongyok:proxy:last_check', ['at' => now()->toIso8601String(), 'tested' => count($candidates), 'healthy' => count($healthy)], 86400);
+        Cache::put('rongyok:proxy:last_check', ['at' => now()->toIso8601String(), 'tested' => count($tested),
+            'healthy' => $available, 'verified' => count($healthy), 'canaries' => $canariesChecked,
+            'state' => $inconclusive ? 'inconclusive' : 'checked'], 86400);
 
-        return count($healthy);
+        return $available;
     }
 }

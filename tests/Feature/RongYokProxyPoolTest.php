@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Content;
 use App\Support\RongYokClientResolver;
 use App\Support\RongYokProxyPool;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -19,6 +20,11 @@ class RongYokProxyPoolTest extends TestCase
         Cache::flush();
         config(['services.rongyok.free_proxy_auto' => true, 'services.rongyok.proxy_url' => null]);
         Http::preventStrayRequests();
+        foreach (['100001', '100002', '100003'] as $key) {
+            $c = Content::create(['title' => 'Canary '.$key, 'slug' => 'canary-'.$key, 'source' => 'rongyok',
+                'source_key' => $key, 'type' => 'vertical', 'maturity' => '15+', 'is_published' => true]);
+            $c->episodes()->create(['number' => 1, 'title' => 'ตอน 1', 'source' => 'rongyok', 'source_ref' => '1']);
+        }
     }
 
     private function candidate(string $ip): array
@@ -126,6 +132,43 @@ class RongYokProxyPoolTest extends TestCase
             'cdn.discordapp.com/*' => Http::response("\x00\x00\x00\x18ftypisom", 206, ['Content-Type' => 'video/mp4']),
         ]);
         $this->assertSame(0, RongYokProxyPool::refresh());
+        $this->assertSame('', RongYokProxyPool::selected());
+    }
+
+    public function test_removed_canary_uses_another_catalogue_title_before_judging_the_proxy(): void
+    {
+        $url = 'https://cdn.discordapp.com/attachments/1/2/1.mp4?ex='.dechex(time() + 86400).'&is=x&hm=y';
+        $checks = [];
+        Http::fake([
+            RongYokProxyPool::LIST_URL => Http::response([$this->candidate('8.8.8.8')]),
+            'rongyok.com/watch/*' => function ($request) use (&$checks, $url) {
+                $checks[] = $request['series_id'];
+
+                return count($checks) === 1 ? Http::response(['ok' => false, 'error' => 'not_found'], 404)
+                    : Http::response(['ok' => true, 'video_url' => $url]);
+            },
+            'cdn.discordapp.com/*' => Http::response("\x00\x00\x00\x18ftypisom", 206, ['Content-Type' => 'video/mp4']),
+        ]);
+        $this->assertSame(1, RongYokProxyPool::refresh());
+        $this->assertCount(2, array_unique($checks));
+        $this->assertSame('http://8.8.8.8:443', RongYokProxyPool::selected());
+        Http::assertSentCount(4);
+    }
+
+    public function test_all_canaries_missing_preserves_previous_verification_without_extending_its_expiry(): void
+    {
+        Cache::put('rongyok:proxy:healthy', ['http://8.8.8.8:443'], 120);
+        Http::fake([
+            RongYokProxyPool::LIST_URL => Http::response([]),
+            'rongyok.com/watch/*' => Http::response(['ok' => false, 'error' => 'not_found'], 404),
+        ]);
+        $this->assertSame(1, RongYokProxyPool::refresh());
+        $this->assertSame('http://8.8.8.8:443', RongYokProxyPool::selected());
+        $status = Cache::get('rongyok:proxy:last_check');
+        $this->assertSame('inconclusive', $status['state']);
+        $this->assertSame(0, $status['verified']);
+        $this->assertSame(3, $status['canaries']);
+        $this->travel(3)->minutes();
         $this->assertSame('', RongYokProxyPool::selected());
     }
 }
