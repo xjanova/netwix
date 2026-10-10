@@ -68,4 +68,64 @@ class RongYokProxyPoolTest extends TestCase
         $this->assertSame('', RongYokProxyPool::selected());
         Http::assertNothingSent();
     }
+
+    public function test_frequent_checks_reuse_the_provider_list_but_recheck_the_source(): void
+    {
+        $url = 'https://cdn.discordapp.com/attachments/1/2/1.mp4?ex='.dechex(time() + 86400).'&is=x&hm=y';
+        Http::fake([
+            RongYokProxyPool::LIST_URL => Http::response([$this->candidate('8.8.8.8')]),
+            'rongyok.com/watch/*' => Http::response(['ok' => true, 'video_url' => $url]),
+            'cdn.discordapp.com/*' => fn () => Http::response("\x00\x00\x00\x18ftypisom", 206, ['Content-Type' => 'video/mp4']),
+        ]);
+        $this->assertSame(1, RongYokProxyPool::refresh());
+        $this->travel(1)->minutes();
+        $this->assertSame(1, RongYokProxyPool::refresh());
+        Http::assertSentCount(5); // one provider fetch, two source checks, two short MP4 checks
+        $this->travel(5)->minutes();
+        $this->assertSame(1, RongYokProxyPool::refresh());
+        Http::assertSentCount(8); // provider list expires independently of the minute checks
+    }
+
+    public function test_concurrent_refresh_does_not_start_another_scan_or_wait_for_it(): void
+    {
+        Cache::put('rongyok:proxy:healthy', ['http://8.8.8.8:443', 'http://1.1.1.1:443'], 900);
+        RongYokProxyPool::failed('http://8.8.8.8:443');
+        $lock = Cache::lock('rongyok:proxy:refresh', 180);
+        $this->assertTrue($lock->get());
+        try {
+            $this->assertSame(1, RongYokProxyPool::refresh());
+            Http::assertNothingSent();
+        } finally {
+            $lock->release();
+        }
+    }
+
+    public function test_identical_canary_video_is_validated_only_once_per_scan(): void
+    {
+        $url = 'https://cdn.discordapp.com/attachments/1/2/1.mp4?ex='.dechex(time() + 86400).'&is=x&hm=y';
+        Http::fake([
+            RongYokProxyPool::LIST_URL => Http::response([$this->candidate('8.8.8.8'), $this->candidate('1.1.1.1')]),
+            'rongyok.com/watch/*' => Http::response(['ok' => true, 'video_url' => $url]),
+            'cdn.discordapp.com/*' => Http::response("\x00\x00\x00\x18ftypisom", 206, ['Content-Type' => 'video/mp4']),
+        ]);
+        $this->assertSame(2, RongYokProxyPool::refresh());
+        Http::assertSentCount(4); // provider, two source requests, one MP4 prefix
+    }
+
+    public function test_playback_failure_during_scan_is_not_readmitted_by_the_canary(): void
+    {
+        Cache::put('rongyok:proxy:healthy', ['http://8.8.8.8:443'], 900);
+        $url = 'https://cdn.discordapp.com/attachments/1/2/1.mp4?ex='.dechex(time() + 86400).'&is=x&hm=y';
+        Http::fake([
+            RongYokProxyPool::LIST_URL => Http::response([]),
+            'rongyok.com/watch/*' => function () use ($url) {
+                RongYokProxyPool::failed('http://8.8.8.8:443');
+
+                return Http::response(['ok' => true, 'video_url' => $url]);
+            },
+            'cdn.discordapp.com/*' => Http::response("\x00\x00\x00\x18ftypisom", 206, ['Content-Type' => 'video/mp4']),
+        ]);
+        $this->assertSame(0, RongYokProxyPool::refresh());
+        $this->assertSame('', RongYokProxyPool::selected());
+    }
 }

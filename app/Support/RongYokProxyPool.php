@@ -62,30 +62,55 @@ final class RongYokProxyPool
         if (! self::enabled()) {
             return 0;
         }
-        $candidates = array_filter((array) Cache::get(self::HEALTHY, []), fn ($p) => is_string($p) && self::validProxy($p) && ! Cache::has(self::badKey($p)));
+        // Also covers manual checks: scheduler's overlap guard alone cannot protect those.
+        $lock = Cache::lock('rongyok:proxy:refresh', 180);
+        if (! $lock->get()) {
+            return count(self::available());
+        }
         try {
-            $r = Http::connectTimeout(3)->timeout(8)->withOptions(['allow_redirects' => false])->get(self::LIST_URL);
-            $list = $r->ok() ? $r->json() : [];
-            if (is_array($list)) {
-                shuffle($list);
-                // Prefer common web ports, which can work with restricted outbound firewalls.
-                usort($list, fn ($a, $b) => (in_array($b['port'] ?? 0, [80, 443], true) ? 1 : 0) <=> (in_array($a['port'] ?? 0, [80, 443], true) ? 1 : 0));
-                foreach ($list as $item) {
-                    if (! is_array($item) || ($item['protocol'] ?? '') !== 'http' || ($item['ssl'] ?? false) !== true
-                        || (float) ($item['last_checked'] ?? 0) < time() - 1800) {
-                        continue;
-                    }
-                    $proxy = 'http://'.($item['ip'] ?? '').':'.($item['port'] ?? '');
-                    if (self::validProxy($proxy) && ! Cache::has(self::badKey($proxy))) {
-                        $candidates[] = $proxy;
-                    }
-                    if (count(array_unique($candidates)) >= 8) {
-                        break;
-                    }
+            return self::refreshPool();
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private static function available(): array
+    {
+        return array_values(array_filter((array) Cache::get(self::HEALTHY, []), fn ($p) => is_string($p) && self::validProxy($p) && ! Cache::has(self::badKey($p))));
+    }
+
+    private static function refreshPool(): int
+    {
+        $candidates = self::available();
+        $list = Cache::get('rongyok:proxy:list');
+        if (! is_array($list)) {
+            try {
+                $r = Http::connectTimeout(3)->timeout(8)->withOptions(['allow_redirects' => false])->get(self::LIST_URL);
+                $list = $r->ok() ? $r->json() : [];
+                if ($r->ok() && is_array($list)) {
+                    Cache::put('rongyok:proxy:list', $list, 300);
+                }
+            } catch (\Throwable) {
+                $list = []; // Recheck admitted proxies if the provider is unavailable.
+            }
+        }
+        if (is_array($list)) {
+            shuffle($list);
+            // Prefer common web ports, which can work with restricted outbound firewalls.
+            usort($list, fn ($a, $b) => (in_array($b['port'] ?? 0, [80, 443], true) ? 1 : 0) <=> (in_array($a['port'] ?? 0, [80, 443], true) ? 1 : 0));
+            foreach ($list as $item) {
+                if (! is_array($item) || ($item['protocol'] ?? '') !== 'http' || ($item['ssl'] ?? false) !== true
+                    || (float) ($item['last_checked'] ?? 0) < time() - 1800) {
+                    continue;
+                }
+                $proxy = 'http://'.($item['ip'] ?? '').':'.($item['port'] ?? '');
+                if (self::validProxy($proxy) && ! Cache::has(self::badKey($proxy))) {
+                    $candidates[] = $proxy;
+                }
+                if (count(array_unique($candidates)) >= 8) {
+                    break;
                 }
             }
-        } catch (\Throwable) {
-            // Recheck previously admitted proxies if the provider is unavailable.
         }
         $candidates = array_slice(array_values(array_unique($candidates)), 0, 8);
         $endpoint = (string) Cache::get('rongyok:video_endpoint', 'playseries.php');
@@ -93,6 +118,7 @@ final class RongYokProxyPool
             $endpoint = 'playseries.php';
         }
         $healthy = [];
+        $verifiedVideos = [];
         if ($candidates) {
             $responses = Http::pool(function (Pool $pool) use ($candidates, $endpoint) {
                 $requests = [];
@@ -113,13 +139,15 @@ final class RongYokProxyPool
                 $data = $r instanceof Response && $r->ok() ? $r->json() : null;
                 $url = is_array($data) ? ($data['video_url'] ?? null) : null;
                 if (is_array($data) && in_array($data['ok'] ?? null, [true, 'true'], true) && is_string($url)
-                    && RongYokClientResolver::accept(['series_id' => '100762957', 'episode' => '1'], $url)) {
+                    && ($verifiedVideos[$url] ??= RongYokClientResolver::accept(['series_id' => '100762957', 'episode' => '1'], $url))) {
                     $healthy[] = $proxy;
                 } else {
                     Cache::put(self::badKey($proxy), true, 600);
                 }
             }
         }
+        // A real playback failure during this check wins over its earlier successful canary.
+        $healthy = array_values(array_filter($healthy, fn ($p) => ! Cache::has(self::badKey($p))));
         Cache::put(self::HEALTHY, $healthy, 900);
         if ($healthy) {
             Cache::put('rongyok:video_endpoint', $endpoint, 3600);
