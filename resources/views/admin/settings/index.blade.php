@@ -15,9 +15,16 @@
     <div class="nx-card p-6">
         <h3 class="mb-3 text-base font-bold">การเชื่อมต่อโรงหยก</h3>
         <input type="hidden" name="rongyok_access_present" value="1">
-        <label class="mb-3 flex items-center gap-3 text-sm"><input type="checkbox" name="rongyok_free_proxy_auto" value="1" @checked($rongYokFreeProxyAuto) class="h-5 w-5 accent-brand">ค้นหาและตรวจพร็อกซีฟรีอัตโนมัติทุก 5 นาที</label>
+        <label class="mb-3 flex items-center gap-3 text-sm"><input type="checkbox" name="rongyok_free_proxy_auto" value="1" @checked($rongYokFreeProxyAuto) class="h-5 w-5 accent-brand">ค้นหาและตรวจพร็อกซีฟรีอัตโนมัติทุก 1 นาที</label>
         @if ($rongYokProxyCheck)
-            <p class="mb-3 text-xs text-cream/50">ตรวจล่าสุด {{ $rongYokProxyCheck['at'] }} · ใช้งานได้ {{ $rongYokProxyCheck['healthy'] }} จาก {{ $rongYokProxyCheck['tested'] }} ตัวที่ตรวจ</p>
+            <p class="mb-3 text-xs text-cream/50">
+                ตรวจล่าสุด {{ $rongYokProxyCheck['at'] }} ·
+                @if (($rongYokProxyCheck['state'] ?? '') === 'inconclusive')
+                    รอบนี้ยังยืนยันไม่ได้ · ตัวที่เคยผ่านและยังไม่หมดอายุ {{ $rongYokProxyCheck['healthy'] }} ตัว
+                @else
+                    ยืนยันรอบนี้ {{ $rongYokProxyCheck['verified'] ?? $rongYokProxyCheck['healthy'] }} จาก {{ $rongYokProxyCheck['tested'] }} ตัวที่ตรวจ
+                @endif
+            </p>
         @endif
         <label class="mb-3 flex items-center gap-3 text-sm">
             <input type="checkbox" name="rongyok_client_fallback" value="1" @checked($rongYokClientFallback) class="h-5 w-5 accent-brand">

@@ -8,6 +8,7 @@ use App\Models\ContentMirror;
 use App\Models\Setting;
 use App\Models\User;
 use App\Support\RongYokClientResolver;
+use App\Support\RongYokProxyPool;
 use App\Support\RongYokTransport;
 use GuzzleHttp\Promise\Create;
 use GuzzleHttp\Psr7\Response;
@@ -97,6 +98,23 @@ class RongYokClientResolutionTest extends TestCase
         Http::assertSentCount(2); // each verified proxy once; no direct endpoint discovery
         $this->assertSame('', RongYokClientResolver::proxyUrl());
         $this->assertTrue($ep->content->fresh()->is_published);
+    }
+
+    public function test_removed_episode_does_not_consume_any_verified_proxy(): void
+    {
+        config(['services.rongyok.free_proxy_auto' => true]);
+        Cache::put('rongyok:proxy:healthy', ['http://8.8.8.8:443', 'http://1.1.1.1:443'], 900);
+        Cache::put('rongyok:video_endpoint', 'playseries.php', 3600);
+        Http::fake([
+            'rongyok.com/watch/playseries.php*' => Http::response(['ok' => false, 'error' => 'not_found'], 404),
+            'rongyok.com/watch/watch.js' => Http::response('fetch(`/watch/playseries.php?series_id=1`)'),
+        ]);
+        $ep = $this->episode();
+        $this->getJson('/api/app/episodes/'.$ep->id.'/source')->assertStatus(202);
+        $this->assertSame('http://8.8.8.8:443', RongYokClientResolver::proxyUrl());
+        Http::assertSentCount(2); // one missing episode, one endpoint check; no proxy rotation
+        RongYokProxyPool::failed('http://8.8.8.8:443');
+        $this->assertSame('http://1.1.1.1:443', RongYokClientResolver::proxyUrl());
     }
 
     public function test_unpublished_and_paywalled_content_never_exposes_client_descriptor(): void

@@ -12,6 +12,7 @@ use App\Support\RongYokClientResolver;
 use App\Support\RongYokProxyPool;
 use App\Support\RongYokTransport;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
@@ -531,6 +532,13 @@ class RongYokSource implements MediaSource, SearchesPosters
                 'Referer' => self::BASE."/watch/?series_id={$sourceKey}&ep={$sourceRef}",
                 'X-Requested-With' => 'XMLHttpRequest',
             ])->get(self::BASE."/watch/{$endpoint}", ['series_id' => $sourceKey, 'ep' => $sourceRef]);
+        } catch (RequestException $e) {
+            // A removed episode or rotated endpoint is not evidence of a broken proxy.
+            if (! in_array($e->response->status(), [404, 410], true)) {
+                RongYokProxyPool::failed($proxy);
+            }
+
+            return null;
         } catch (\Throwable) {
             RongYokProxyPool::failed($proxy);
 
@@ -538,7 +546,9 @@ class RongYokSource implements MediaSource, SearchesPosters
         }
 
         if (! $resp->ok()) {
-            RongYokProxyPool::failed($proxy);
+            if (! in_array($resp->status(), [404, 410], true)) {
+                RongYokProxyPool::failed($proxy);
+            }
 
             return null;
         }
