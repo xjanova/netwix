@@ -10,7 +10,9 @@ use App\Support\HlsSegment;
 use App\Support\MirrorLink;
 use App\Support\MirrorRotation;
 use App\Support\PlaybackHealth;
+use App\Support\StreamDns;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
@@ -243,6 +245,7 @@ class StreamController extends Controller
             }
             try {
                 $resp = Http::withHeaders($this->headers($ref ?: null))
+                    ->withOptions(StreamDns::options($url))
                     ->connectTimeout(min(5, $left))
                     ->timeout(min(self::SEGMENT_ATTEMPT_TIMEOUT, $left))
                     ->get($url);
@@ -251,6 +254,9 @@ class StreamController extends Controller
                 }
             } catch (\Throwable $e) {
                 $resp = null;
+                if ($e instanceof ConnectionException) {
+                    StreamDns::activate($url);
+                }
             }
             usleep(250000);   // 250ms backoff between attempts
         }
@@ -355,7 +361,7 @@ class StreamController extends Controller
      * As [self::resolve], but also says WHICH link produced the stream so the caller can bench it if
      * the playlist turns out to be junk. A stored/mirrored file has no link (nothing to rotate to).
      *
-     * @return array{stream:?RemoteStream,link:?\App\Support\MirrorLink}
+     * @return array{stream:?RemoteStream,link:?MirrorLink}
      */
     private function resolveWithLink(Episode $episode, SourceRegistry $registry): array
     {
@@ -404,7 +410,7 @@ class StreamController extends Controller
      * manifest request. A handle that does not open is refused outright: a caller can only ask for a
      * sub-playlist we ourselves emitted, never an arbitrary URL (SSRF).
      *
-     * @return array{0:string,1:?string,2:int}|null  [url, referer, expiry]
+     * @return array{0:string,1:?string,2:int}|null [url, referer, expiry]
      */
     private function nestedHandle(Episode $episode, Request $request): ?array
     {
