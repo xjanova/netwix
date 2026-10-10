@@ -64,6 +64,41 @@ class RongYokClientResolutionTest extends TestCase
             ->assertJsonMissingPath('data.client_resolve');
     }
 
+    public function test_failed_free_proxy_uses_next_verified_proxy_in_the_same_playback_request(): void
+    {
+        config(['services.rongyok.free_proxy_auto' => true]);
+        Cache::put('rongyok:proxy:healthy', ['http://8.8.8.8:443', 'http://1.1.1.1:443'], 900);
+        Cache::put('rongyok:video_endpoint', 'playseries.php', 3600);
+        $selected = [];
+        Http::fake(function () use (&$selected) {
+            $selected[] = RongYokClientResolver::proxyUrl();
+
+            return count($selected) === 1
+                ? Http::failedConnection()
+                : Http::response(['ok' => true, 'video_url' => $this->url()]);
+        });
+        $ep = $this->episode();
+        $this->getJson('/api/app/episodes/'.$ep->id.'/source')->assertOk()
+            ->assertJsonPath('data.ready', true)->assertJsonPath('data.url', $this->url())
+            ->assertJsonMissingPath('data.client_resolve');
+        $this->assertSame(['http://8.8.8.8:443', 'http://1.1.1.1:443'], $selected);
+        $this->assertTrue($ep->content->fresh()->is_published);
+    }
+
+    public function test_exhausted_free_pool_defers_without_retrying_the_blocked_server_connection(): void
+    {
+        config(['services.rongyok.free_proxy_auto' => true]);
+        Cache::put('rongyok:proxy:healthy', ['http://8.8.8.8:443', 'http://1.1.1.1:443'], 900);
+        Cache::put('rongyok:video_endpoint', 'playseries.php', 3600);
+        Http::fake(['rongyok.com/watch/playseries.php*' => Http::response('blocked', 403)]);
+        $ep = $this->episode();
+        $this->getJson('/api/app/episodes/'.$ep->id.'/source')->assertStatus(202)
+            ->assertJsonPath('data.client_resolve.series_id', '8207');
+        Http::assertSentCount(2); // each verified proxy once; no direct endpoint discovery
+        $this->assertSame('', RongYokClientResolver::proxyUrl());
+        $this->assertTrue($ep->content->fresh()->is_published);
+    }
+
     public function test_unpublished_and_paywalled_content_never_exposes_client_descriptor(): void
     {
         $ep = $this->episode(['is_published' => false]);

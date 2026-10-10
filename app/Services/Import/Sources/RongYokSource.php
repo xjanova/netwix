@@ -467,6 +467,10 @@ class RongYokSource implements MediaSource, SearchesPosters
             return $stream;
         }
 
+        if (RongYokClientResolver::proxyUrl() === '' && RongYokClientResolver::descriptor($sourceKey, $sourceRef)) {
+            return null; // the pool was exhausted; discovery must not fall back to the blocked server
+        }
+
         // Only the CACHED endpoint can be stale-due-to-rotation (a just-discovered one is current),
         // so re-discover once and retry only if the filename actually changed.
         if ($cached !== null) {
@@ -501,6 +505,25 @@ class RongYokSource implements MediaSource, SearchesPosters
     }
 
     private function callResolve(string $endpoint, string $sourceKey, string $sourceRef): ?RemoteStream
+    {
+        // Free proxies can die between the scheduled canary and a viewer's request. A failed
+        // transport removes that proxy from the pool; try another admitted proxy before handing
+        // off to a device (browsers cannot perform that handoff when the source refuses CORS).
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $proxy = RongYokClientResolver::proxyUrl();
+            if ($stream = $this->callResolveOnce($endpoint, $sourceKey, $sourceRef)) {
+                return $stream;
+            }
+            $next = RongYokClientResolver::proxyUrl();
+            if ($next === '' || $next === $proxy) {
+                break; // no direct-server retry, or repeated retry of a configured manual proxy
+            }
+        }
+
+        return null;
+    }
+
+    private function callResolveOnce(string $endpoint, string $sourceKey, string $sourceRef): ?RemoteStream
     {
         $proxy = RongYokClientResolver::proxyUrl();
         try {
