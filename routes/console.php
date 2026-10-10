@@ -8,7 +8,8 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Schedule::command('netwix:rongyok-proxies')->everyFiveMinutes()->withoutOverlapping(3)->runInBackground();
+// Keep playback proxies warm; source probing never runs in a viewer's request.
+Schedule::command('netwix:rongyok-proxies')->everyMinute()->withoutOverlapping(3)->runInBackground();
 
 // ---- Automatic catalogue pipeline -----------------------------------------
 // Requires ONE cron line on the server:
