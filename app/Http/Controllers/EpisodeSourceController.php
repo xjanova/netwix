@@ -46,6 +46,17 @@ class EpisodeSourceController extends Controller
             }
         }
 
+        // A player only asks for refresh after the current media element has failed.  The normal
+        // resolver cache is intentionally sticky to avoid repeatedly scraping an upstream, but
+        // returning that same signed URL here turns recovery into a no-op — the web player then
+        // reports that it cannot get a new link.  Evict just this episode's resolution so the next
+        // walk obtains a fresh URL (or advances to its backup).
+        $refresh = $request->boolean('refresh');
+        if ($refresh) {
+            MirrorRotation::forget($episode);
+            RongYokClientResolver::forget($episode);
+        }
+
         // A stored copy short-circuits the whole rotation — that IS the point of mirroring. But that
         // also means a bad stored file (wrong storage config, deleted object, expired front door)
         // would take a title off the air with the rotation, the cooldowns and the auto-death checks
@@ -55,7 +66,7 @@ class EpisodeSourceController extends Controller
         // copy and walks the rotation instead, so one broken file degrades to live streaming rather
         // than to a dead episode. Costs nothing on the happy path, since it is only ever sent by a
         // client that has already failed once.
-        if ($episode->video_url && ! $request->boolean('refresh')) {
+        if ($episode->video_url && ! $refresh) {
             return $this->ready($episode, [
                 'kind' => str_contains($episode->video_url, '.m3u8') ? 'hls' : 'mp4',
                 'url' => $episode->video_url,

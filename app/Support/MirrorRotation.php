@@ -33,6 +33,19 @@ use Illuminate\Support\Facades\Log;
  */
 class MirrorRotation
 {
+    /**
+     * Drop the result of a previous walk when the player has proved that it can no
+     * longer use that stream.  A normal resolve deliberately reuses this cache for
+     * ten minutes, but a recovery request must never be sent straight back to the
+     * URL that just failed (notably an expired signed RongYok/Discord URL).
+     */
+    public static function forget(Episode $episode): void
+    {
+        Cache::forget("ep_raw:{$episode->id}");
+        Cache::forget("ep_raw:{$episode->id}:miss");
+        Cache::forget("ep_manifest:{$episode->id}");
+    }
+
     /** @return array{stream:RemoteStream,link:MirrorLink}|null */
     public static function resolve(Episode $episode, SourceRegistry $registry): ?array
     {
@@ -246,9 +259,7 @@ class MirrorRotation
     public static function markDead(Episode $episode, MirrorLink $link): void
     {
         Cache::put(self::deadKey($episode, $link), 1, now()->addMinutes(10));
-        Cache::forget("ep_raw:{$episode->id}");
-        Cache::forget("ep_raw:{$episode->id}:miss");   // let the retry happen now, not in 15s
-        Cache::forget("ep_manifest:{$episode->id}");
+        self::forget($episode);   // let the retry happen now, not in 15s
         self::recordFailure($link);
     }
 

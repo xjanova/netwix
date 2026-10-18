@@ -420,7 +420,12 @@
 
                 if (d?.client_blocked) { this.showClientBlocked(d); return; }
 
-                if (d && d.ready && d.url && d.url !== this._url) {
+                // A fresh resolver walk normally changes the signed URL.  It may legitimately
+                // return the same URL though (for example a transient Discord/CDN connection
+                // failure), and re-attaching it is still the right recovery action.  Rejecting it
+                // made the landscape player claim it could not get a new link while it had a usable
+                // source in hand.
+                if (d && d.ready && d.url) {
                     this.attach(d.url, d.kind);
                     const seekBack = () => {
                         v.removeEventListener('loadedmetadata', seekBack);

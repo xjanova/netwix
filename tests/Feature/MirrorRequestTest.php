@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Content;
 use App\Models\Episode;
 use App\Models\User;
+use App\Services\Import\RemoteStream;
 use App\Support\IngestAgent;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -69,6 +70,28 @@ class MirrorRequestTest extends TestCase
         $this->getJson(route('episode.source', $ep))
             ->assertStatus(202)
             ->assertJson(['ready' => false]);
+    }
+
+    public function test_refresh_discards_the_failed_cached_rongyok_url_before_resolving_again(): void
+    {
+        config(['services.rongyok.proxy_url' => 'http://proxy.example:8080']);
+        Cache::flush();
+        $this->actingWithProfile();
+        $ep = $this->rongyokEpisode();
+        $stale = 'https://cdn.discordapp.com/attachments/1/2/1.mp4?ex='.dechex(time() + 86400).'&is=old&hm=old';
+        $fresh = 'https://cdn.discordapp.com/attachments/1/2/1.mp4?ex='.dechex(time() + 86400).'&is=new&hm=new';
+        Cache::put("ep_raw:{$ep->id}", [
+            'kind' => RemoteStream::KIND_MP4, 'url' => $stale, 'referer' => null,
+            'source' => 'rongyok', 'key' => '8207', 'ref' => '1', 'primary' => true,
+        ], now()->addMinutes(10));
+        Cache::put('rongyok:video_endpoint', 'playseries.php', now()->addHour());
+        Http::fake([
+            'rongyok.com/watch/playseries.php*' => Http::response(['ok' => true, 'video_url' => $fresh]),
+        ]);
+
+        $this->getJson(route('episode.source', $ep).'?refresh=1')
+            ->assertOk()
+            ->assertJsonPath('url', $fresh);
     }
 
     public function test_mirrored_episode_resolves_ready(): void

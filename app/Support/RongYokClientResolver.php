@@ -75,6 +75,15 @@ final class RongYokClientResolver
         return is_string($url) && self::validVideoUrl($url) ? new RemoteStream(RemoteStream::KIND_MP4, $url) : null;
     }
 
+    /** Forget an assisted signed URL after a player reports it has stopped working. */
+    public static function forget(Episode $ep): void
+    {
+        $descriptor = self::forEpisode($ep);
+        if ($descriptor) {
+            Cache::forget(self::cacheKey($descriptor['series_id'], $descriptor['episode']));
+        }
+    }
+
     /** Only an authenticated owning admin can reach this via the assist controller. */
     public static function accept(array $descriptor, string $url): bool
     {
