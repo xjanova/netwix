@@ -89,8 +89,8 @@
         {{-- preparing overlay (episode not resolvable yet) --}}
         <div x-show="preparing" x-cloak class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/85 px-8 text-center">
             <div x-show="!clientBlocked" class="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-brand"></div>
-            <div class="text-lg font-semibold" x-text="clientBlocked ? 'ยังขอลิงก์ไม่ได้' : 'กำลังเตรียมไฟล์ไว้…'"></div>
-            <div class="max-w-xs text-sm text-cream/60" x-text="clientBlocked ? 'กรุณาลองอีกครั้ง หรือรับชมในแอป NetWix' : 'ตอนนี้กำลังเตรียมพร้อมให้รับชม อีกสักครู่ — เมื่อพร้อมจะเล่นอัตโนมัติ'"></div>
+            <div class="text-lg font-semibold" x-text="clientBlocked ? 'ตอนนี้มีผู้ใช้งานจำนวนมาก' : 'กำลังเตรียมไฟล์ไว้…'"></div>
+            <div class="max-w-xs text-sm text-cream/60" x-text="clientBlocked ? 'กรุณารอสักครู่ ระบบจะลองขอลิงก์ให้เองอัตโนมัติ หรือรับชมในแอป NetWix ได้ทันที' : 'ตอนนี้กำลังเตรียมพร้อมให้รับชม อีกสักครู่ — เมื่อพร้อมจะเล่นอัตโนมัติ'"></div>
             <button x-show="clientBlocked" @click.stop="load()" class="rounded-lg bg-brand px-5 py-3 font-semibold text-white">ลองอีกครั้ง</button>
         </div>
 
@@ -326,7 +326,7 @@
                 const data = await this.tryResolve(ep);
                 if (this.episodes[this.index] !== ep) return;
                 if (data && data.ready && data.url) { this.attach(data.url); return; }
-                if (data?.client_blocked) { this.showClientBlocked(data); return; }
+                if (data?.client_blocked) this.showClientBlocked(data);
 
                 // Not resolvable yet — show "preparing" and poll until it becomes available.
                 this.preparing = true;
@@ -335,8 +335,8 @@
                     if (this.index !== myIndex) { this.stopPoll(); return; }
                     const d = await this.tryResolve(ep);
                     if (this.index !== myIndex) return;
-                    if (d?.client_blocked) { this.showClientBlocked(d); return; }
-                    if (d && d.ready && d.url) { this.stopPoll(); this.preparing = false; this.attach(d.url); }
+                    if (d?.client_blocked) { this.clientBlocked = true; return; }
+                    if (d && d.ready && d.url) { this.stopPoll(); this.clientBlocked = false; this.preparing = false; this.attach(d.url); }
                 }, 10000);
             },
 
@@ -373,7 +373,7 @@
                 } catch (e) { /* handled below */ }
                 this._reResolving = false;
                 if (this.index !== myIndex) return;   // the viewer swiped away while we were asking
-                if (d?.client_blocked) { this.showClientBlocked(d); return; }
+                if (d?.client_blocked) { this.showClientBlocked(d); this.stopPoll(); this._poll = setInterval(() => this.load(), 15000); return; }
 
                 if (d && d.ready && d.url) {
                     this.attach(d.url);
@@ -398,7 +398,7 @@
             },
 
             showClientBlocked(d) {
-                this.stopPoll(); this.resume(); this.preparing = true; this.clientBlocked = true;
+                this.resume(); this.preparing = true; this.clientBlocked = true;
             },
 
             attach(url) {

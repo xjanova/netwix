@@ -418,7 +418,7 @@
                 } catch (e) { /* fall through to the error message below */ }
                 this._reResolving = false;
 
-                if (d?.client_blocked) { this.showClientBlocked(d); return; }
+                if (d?.client_blocked) { this.showClientBlocked(d); this.stopPoll(); this._poll = setInterval(() => this.load(), 15000); return; }
 
                 // A fresh resolver walk normally changes the signed URL.  It may legitimately
                 // return the same URL though (for example a transient Discord/CDN connection
@@ -474,17 +474,17 @@
                 const d = await this.tryResolve(ep);
                 if (this.episodes[this.index] !== ep) return;
                 if (d && d.ready && d.url) { this.attach(d.url, d.kind); return; }
-                if (d?.client_blocked) { this.showClientBlocked(d); return; }
+                if (d?.client_blocked) this.showClientBlocked(d);
 
                 // Not resolvable yet — show the loader and poll until it becomes available.
-                this.stall();
+                if (! this.clientBlocked) this.stall();
                 const my = this.index;
                 this._poll = setInterval(async () => {
                     if (this.index !== my) { this.stopPoll(); return; }
                     const r = await this.tryResolve(ep);
                     if (this.index !== my) return;
                     if (r?.client_blocked) { this.showClientBlocked(r); return; }
-                    if (r && r.ready && r.url) { this.stopPoll(); this.attach(r.url, r.kind); }
+                    if (r && r.ready && r.url) { this.stopPoll(); this.clientBlocked = false; this.err = ''; this.attach(r.url, r.kind); }
                 }, 10000);
             },
             async tryResolve(ep) {
@@ -495,8 +495,8 @@
                 } catch (e) { return null; }
             },
             showClientBlocked(d) {
-                this.stopPoll(); this.resume(); this.clientBlocked = true;
-                this.err = 'ยังขอลิงก์ไม่ได้ กรุณาลองอีกครั้ง หรือรับชมในแอป NetWix';
+                this.resume(); this.clientBlocked = true;
+                this.err = 'ตอนนี้มีผู้ใช้งานจำนวนมาก กรุณารอสักครู่ ระบบจะลองขอลิงก์ให้เองอัตโนมัติ หรือรับชมในแอป NetWix ได้ทันที';
             },
             attach(url, kind) {
                 // 9nung/abyss: a 3rd-party player iframe, not a stream — show the sandboxed iframe instead
