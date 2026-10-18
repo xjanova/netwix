@@ -4,10 +4,14 @@ namespace Tests\Feature;
 
 use App\Http\Controllers\StreamController;
 use App\Models\Content;
+use App\Models\Episode;
 use App\Models\Genre;
 use App\Models\User;
 use App\Services\Import\RemoteStream;
+use App\Support\StreamDns;
+use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
@@ -183,7 +187,7 @@ class StreamingTest extends TestCase
     }
 
     /** Seed an HLS episode whose upstream playlist lists $segments (absolute or relative URIs). */
-    private function hlsEpisode(array $segments = ['https://cdn.test/seg0.ts']): \App\Models\Episode
+    private function hlsEpisode(array $segments = ['https://cdn.test/seg0.ts']): Episode
     {
         $episode = $this->makeContent()->episodes()->first();
         $episode->update(['source' => 'wowdrama', 'source_ref' => '106414', 'video_url' => null]);
@@ -204,7 +208,7 @@ class StreamingTest extends TestCase
     }
 
     /** The manifest a fresh viewer gets (new token, cache cleared as if ten minutes had passed). */
-    private function freshManifest(\App\Models\Episode $episode): string
+    private function freshManifest(Episode $episode): string
     {
         Cache::forget("ep_manifest:{$episode->id}");
         $res = $this->get(route('stream.manifest', $episode).'?t='.StreamController::token($episode));
@@ -217,9 +221,9 @@ class StreamingTest extends TestCase
      * Walk the real path a player takes — manifest → our signed segment URL — and return that URL
      * (path + query) along with the episode. The upstream segment answers with $segment.
      *
-     * @return array{0:\App\Models\Episode,1:string}
+     * @return array{0:Episode,1:string}
      */
-    private function proxiedSegment(\Closure|\GuzzleHttp\Promise\PromiseInterface $segment): array
+    private function proxiedSegment(\Closure|PromiseInterface $segment): array
     {
         $episode = $this->makeContent()->episodes()->first();
         $episode->update(['source' => 'wowdrama', 'source_ref' => '106414', 'video_url' => null]);
@@ -295,6 +299,27 @@ class StreamingTest extends TestCase
         $attempts = 0;
         [, $segment] = $this->proxiedSegment(function () use (&$attempts) {
             return ++$attempts === 1 ? Http::response('', 503) : Http::response($this->tsBytes());
+        });
+
+        $this->get($segment)->assertStatus(200)->assertHeader('Content-Type', 'video/mp2t');
+        $this->assertSame(2, $attempts);
+    }
+
+    public function test_a_segment_connection_failure_retries_the_last_verified_ip_with_the_same_host(): void
+    {
+        StreamDns::remember('https://cdn.test/seg0.ts', '104.26.7.53');
+        $attempts = 0;
+        [, $segment] = $this->proxiedSegment(function ($request, $options) use (&$attempts) {
+            $attempts++;
+            if ($attempts === 1) {
+                $this->assertArrayNotHasKey('curl', $options);
+                throw new ConnectionException('Could not resolve host: cdn.test');
+            }
+
+            $this->assertSame('https://cdn.test/seg0.ts', $request->url());
+            $this->assertSame(['cdn.test:443:104.26.7.53'], $options['curl'][CURLOPT_RESOLVE]);
+
+            return Http::response($this->tsBytes());
         });
 
         $this->get($segment)->assertStatus(200)->assertHeader('Content-Type', 'video/mp2t');
