@@ -51,6 +51,24 @@
     Header set X-Content-Type-Options "nosniff" env=NX_IMMUTABLE
 </IfModule>
 
+# /download/apk must leave exactly as stored, WITH its Content-Length. The app's updater (ota_update) draws its
+# progress bar from that header alone; without it builds up to v1.6.1 sit at "0%" for the whole 60 MB download.
+# Two separate things on prod took it away (measured on the origin itself, bypassing Cloudflare, 2026-10-04):
+#   1. Apache >= 2.4.59 discards any Content-Length a FastCGI backend sends (the CVE-2024-24795 fix in
+#      mod_proxy_fcgi) and re-frames the body as chunked, even uncompressed and even for a Range reply, unless
+#      the request carries `ap_trust_cgilike_cl`. Safe to trust here: Symfony's BinaryFileResponse sets it from
+#      the file size and no request input reaches these response headers.
+#   2. The server-wide httpd-deflate.conf runs `SetOutputFilter DEFLATE` on every URL that does not END in
+#      .zip/.mp4/..., so the extensionless /download/apk was gzipped (an APK is already a zip: it gains nothing)
+#      and lost its length that way too. `no-gzip` is the only switch mod_deflate reads — it ignores
+#      Cache-Control: no-transform, which AppDownloadController sets for Cloudflare's sake.
+# Matched on THE_REQUEST, not REQUEST_URI: the route runs through index.php, and for the request PHP actually
+# serves, REQUEST_URI already reads /public/index.php. THE_REQUEST is the client's original request line.
+<IfModule mod_rewrite.c>
+    RewriteCond %{THE_REQUEST} ^[A-Z]+\s+/download/apk[?\s]
+    RewriteRule ^ - [E=no-gzip:1,E=ap_trust_cgilike_cl:1]
+</IfModule>
+
 # /storage/ serves media and nothing else. Uploads land in storage/app/public under names we choose,
 # but one path (pre-roll video) kept the uploader's extension, so a valid MP4 named x.html was served
 # from our own domain as a web page. Whatever is ever written there, only these types get out; a
