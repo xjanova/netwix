@@ -52,6 +52,7 @@ class EpisodeSourceController extends Controller
         // reports that it cannot get a new link.  Evict just this episode's resolution so the next
         // walk obtains a fresh URL (or advances to its backup).
         $refresh = $request->boolean('refresh');
+        $lastGood = $refresh ? MirrorRotation::lastGood($episode) : null;
         if ($refresh) {
             MirrorRotation::forget($episode);
             RongYokClientResolver::forget($episode);
@@ -91,6 +92,12 @@ class EpisodeSourceController extends Controller
             // whole cycle failed definitively, MirrorRotation has already unpublished the title.
             if (! $registry->has((string) $episode->source) || ! $episode->content?->source_key) {
                 return response()->json(['ready' => false, 'error' => 'no_source'], 404);
+            }
+
+            // Refresh found nothing new (free proxy pool dry, and the web cannot resolve RongYok
+            // itself): put the still-valid URL back rather than strand a viewer mid-episode.
+            if ($lastGood) {
+                return $this->ready($episode, $lastGood);
             }
 
             $client = RongYokClientResolver::forEpisode($episode);

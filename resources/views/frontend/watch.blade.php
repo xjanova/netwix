@@ -366,7 +366,7 @@
                 // Paused/ended/mid-seek → not a stall; re-baseline so the next check measures from here.
                 if (!v || v.paused || v.ended || !v.duration || v.seeking) { this._stuck = 0; if (v) this._lastT = v.currentTime; return; }
                 if (v.currentTime > this._lastT + 0.25) {          // advancing → healthy
-                    this._lastT = v.currentTime; this._stuck = 0; this._reloads = 0; return;
+                    this._lastT = v.currentTime; this._stuck = 0; this._reloads = 0; this._reResolves = 0; return;
                 }
                 // currentTime jumped BACKWARD → the viewer seeked back (owner: เลื่อนตำแหน่งไปๆมาๆ). That's
                 // not a stall, so re-baseline instead of counting it stuck (which used to fire a needless

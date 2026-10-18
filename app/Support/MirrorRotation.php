@@ -46,6 +46,27 @@ class MirrorRotation
         Cache::forget("ep_manifest:{$episode->id}");
     }
 
+    /**
+     * The progressive URL the last walk cached, if it still has comfortable life left. A refresh
+     * evicts the cache before re-walking; when that re-walk comes back empty (proxy pool dry, web
+     * cannot resolve on-device) this lets the caller hand the viewer the old URL again instead of a
+     * dead end — a mid-play stall is usually a CDN hiccup, not an expired signature.
+     *
+     * @return array{kind:string,url:string}|null
+     */
+    public static function lastGood(Episode $episode): ?array
+    {
+        $cached = Cache::get("ep_raw:{$episode->id}");
+        if (! is_array($cached) || ($cached['kind'] ?? '') !== RemoteStream::KIND_MP4 || ! is_string($cached['url'] ?? null)) {
+            return null;
+        }
+        if (! preg_match('~[?&]ex=([0-9a-f]+)~i', $cached['url'], $m) || hexdec($m[1]) <= time() + 600) {
+            return null;
+        }
+
+        return ['kind' => RemoteStream::KIND_MP4, 'url' => $cached['url']];
+    }
+
     /** @return array{stream:RemoteStream,link:MirrorLink}|null */
     public static function resolve(Episode $episode, SourceRegistry $registry): ?array
     {

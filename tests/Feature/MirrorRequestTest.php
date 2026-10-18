@@ -94,6 +94,25 @@ class MirrorRequestTest extends TestCase
             ->assertJsonPath('url', $fresh);
     }
 
+    public function test_refresh_keeps_a_still_valid_url_when_no_new_one_can_be_resolved(): void
+    {
+        config(['services.rongyok.proxy_url' => 'http://proxy.example:8080']);
+        Cache::flush();
+        $this->actingWithProfile();
+        $ep = $this->rongyokEpisode();
+        $good = 'https://cdn.discordapp.com/attachments/1/2/1.mp4?ex='.dechex(time() + 86400).'&is=old&hm=old';
+        Cache::put("ep_raw:{$ep->id}", [
+            'kind' => RemoteStream::KIND_MP4, 'url' => $good, 'referer' => null,
+            'source' => 'rongyok', 'key' => '8207', 'ref' => '1', 'primary' => true,
+        ], now()->addMinutes(10));
+        Cache::put('rongyok:video_endpoint', 'playseries.php', now()->addHour());
+        Http::fake(['rongyok.com/*' => Http::response('blocked', 403)]);
+
+        $this->getJson(route('episode.source', $ep).'?refresh=1')
+            ->assertOk()
+            ->assertJsonPath('url', $good);
+    }
+
     public function test_mirrored_episode_resolves_ready(): void
     {
         $this->actingWithProfile();

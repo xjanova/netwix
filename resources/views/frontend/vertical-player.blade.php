@@ -245,6 +245,7 @@
             _stallT: null,
             _reResolving: false,
             _reResolves: 0,
+            _resolveAt: 0,
 
             // transport state
             muted: true,
@@ -359,6 +360,7 @@
                 this._reResolves++;
                 const v = this.$refs.video;
                 const at = (v && v.currentTime) || 0;
+                this._resolveAt = at;
                 const ep = this.episodes[this.index];
                 const myIndex = this.index;
                 this.stall();
@@ -422,6 +424,8 @@
                 this.dur = v.duration || 0;
                 this.progress = this.dur ? (this.cur / this.dur) * 100 : 0;
                 this.resume();   // frames are advancing → definitely not stalled, hide the loader
+                // Playing 5s+ past the last re-resolve means the new link works → give back the retry budget.
+                if (this._reResolves && this.cur > this._resolveAt + 5) this._reResolves = 0;
                 this.maybeCapture();   // grab + live-swap this episode's cover once past its intro
                 this.saveProgress();
             },
