@@ -38,6 +38,15 @@ class User extends Authenticatable
         'remember_token',
     ];
 
+    /**
+     * Mirror the column default in memory. Eloquent does not read DB defaults back after an insert,
+     * so a freshly created social account had is_active = null → false, and SocialController's
+     * suspended-account check turned away every first-time Google / LINE sign-up.
+     */
+    protected $attributes = [
+        'is_active' => true,
+    ];
+
     protected function casts(): array
     {
         return [
