@@ -1,8 +1,8 @@
 import { chromium } from 'playwright';
 import { resolve as resolvePath } from 'node:path';
 import { existsSync, writeFileSync } from 'node:fs';
-import { ChromeResolver, validJob } from './resolver.mjs';
-import { waitForUrban, openUrbanPanel, switchUrbanLocation, DEFAULT_LOCATIONS } from './urban.mjs';
+import { ChromeResolver, validJob, jobContext } from './resolver.mjs';
+import { waitForUrban, openUrbanPanel, switchUrbanLocation, urbanLocation, DEFAULT_LOCATIONS } from './urban.mjs';
 import { openRelayDb } from './relay-db.mjs';
 import { Updater, UPDATE_EXIT_CODE } from './updater.mjs';
 import { readFileSync } from 'node:fs';
@@ -43,9 +43,9 @@ const log = (event, fields = {}) => {
     const record = { time: new Date().toISOString(), pid: process.pid, version: VERSION, event, ...fields };
     console.log(JSON.stringify(record));
     try { db?.event(record); } catch { /* worker.log still has it. */ }
-    refreshStats(event.startsWith('job_'));
+    refreshStats(/^(job_|urban_)/.test(event));
     const status = { ...record, active: active.size, concurrency, sqlite: !!db, ...(urbanAt ? { urban: urbanAt } : {}),
-        ...(stats ? { stats: { ...stats, recent: stats.recent.slice(0, 5) } } : {}) };
+        ...(stats ? { stats: { ...stats, recent: stats.recent.slice(0, 8) } } : {}) };
     try { writeFileSync('status.json', JSON.stringify(status), { mode: 0o600 }); } catch { /* Logs remain available. */ }
 };
 const expiresAt = url => new Date(parseInt(new URL(url).searchParams.get('ex'), 16) * 1000).toISOString();
@@ -72,7 +72,7 @@ function rotateUrban(reason, target = null) {
                 });
                 if (moved.from && !target) coolingUntil.set(moved.from, Date.now() + LOCATION_COOLDOWN_MS);
                 lastSwitchAt = Date.now();
-                urbanAt = moved.to;
+                urbanAt = moved.code || moved.to;
                 log('urban_switched', { reason, from: moved.from, to: moved.to, code: moved.code });
                 return true;
             } catch (error) {
@@ -180,30 +180,32 @@ async function main() {
     async function runJob(job) {
         const startedAt = new Date();
         let row = null;
-        try { row = db?.jobStarted(job, startedAt) ?? null; } catch { /* History is best effort. */ }
+        const ctx = jobContext(job);
+        try { row = db?.jobStarted(job, startedAt, ctx) ?? null; } catch { /* History is best effort. */ }
         const finish = result => { try { if (row !== null) db.jobFinished(row, startedAt, result); } catch { /* Best effort. */ } };
-        log('job_started', { job_id: job.id, series_id: job.series_id, episode: job.episode, priority: job.priority ?? 0 });
+        log('job_started', { job_id: job.id, series_id: job.series_id, episode: job.episode, priority: job.priority ?? 0, ...ctx });
         const extras = new Map();
         try {
             const video = await resolver.resolve(job, extras);
             const sent = [...extras].map(([episode, video_url]) => ({ episode, video_url }));
             const reply = await api(`jobs/${job.id}/complete`, { lease_token: job.lease_token, video_url: video, ...(sent.length ? { extras: sent } : {}) });
             const accepted = Number.isInteger(reply?.extras_accepted) ? reply.extras_accepted : 0;
+            if (!urbanAt && urbanExtension) urbanAt = (await urbanLocation(resolver.context).catch(() => null))?.code ?? null;
             finish({ outcome: 'completed', video_host: new URL(video).hostname, expires_at: expiresAt(video),
-                extras_found: sent.length, extras_accepted: accepted });
+                extras_found: sent.length, extras_accepted: accepted, vpn: urbanAt });
             failStreak = 0;
             active.delete(job.id); // so status.json no longer counts this tab
             log('job_completed', { job_id: job.id, series_id: job.series_id, episode: job.episode,
-                duration_ms: Date.now() - startedAt, extras: accepted });
+                duration_ms: Date.now() - startedAt, extras: accepted, vpn: urbanAt, ...ctx });
         } catch (error) {
             const apiError = /^api_\d+$/.test(error.message);
             const code = KNOWN_ERRORS.includes(error.message) || apiError ? error.message : 'timeout';
             // Completion may have succeeded even if its response was lost. A 409 is harmless;
             // otherwise the bounded lease allows recovery after a network failure.
             if (!apiError) await api(`jobs/${job.id}/fail`, { lease_token: job.lease_token, error: code }).catch(() => {});
-            finish({ outcome: 'failed', error: code, extras_found: extras.size });
+            finish({ outcome: 'failed', error: code, extras_found: extras.size, vpn: urbanAt });
             active.delete(job.id);
-            log('job_failed', { job_id: job.id, series_id: job.series_id, episode: job.episode, error: code, duration_ms: Date.now() - startedAt });
+            log('job_failed', { job_id: job.id, series_id: job.series_id, episode: job.episode, error: code, duration_ms: Date.now() - startedAt, ...ctx });
             if (code === 'browser_unavailable' || code === 'urban_not_connected') restartBrowser = true;
             if (!apiError) failStreak++;
             // A block applies to the whole exit: move Urban to another location immediately. Three

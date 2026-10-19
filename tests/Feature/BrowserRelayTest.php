@@ -6,6 +6,7 @@ use App\Models\BlockedIp;
 use App\Models\Content;
 use App\Models\SecurityEvent;
 use App\Models\Setting;
+use App\Models\User;
 use App\Support\BrowserRelay;
 use App\Support\RongYokClientResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -282,6 +283,30 @@ class BrowserRelayTest extends TestCase
         $this->assertTrue(BrowserRelay::online());
         Cache::put('browser-relay:heartbeat', (string) now()->subMinutes(4)->timestamp, 300);
         $this->assertFalse(BrowserRelay::online());
+    }
+
+    public function test_the_worker_is_told_what_was_asked_for_and_by_whom(): void
+    {
+        $ep = $this->episode(['title' => 'เรื่องทดสอบ']);
+        $ep->content->episodes()->create(['number' => 52, 'title' => 'Episode 52', 'source' => 'rongyok', 'source_ref' => '52']);
+        $member = User::factory()->create(['name' => 'คุณสมใจ']);
+        $profile = $member->profiles()->create(['name' => 'ดู', 'avatar_color' => '#ff2d55']);
+        $this->withSession(['profile_id' => $profile->id])->actingAs($member)
+            ->getJson('/api/episode/'.$ep->id.'/source')->assertStatus(202);
+        $job = $this->claim();
+        $this->assertSame(['viewer', 'เรื่องทดสอบ', 51], [$job['reason'], $job['title'], $job['episode_number']]);
+        $this->assertSame(['member' => true, 'name' => 'คุณสมใจ', 'via' => 'web'], $job['requester']);
+        $this->assertArrayNotHasKey('email', $job['requester']);
+        // The prefetched next episode says it was prepared for the same viewer.
+        $next = $this->claim();
+        $this->assertSame(['prefetch', 52, 'web'], [$next['reason'], $next['episode_number'], $next['requester']['via']]);
+    }
+
+    public function test_a_guest_in_the_app_is_reported_as_such(): void
+    {
+        $ep = $this->episode();
+        $this->getJson('/api/app/episodes/'.$ep->id.'/source')->assertStatus(202);
+        $this->assertSame(['member' => false, 'name' => null, 'via' => 'app'], $this->claim()['requester']);
     }
 
     public function test_offline_worker_leaves_playback_on_the_existing_paths(): void

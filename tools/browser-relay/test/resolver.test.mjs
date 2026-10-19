@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validVideoUrl, validJob, watchUrl, matchesEpisodeResponse, responseEpisode } from '../resolver.mjs';
+import { validVideoUrl, validJob, watchUrl, matchesEpisodeResponse, responseEpisode, jobContext } from '../resolver.mjs';
 
 const job = { id: 8, lease_token: 'a'.repeat(64), source: 'rongyok', series_id: '8457', episode: '51' };
 const now = 1792350000;
@@ -39,4 +39,16 @@ test('other episodes of the same series are recognised as extras, other series a
     assert.equal(responseEpisode('https://rongyok.com/watch/playseries.php?series_id=8458&ep=52', job), null);
     assert.equal(responseEpisode('https://rongyok.com/watch/playseries.php?series_id=8457&ep=0', job), null);
     assert.equal(responseEpisode('https://evil.test/watch/playseries.php?series_id=8457&ep=52', job), null);
+});
+
+test('request context from the server is display-only and bounded', () => {
+    const ctx = jobContext({ ...job, title: 'เรื่อง\u0007ทดสอบ' + 'x'.repeat(200), episode_number: 52, reason: 'viewer',
+        requester: { member: true, name: 'คุณสมใจ', via: 'web', email: 'x@y.z' } });
+    assert.equal(ctx.title.length, 120);
+    assert.equal(ctx.title.includes('\u0007'), false);
+    assert.deepEqual([ctx.episode_number, ctx.reason, ctx.requester, ctx.via], [52, 'viewer', 'คุณสมใจ', 'web']);
+    assert.equal(JSON.stringify(ctx).includes('@'), false);
+    assert.equal(jobContext({ ...job, requester: { member: false, via: 'app' } }).requester, 'guest');
+    assert.deepEqual(jobContext({ ...job, reason: 'drop table', requester: { via: 'ftp' } }),
+        { title: null, episode_number: null, reason: null, requester: null, via: null });
 });

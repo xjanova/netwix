@@ -20,6 +20,19 @@ export function validJob(job) {
         typeof job.episode === 'string' && /^[1-9]\d{0,3}$/.test(job.episode);
 }
 
+/** What the server says this job is for: display-only, bounded, never trusted for anything else. */
+export function jobContext(job) {
+    const r = job?.requester ?? {};
+    const name = typeof r.name === 'string' ? r.name.replace(/[\u0000-\u001f]/g, '').slice(0, 40) : null;
+    return {
+        title: typeof job?.title === 'string' ? job.title.replace(/[\u0000-\u001f]/g, '').slice(0, 120) : null,
+        episode_number: Number.isSafeInteger(job?.episode_number) ? job.episode_number : null,
+        reason: ['viewer', 'prefetch'].includes(job?.reason) ? job.reason : null,
+        requester: name || (r.member === true ? 'member' : r.member === false ? 'guest' : null),
+        via: ['web', 'app'].includes(r.via) ? r.via : null,
+    };
+}
+
 export function watchUrl(job) {
     if (!validJob(job)) throw new Error('invalid_job');
     const url = new URL('https://rongyok.com/watch/');

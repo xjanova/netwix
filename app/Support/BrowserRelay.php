@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Episode;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -67,8 +68,24 @@ final class BrowserRelay
             ->whereIn('state', ['queued', 'running'])->where('requested_at', '>=', now()->subMinutes(2))->exists();
     }
 
-    /** Called only after playback authorization and a miss from the normal source rotation. */
-    public static function enqueue(Episode $ep, int $priority = self::PRIORITY_VIEWER): ?array
+    /**
+     * Who is asking, for the BrainX window: the signed-in member (null for a guest) and whether the
+     * request came from the website or the app.
+     *
+     * @return array{user_id: int|null, via: string}
+     */
+    public static function requester(Request $request): array
+    {
+        return ['user_id' => $request->user()?->id,
+            'via' => str_starts_with(ltrim($request->path(), '/'), 'api/app/') ? 'app' : 'web'];
+    }
+
+    /**
+     * Called only after playback authorization and a miss from the normal source rotation.
+     *
+     * @param  array{user_id: int|null, via: string}|null  $requester  see requester()
+     */
+    public static function enqueue(Episode $ep, int $priority = self::PRIORITY_VIEWER, ?array $requester = null): ?array
     {
         $d = self::online() ? self::descriptor($ep) : null;
         if (! $d) {
@@ -76,11 +93,12 @@ final class BrowserRelay
         }
         DB::table('browser_relay_jobs')->insertOrIgnore([
             'episode_id' => $ep->id, 'series_id' => $d['series_id'], 'episode' => $d['episode'], 'priority' => $priority,
+            'requested_by' => $requester['user_id'] ?? null, 'requested_via' => $requester['via'] ?? null,
             'state' => 'queued', 'attempts' => 0, 'available_at' => now(), 'requested_at' => now(),
             'created_at' => now(), 'updated_at' => now(),
         ]);
 
-        $result = DB::transaction(function () use ($ep, $d, $priority): array {
+        $result = DB::transaction(function () use ($ep, $d, $priority, $requester): array {
             $job = DB::table('browser_relay_jobs')->where('episode_id', $ep->id)->lockForUpdate()->first();
             // A worker may have completed between the resolver's cache miss and this lock.
             if (RongYokClientResolver::cached($d['series_id'], $d['episode'])) {
@@ -88,6 +106,10 @@ final class BrowserRelay
             }
             // A viewer asking for a prefetched episode moves it to the front of the queue.
             $update = ['requested_at' => now(), 'updated_at' => now(), 'priority' => min((int) $job->priority, $priority)];
+            // The latest viewer is the one waiting now; a prefetch never overwrites a real viewer.
+            if ($requester && ($priority === self::PRIORITY_VIEWER || $job->requested_via === null)) {
+                $update += ['requested_by' => $requester['user_id'], 'requested_via' => $requester['via']];
+            }
             // A completed URL was evicted/expired, or an exhausted episode has cooled down.
             // Don't touch a live lease, even when many viewers ask for the same episode.
             if ($job->series_id !== $d['series_id'] || $job->episode !== $d['episode'] || $job->state === 'ready'
@@ -102,7 +124,7 @@ final class BrowserRelay
         });
 
         if ($priority === self::PRIORITY_VIEWER) {
-            self::prefetchAfter($ep);
+            self::prefetchAfter($ep, $requester);
         }
 
         return $result;
@@ -113,7 +135,7 @@ final class BrowserRelay
      * episodes opened while this one plays, so the next one starts without a wait. Bounded to
      * PREFETCH_AHEAD episodes per title per minute — never a catalogue crawl.
      */
-    public static function prefetchAfter(Episode $ep): void
+    public static function prefetchAfter(Episode $ep, ?array $requester = null): void
     {
         if (! self::online() || ! Cache::add('browser-relay:prefetch:'.$ep->id, 1, 60)) {
             return;
@@ -125,7 +147,7 @@ final class BrowserRelay
             $episode->setRelation('content', $ep->content);
             $d = self::descriptor($episode);
             if ($d && ! RongYokClientResolver::cached($d['series_id'], $d['episode'])) {
-                self::enqueue($episode, self::PRIORITY_PREFETCH);
+                self::enqueue($episode, self::PRIORITY_PREFETCH, $requester);
             }
         }
     }
@@ -169,9 +191,18 @@ final class BrowserRelay
                     'lease_expires_at' => now()->addSeconds(self::LEASE_SECONDS), 'updated_at' => now(),
                 ]);
 
+                // Display-only context for the BrainX window: never an email or any account detail.
+                $name = $job->requested_by ? DB::table('users')->where('id', $job->requested_by)->value('name') : null;
+
                 return ['id' => $job->id, 'lease_token' => $token, 'lease_seconds' => self::LEASE_SECONDS,
                     'source' => 'rongyok', 'series_id' => $job->series_id, 'episode' => $job->episode,
-                    'priority' => (int) $job->priority];
+                    'priority' => (int) $job->priority,
+                    'reason' => (int) $job->priority === self::PRIORITY_VIEWER ? 'viewer' : 'prefetch',
+                    'title' => mb_substr((string) $ep->content->title, 0, 120),
+                    'episode_number' => (int) $ep->number,
+                    'requester' => ['member' => $job->requested_by !== null,
+                        'name' => $name !== null ? mb_substr((string) $name, 0, 40) : null,
+                        'via' => $job->requested_via]];
             });
             if ($result !== false) {
                 return $result;

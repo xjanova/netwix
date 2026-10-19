@@ -85,13 +85,14 @@ class EpisodeSourceController extends Controller
         // progressive-source title can perfectly well end up playing from an HLS mirror.
         $client = RongYokClientResolver::forEpisode($episode) ?? BrowserRelay::descriptor($episode);
         if ($client && ($assisted = RongYokClientResolver::cached($client['series_id'], $client['episode']))) {
-            BrowserRelay::prefetchAfter($episode);
+            BrowserRelay::prefetchAfter($episode, BrowserRelay::requester($request));
 
             return $this->ready($episode, ['kind' => $assisted->kind, 'url' => $assisted->url]);
         }
         // The BrainX browser is already opening this episode: answer the poll without walking the
         // rotation again, so waiting viewers add no upstream requests and can poll every few seconds.
-        if (! $refresh && $client && BrowserRelay::inFlight($episode) && ($relay = BrowserRelay::enqueue($episode))) {
+        if (! $refresh && $client && BrowserRelay::inFlight($episode)
+            && ($relay = BrowserRelay::enqueue($episode, BrowserRelay::PRIORITY_VIEWER, BrowserRelay::requester($request)))) {
             return response()->json(['ready' => false, 'relay' => $relay], 202);
         }
         $resolved = MirrorRotation::resolve($episode, $registry);
@@ -110,7 +111,7 @@ class EpisodeSourceController extends Controller
 
             $client = RongYokClientResolver::forEpisode($episode);
 
-            $relay = BrowserRelay::enqueue($episode);
+            $relay = BrowserRelay::enqueue($episode, BrowserRelay::PRIORITY_VIEWER, BrowserRelay::requester($request));
 
             return response()->json(['ready' => false] + ($client ? ['client_resolve' => $client] : [])
                 + ($relay ? ['relay' => $relay] : []), 202);
