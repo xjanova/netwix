@@ -4,6 +4,10 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { ChromeResolver, validJob } from './resolver.mjs';
 import { waitForUrban, openUrbanPanel, switchUrbanLocation, DEFAULT_LOCATIONS } from './urban.mjs';
 import { openRelayDb } from './relay-db.mjs';
+import { Updater, UPDATE_EXIT_CODE } from './updater.mjs';
+import { readFileSync } from 'node:fs';
+
+const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 
 const urbanExtension = process.env.BROWSER_RELAY_URBAN_EXTENSION ||
     (existsSync('urban-extension/manifest.json') ? resolvePath('urban-extension') : null);
@@ -36,7 +40,7 @@ function refreshStats(force) {
     try { stats = db.stats(); statsAt = Date.now(); } catch { /* Keep the previous summary. */ }
 }
 const log = (event, fields = {}) => {
-    const record = { time: new Date().toISOString(), pid: process.pid, event, ...fields };
+    const record = { time: new Date().toISOString(), pid: process.pid, version: VERSION, event, ...fields };
     console.log(JSON.stringify(record));
     try { db?.event(record); } catch { /* worker.log still has it. */ }
     refreshStats(event.startsWith('job_'));
@@ -86,6 +90,16 @@ function rotateUrban(reason, target = null) {
 }
 
 async function main() {
+    if (process.argv.includes('--version')) { console.log(VERSION); return; }
+    if (process.argv.includes('--update-now')) {
+        // Manual/bootstrap install of the newest relay release (--force also reinstalls the same version).
+        const updater = new Updater({ root: resolvePath('.'), current: process.argv.includes('--force') ? '0.0.0' : VERSION });
+        const release = await updater.check();
+        if (!release) { log('update_none', { current: VERSION }); return; }
+        const result = await updater.apply(release);
+        log('update_applied', { from: VERSION, to: release.version, files: result.files, lock_changed: result.lockChanged });
+        return;
+    }
     if (process.argv.includes('--stats')) {
         if (!db) throw new Error('sqlite_unavailable');
         const days = Math.min(30, Math.max(1, parseInt(process.argv[process.argv.indexOf('--stats') + 1], 10) || 1));
@@ -145,6 +159,17 @@ async function main() {
     let lastJobAt = 0;
     let failStreak = 0;
 
+    // Self-update from GitHub releases (relay-v*): checked at start and every minute by default.
+    const autoUpdate = process.env.BROWSER_RELAY_AUTO_UPDATE !== 'false';
+    const updater = new Updater({ root: resolvePath('.'), current: VERSION });
+    const updateEvery = Math.max(30, parseInt(process.env.BROWSER_RELAY_UPDATE_SECONDS || '60', 10) || 60) * 1000;
+    const failedVersions = new Map();
+    let nextUpdateCheck = 0;
+    let pendingUpdate = null;
+    let lastCheckError = null;
+    let claimsOk = 0;
+    let restartForUpdate = false;
+
     async function runJob(job) {
         const startedAt = new Date();
         let row = null;
@@ -160,6 +185,7 @@ async function main() {
             finish({ outcome: 'completed', video_host: new URL(video).hostname, expires_at: expiresAt(video),
                 extras_found: sent.length, extras_accepted: accepted });
             failStreak = 0;
+            active.delete(job.id); // so status.json no longer counts this tab
             log('job_completed', { job_id: job.id, series_id: job.series_id, episode: job.episode,
                 duration_ms: Date.now() - startedAt, extras: accepted });
         } catch (error) {
@@ -169,6 +195,7 @@ async function main() {
             // otherwise the bounded lease allows recovery after a network failure.
             if (!apiError) await api(`jobs/${job.id}/fail`, { lease_token: job.lease_token, error: code }).catch(() => {});
             finish({ outcome: 'failed', error: code, extras_found: extras.size });
+            active.delete(job.id);
             log('job_failed', { job_id: job.id, series_id: job.series_id, episode: job.episode, error: code, duration_ms: Date.now() - startedAt });
             if (code === 'browser_unavailable' || code === 'urban_not_connected') restartBrowser = true;
             if (!apiError) failStreak++;
@@ -189,6 +216,37 @@ async function main() {
     try { db?.prune(); } catch { /* Best effort. */ }
     let prunedAt = Date.now();
     while (!stopRequested()) {
+        if (autoUpdate && !pendingUpdate && Date.now() >= nextUpdateCheck) {
+            nextUpdateCheck = Date.now() + updateEvery;
+            try {
+                const release = await updater.check();
+                lastCheckError = null;
+                if (release && (failedVersions.get(release.version) ?? 0) < 3) {
+                    pendingUpdate = release;
+                    log('update_found', { to: release.version });
+                }
+            } catch (error) {
+                const code = /^update_[a-z_0-9]+$/.test(error.message) ? error.message : 'update_check_failed';
+                if (/_(403|429)$/.test(code)) nextUpdateCheck = Date.now() + 10 * 60000; // GitHub rate limit
+                if (code !== lastCheckError) log('update_check_failed', { error: code });
+                lastCheckError = code;
+            }
+        }
+        if (pendingUpdate) {
+            // Finish the tabs already open, take no new work, then swap the program files.
+            if (active.size) { await Promise.race([...active.values(), sleep(1000)]); continue; }
+            try {
+                const result = await updater.apply(pendingUpdate);
+                log('update_applied', { from: VERSION, to: pendingUpdate.version, files: result.files, lock_changed: result.lockChanged });
+                restartForUpdate = true;
+                break;
+            } catch (error) {
+                const code = /^update_[a-z_0-9]+$/.test(error.message) ? error.message : 'update_apply_failed';
+                failedVersions.set(pendingUpdate.version, (failedVersions.get(pendingUpdate.version) ?? 0) + 1);
+                log('update_failed', { to: pendingUpdate.version, error: code });
+                pendingUpdate = null;
+            }
+        }
         // Restart a broken browser only once no other tab is still using it.
         if (restartBrowser && active.size === 0) { restartBrowser = false; await resolver.close(); }
         if (active.size >= concurrency || restartBrowser || switching || Date.now() < pauseUntil) {
@@ -196,7 +254,11 @@ async function main() {
             continue;
         }
         let job;
-        try { ({ job } = await api('jobs/claim')); }
+        try {
+            ({ job } = await api('jobs/claim'));
+            // Three good round trips after an update: the new version works, drop the rollback.
+            if (++claimsOk === 3) updater.confirmHealthy();
+        }
         catch (error) {
             const code = /^api_\d+$/.test(error.message) ? error.message : 'connection_failed';
             log('worker_waiting', { error: code });
@@ -217,6 +279,10 @@ async function main() {
         await sleep(Date.now() - lastJobAt < 120000 ? 1500 : 4000);
     }
     await Promise.allSettled(active.values());
+    if (restartForUpdate) {
+        log('worker_restarting', { reason: 'update' });
+        process.exitCode = UPDATE_EXIT_CODE; // run-worker.ps1 starts the new version
+    }
 }
 
 try { await main(); }

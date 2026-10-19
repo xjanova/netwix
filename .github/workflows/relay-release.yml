@@ -1,0 +1,54 @@
+name: Relay release
+
+# Push a tag `relay-v<version>` (matching tools/browser-relay/package.json) to publish the BrainX
+# relay. Running workers poll for these releases and update themselves.
+#
+# Never marked "Latest": the NetWix site reads releases/latest for the mobile app's update.
+
+on:
+  push:
+    tags: ['relay-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Tag matches package version
+        id: version
+        run: |
+          V="${GITHUB_REF_NAME#relay-v}"
+          P="$(node -p "require('./tools/browser-relay/package.json').version")"
+          if [ "$V" != "$P" ]; then echo "tag $V != package.json $P"; exit 1; fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        working-directory: tools/browser-relay
+        run: |
+          npm ci --registry=https://registry.npmjs.org
+          npm test
+
+      - name: Build archive
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          git archive --format=zip -o "netwix-relay-$V.zip" HEAD:tools/browser-relay
+          sha256sum "netwix-relay-$V.zip" > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          gh release create "$GITHUB_REF_NAME" "netwix-relay-$V.zip" SHA256SUMS \
+            --title "NetWix Relay $V" --latest=false \
+            --notes "BrainX relay worker $V. Installed automatically by running workers (see tools/browser-relay/README.md)."

@@ -12,3 +12,4 @@ app-preview.png
 relay.db
 relay.db-wal
 relay.db-shm
+.update/

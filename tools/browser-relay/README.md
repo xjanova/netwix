@@ -111,6 +111,34 @@ guarantee future access. Test this dedicated profile on BrainX before enabling p
   `source_blocked` pauses new tabs for 30 s; a broken browser restarts once no tab still uses it.
 - Only polling/requests keep jobs current; there is no catalogue prefetch or bulk scraping.
 
+## Version and automatic updates
+
+The version is `package.json` `version`; the worker logs it on every record, and the control
+window shows the running one. Releases are GitHub releases tagged `relay-v<version>` with
+`netwix-relay-<version>.zip` (`git archive` of this folder) and `SHA256SUMS`, built by
+`.github/workflows/relay-release.yml`. They are never marked "Latest" — the NetWix site reads
+`releases/latest` for the mobile app.
+
+To release: bump `version` in `package.json` (and the two root entries in `package-lock.json`),
+commit, then `git tag relay-v<version> && git push origin relay-v<version>`.
+
+The worker checks the releases API at start and every `BROWSER_RELAY_UPDATE_SECONDS` (default 60;
+conditional requests, so an unchanged list costs no rate limit; 10-minute back-off on 403/429).
+On a newer version it stops taking work, lets open tabs finish, downloads the archive from GitHub
+hosts only, checks SHA-256, unpacks it, and copies the program files over the current ones —
+never `.env`, the profiles, `urban-extension`, `node_modules`, `relay.db` or logs. Dependencies are
+reinstalled only when `package-lock.json` changed. It then exits with code 75 and
+`run-worker.ps1` starts the new version straight away. The replaced files are kept in
+`.update/backup-<old>`; if the new version exits with an error within two minutes, `run-worker.ps1`
+restores them and marks the version bad (`.update/bad-<version>`) so it is not installed again.
+Three successful claims confirm an update. Disable with `BROWSER_RELAY_AUTO_UPDATE=false`.
+
+```powershell
+node worker.mjs --version
+node worker.mjs --update-now           # install the newest release now (relay stopped)
+node worker.mjs --update-now --force   # reinstall it even if already on that version
+```
+
 ## Automatic Urban location switch
 
 When RongYok blocks the current exit (`source_blocked`), or three requests in a row fail without a

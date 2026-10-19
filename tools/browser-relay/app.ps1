@@ -5,7 +5,8 @@ Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 $relayRoot = $PSScriptRoot
 $relayForm = New-Object System.Windows.Forms.Form
-$relayForm.Text = 'NetWix Relay - BrainX'
+$relayVersion = try { (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'package.json') -Raw | ConvertFrom-Json).version } catch { '?' }
+$relayForm.Text = 'NetWix Relay ' + $relayVersion + ' - BrainX'
 $relayForm.Size = New-Object System.Drawing.Size(730, 550)
 $relayForm.MinimumSize = $relayForm.Size
 $relayForm.StartPosition = 'CenterScreen'
@@ -25,7 +26,7 @@ function Add-RelayLabel($text,$x,$y,$width,$height) {
     $relayPanel.Controls.Add($label)
     return $label
 }
-$relayTitle = Add-RelayLabel 'NetWix Relay' 24 18 620 42
+$relayTitle = Add-RelayLabel ('NetWix Relay  v' + $relayVersion) 24 18 620 42
 $relayTitle.Font = New-Object Drawing.Font('Segoe UI',22,[Drawing.FontStyle]::Bold)
 $relayHint = Add-RelayLabel 'BrainX server | Urban VPN | Every RongYok title viewers request' 26 65 650 26
 $relayHint.ForeColor = [Drawing.Color]::Silver
@@ -117,7 +118,7 @@ function Update-RelayView {
         $statusPath = Join-Path $relayRoot 'status.json'
         if (Test-Path -LiteralPath $statusPath) {
             $record = Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            $labels = @{worker_started='Relay started';job_started='Resolving episode';job_completed='Link saved';job_failed='Request needs retry';probe_started='Testing link';probe_success='Link test passed';worker_waiting='Waiting for server';worker_stopped='Stopped';urban_setup_opened='Urban VPN settings open';urban_switched='Blocked - switched VPN location';urban_switch_failed='VPN location switch failed'}
+            $labels = @{worker_started='Relay started';job_started='Resolving episode';job_completed='Link saved';job_failed='Request needs retry';probe_started='Testing link';probe_success='Link test passed';worker_waiting='Waiting for server';worker_stopped='Stopped';urban_setup_opened='Urban VPN settings open';urban_switched='Blocked - switched VPN location';urban_switch_failed='VPN location switch failed';update_found='New version found - updating';update_applied='Updated - restarting';update_failed='Update failed - will retry';worker_restarting='Restarting for update'}
             $eventLabel = if ($labels.ContainsKey([string]$record.event)) {$labels[[string]$record.event]} else {$record.event}
             $eventTime = [DateTimeOffset]::Parse($record.time).ToOffset([TimeSpan]::FromHours(7)).ToString('yyyy-MM-dd HH:mm:ss',[Globalization.CultureInfo]::InvariantCulture)
             $relayDetails.Text = $eventLabel + '   ' + $eventTime + ' ICT'
@@ -126,6 +127,7 @@ function Update-RelayView {
                 $avg = if ($record.stats.avg_ms) { ([double]$record.stats.avg_ms / 1000).ToString('0.0',[Globalization.CultureInfo]::InvariantCulture) + 's' } else { '-' }
                 $relayHint.Text = 'Last 24h: ' + $record.stats.completed + ' links, ' + $record.stats.failed + ' failed, ' + $record.stats.extras + ' bonus | avg ' + $avg + ' | tabs ' + $record.active + '/' + $record.concurrency
                 if ($record.urban) { $relayHint.Text += ' | VPN ' + $record.urban }
+                if ($record.version) { $relayTitle.Text = 'NetWix Relay  v' + $record.version }
             }
             if ($record.event -eq 'probe_success') { $relayDetails.Text += "`r`nLink test passed. CDN: " + $record.video_host }
         } else { $relayDetails.Text = 'Use Test Link to check Urban and source access before starting.' }
