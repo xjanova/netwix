@@ -42,20 +42,24 @@ class ImportService
             foreach ($batch as $rs) {
                 /** @var RemoteSeries $rs */
                 try {
-                    SourceTitle::updateOrCreate(
-                        ['source' => $sourceId, 'source_key' => $rs->sourceKey],
-                        [
-                            'title' => $rs->title,
-                            'clean_title' => $rs->cleanTitle,
-                            'description' => $rs->description,
-                            'poster_url' => $rs->posterUrl,
-                            'year' => $rs->year,
-                            'dub_type' => $rs->dubType,
-                            'view_count' => $rs->viewCount,
-                            'extra' => $rs->extra,
-                            'synced_at' => now(),
-                        ],
-                    );
+                    $row = SourceTitle::firstOrNew(['source' => $sourceId, 'source_key' => $rs->sourceKey]);
+                    $row->forceFill(['title' => $rs->title, 'clean_title' => $rs->cleanTitle, 'synced_at' => now()]);
+                    // A listing that no longer carries a field must not erase what an earlier sync or
+                    // the import stored. rongyok's grid went behind a bot check on 2026-09-29 and the
+                    // homepage cards carry no description and a view count of 0 — every re-sync was
+                    // blanking synopses and resetting the popularity order to nothing.
+                    foreach (['description' => $rs->description, 'poster_url' => $rs->posterUrl,
+                        'year' => $rs->year, 'dub_type' => $rs->dubType] as $column => $value) {
+                        if (filled($value)) {
+                            $row->{$column} = $value;
+                        }
+                    }
+                    if ((int) $rs->viewCount > 0) {
+                        $row->view_count = $rs->viewCount;
+                    }
+                    // Merge, so flags the import wrote (e.g. `unplayable`) survive the next listing.
+                    $row->extra = array_merge((array) ($row->extra ?? []), (array) ($rs->extra ?? []));
+                    $row->save();
                     $running++;
                 } catch (\Throwable $e) {
                     // One unusable remote row must not cost the whole catalogue. A 277-character
@@ -125,17 +129,22 @@ class ImportService
         $existing = Content::withoutGlobalScopes()
             ->where('source', $st->source)->where('source_key', $st->source_key)->first();
 
+        // A re-import (manual, or the nightly episode refresh) fills blanks but never undoes what is
+        // already there: an admin's edited title or synopsis, or a synopsis fetched earlier, used to be
+        // overwritten with the source's current listing — which for rongyok is often no synopsis at all.
+        $keep = fn (string $column, $fresh) => $existing && filled($existing->{$column}) ? $existing->{$column} : $fresh;
+
         $content = Content::updateOrCreate(
             ['source' => $st->source, 'source_key' => $st->source_key],
             [
-                'title' => $title,
+                'title' => $keep('title', $title),
                 'slug' => $this->uniqueSlug($title, $st),
                 'type' => $type,
-                'synopsis' => $st->description,
-                'year' => $st->year,
+                'synopsis' => $keep('synopsis', $st->description),
+                'year' => $keep('year', $st->year),
                 'maturity' => $maturity,
                 'is_vip' => $isVip,
-                'dub_type' => $st->dub_type ?: Content::guessDubType($title),
+                'dub_type' => $keep('dub_type', $st->dub_type ?: Content::guessDubType($title)),
                 // No rating / match_score here. Both used to be random_int() calls, which meant
                 // every title carried an invented score that the site then showed as fact —
                 // "★ 8.7" and "94% ตรงใจ" on titles nobody had rated. Ratings now come only from
@@ -219,20 +228,19 @@ class ImportService
      */
     private function localizeCover(Content $content): void
     {
-        if (! str_starts_with((string) $content->poster_path, 'http')) {
-            return;   // already ours — nothing to pull down
-        }
-
-        try {
-            $backfill = app(PosterBackfill::class);
-            if (($path = $backfill->localize($content)) !== null) {
-                $backfill->apply($content, $path);
+        if (str_starts_with((string) $content->poster_path, 'http')) {
+            try {
+                $backfill = app(PosterBackfill::class);
+                if (($path = $backfill->localize($content)) !== null) {
+                    $backfill->apply($content, $path);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('import: cover localize failed', [
+                    'content_id' => $content->id, 'error' => $e->getMessage(),
+                ]);
             }
-        } catch (\Throwable $e) {
-            Log::warning('import: cover localize failed', [
-                'content_id' => $content->id, 'error' => $e->getMessage(),
-            ]);
         }
+        PosterBackfill::alignBackdrop($content);
     }
 
     /**

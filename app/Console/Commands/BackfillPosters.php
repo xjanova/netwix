@@ -45,6 +45,16 @@ class BackfillPosters extends Command
         // batch. Resumable by construction — a localized cover no longer matches `http%`, so the next
         // run picks up exactly where this one stopped, and re-running is never wasted work.
         if ($localize) {
+            // Backdrops still hotlinked behind a poster we already hold: no download needed, just
+            // point them at our copy (rongyok serves its advert to browsers for the hotlink).
+            $aligned = 0;
+            foreach ($base()->where('backdrop_path', 'like', 'http%')->where('poster_path', 'like', 'media/%')->limit($limit)->get() as $c) {
+                $aligned += PosterBackfill::alignBackdrop($c) ? 1 : 0;
+            }
+            if ($aligned) {
+                $this->info("Pointed {$aligned} hotlinked backdrops at our own poster.");
+            }
+
             return $this->sweep(
                 $base()->where('poster_path', 'like', 'http%')->orderByDesc('views')->limit($limit)->get(),
                 fn (Content $c) => $backfill->localize($c),

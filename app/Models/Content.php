@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Scopes\MaturityScope;
+use App\Support\AdvertCover;
 use App\Support\Maturity;
 use App\Support\MediaUrl;
 use Illuminate\Database\Eloquent\Builder;
@@ -272,6 +273,11 @@ class Content extends Model
     private function resolveMedia(?string $path): ?string
     {
         if (! $path) {
+            return null;
+        }
+        // A viewer's browser asking rongyok for this picture gets rongyok's green advert instead.
+        // Show our branded fallback until the cover is pulled into our own storage. See AdvertCover.
+        if (AdvertCover::isAdvertHotlink($path)) {
             return null;
         }
 

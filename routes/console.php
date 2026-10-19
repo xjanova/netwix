@@ -101,6 +101,18 @@ if ($aiSchedules) {
 Schedule::command('netwix:refresh-episodes --airing-only --limit=200 --sleep=250')
     ->dailyAt('03:20')->withoutOverlapping()->runInBackground();
 
+// rongyok: its own run, twice a day — the verticals still gaining episodes, titles someone watched
+// this week first ([EpisodeRefresher::airingVerticals]). One series page per title (episodes +
+// synopsis come from the same request). Not gated by the auto-import switch: this only completes
+// titles already in the catalogue, it never adds new ones.
+Schedule::command('netwix:refresh-episodes --source=rongyok --include-rongyok --airing-only --recent-days=45 --limit=150 --sleep=400')
+    ->twiceDaily(5, 17)->withoutOverlapping()->runInBackground();
+
+// rongyok synopses: the catalogue grid stopped carrying them, so fill the gaps from each title's own
+// series page, a small batch an hour (most-viewed first), until none are left.
+Schedule::command('netwix:backfill-synopsis rongyok --limit=60')
+    ->hourlyAt(35)->withoutOverlapping()->runInBackground();
+
 // Nightly: re-check 9nung playability so a re-imported/updated title auto-publishes when it carries a
 // clean fembed→vdohls stream (and hides one that flipped to abyss). 9nung is a MIXED source (~24%
 // playable fembed, the rest abyss ad-traps); `hidden_sources=9nung` keeps imports hidden by default and

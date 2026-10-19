@@ -169,6 +169,23 @@ class PosterBackfill
      * Also clears `cover_missing_at`: the title now HAS a cover, so it must drop out of the admin's
      * missing-covers queue no matter which route put one there.
      */
+    /**
+     * A backdrop still hotlinked while the poster is already ours: show our poster behind the hero
+     * too. apply() only moves a backdrop that was the SAME URL as the old poster, so a title whose
+     * backdrop came from a different source address (rongyok's JPG beside the WebP poster) kept
+     * hotlinking — 17 rongyok titles on 2026-10-19, each wearing the green advert as a backdrop.
+     */
+    public static function alignBackdrop(Content $content): bool
+    {
+        $poster = (string) $content->poster_path;
+        if (! str_starts_with((string) $content->backdrop_path, 'http') || $poster === '' || str_starts_with($poster, 'http')) {
+            return false;
+        }
+        $content->forceFill(['backdrop_path' => $poster])->save();
+
+        return true;
+    }
+
     public function apply(Content $content, string $path): void
     {
         $old = (string) $content->poster_path;
@@ -322,10 +339,22 @@ class PosterBackfill
         if (! $resp->ok()) {
             return null;
         }
+        // rongyok answers a foreign Referer with a redirect to its green advert card. Following that
+        // redirect must never end with the card stored as a cover. See [AdvertCover].
+        if (AdvertCover::isAdvertRedirect((string) $resp->effectiveUri())) {
+            Log::warning('cover rejected: source redirected to its anti-hotlink advert', ['url' => $url]);
+
+            return null;
+        }
         $body = $resp->body();
         $ct = strtolower((string) $resp->header('Content-Type'));
         // Guard: a hotlink-blocked host often answers 200 with an HTML "denied" page — require an image.
         if (strlen($body) < 500 || (! str_starts_with($ct, 'image/') && ! self::looksLikeImage($body))) {
+            return null;
+        }
+        if (AdvertCover::looksLikeAdvert($body, $url)) {
+            Log::warning('cover rejected: image is the anti-hotlink advert', ['url' => $url]);
+
             return null;
         }
 
