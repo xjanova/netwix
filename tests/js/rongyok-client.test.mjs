@@ -35,3 +35,11 @@ test('web fallback cannot bypass a server access rejection', async () => {
     const denied = {ready: false, client_resolve: descriptor, error: 'pro_required'};
     assert.deepEqual(await resolveEpisodeResponse({status: 403, json: async () => denied}, () => {throw new Error('must not fetch');}), denied);
 });
+
+test('a queued Chrome relay does not trigger duplicate viewer requests', async () => {
+    const payload = {ready: false, client_resolve: descriptor, relay: {state: 'pending', retry_after: 10}};
+    const response = {status: 202, json: async () => payload};
+    assert.deepEqual(await resolveEpisodeResponse(response, () => {throw new Error('must not fetch');}), payload);
+    const cooled = {...payload, relay: {state: 'retry_later'}};
+    assert.equal((await resolveEpisodeResponse({status: 202, json: async () => cooled}, () => {throw new Error('must not fetch');})).client_blocked, true);
+});

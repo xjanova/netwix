@@ -372,6 +372,12 @@ class ScrapeGuard
         if ($bearer !== '' && self::validAppToken($bearer)) {
             return true;
         }
+        // The BrainX relay worker: a referer-less JSON poll every few seconds is exactly what it is
+        // meant to do, so the "JSON without a page" rule banned it within 30 minutes (2026-10-19).
+        if ($bearer !== '' && BrowserRelay::enabled()
+            && hash_equals((string) config('services.rongyok.browser_relay_token'), $bearer)) {
+            return true;
+        }
 
         $user = $request->user();
         if ($user && method_exists($user, 'isAdmin') && $user->isAdmin()) {

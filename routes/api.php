@@ -19,7 +19,17 @@ use App\Http\Controllers\Api\App\SourceController;
 use App\Http\Controllers\Api\App\TelemetryController;
 use App\Http\Controllers\Api\App\WalletController;
 use App\Http\Controllers\Api\FacebookWebhookController;
+use App\Http\Controllers\BrowserRelayController;
+use App\Http\Controllers\ResolveAssistController;
+use App\Http\Middleware\AuthenticateBrowserRelay;
 use Illuminate\Support\Facades\Route;
+
+// BrainX pulls only queued episode identifiers; it is never a general-purpose proxy.
+Route::prefix('browser-relay')->middleware([AuthenticateBrowserRelay::class, 'throttle:120,1'])->group(function () {
+    Route::post('jobs/claim', [BrowserRelayController::class, 'claim']);
+    Route::post('jobs/{job}/complete', [BrowserRelayController::class, 'complete'])->whereNumber('job');
+    Route::post('jobs/{job}/fail', [BrowserRelayController::class, 'fail'])->whereNumber('job');
+});
 
 /*
 |----------------------------------------------------------------------
@@ -71,9 +81,9 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
     });
 
     Route::get('episodes/{episode}/source', [SourceController::class, 'source'])->middleware('auth.apptoken.optional');
-    Route::get('resolve-assist/{code}', [\App\Http\Controllers\ResolveAssistController::class, 'status'])
+    Route::get('resolve-assist/{code}', [ResolveAssistController::class, 'status'])
         ->middleware(['auth.apptoken', 'admin', 'throttle:20,1']);
-    Route::post('resolve-assist/{code}', [\App\Http\Controllers\ResolveAssistController::class, 'submit'])
+    Route::post('resolve-assist/{code}', [ResolveAssistController::class, 'submit'])
         ->middleware(['auth.apptoken', 'admin', 'throttle:10,1']);
 
     // Covers earned from viewing — the app half of what the web player has done since 2026-07-06.

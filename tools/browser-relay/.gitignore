@@ -1,0 +1,15 @@
+node_modules/
+.chrome-profile/
+.env
+*.log
+*.pid
+worker.stop
+.urban-profile/
+urban-extension/
+probe-result.json
+status.json
+app-preview.png
+relay.db
+relay.db-wal
+relay.db-shm
+.update/

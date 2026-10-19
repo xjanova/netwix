@@ -287,6 +287,7 @@
             ...nxEpPicker(),
             err: '',
             clientBlocked: false,
+            _relayWaitStarted: 0,
             fs: false,
             muted: false,        // mirror of the <video>'s real muted state (volumechange keeps it honest)
             soundSettled: false, // heard audio, or muted on purpose → stop offering "tap for sound"
@@ -418,6 +419,9 @@
                 } catch (e) { /* fall through to the error message below */ }
                 this._reResolving = false;
 
+                if (this.episodes[this.index] !== ep) return;
+                if (d?.relay) { this.waitForSource(ep, d); return; }
+
                 if (d?.client_blocked) { this.showClientBlocked(d); this.stopPoll(); this._poll = setInterval(() => this.load(), 15000); return; }
 
                 // A fresh resolver walk normally changes the signed URL.  It may legitimately
@@ -464,6 +468,7 @@
                 this.stopPoll();
                 this.err = '';
                 this.clientBlocked = false;
+                this._relayWaitStarted = 0;
                 this._outroFired = false; this.showSkip = false; this.dismissNext();   // fresh markers per episode
                 this._reResolves = 0;
                 const ep = this.episodes[this.index];
@@ -474,18 +479,43 @@
                 const d = await this.tryResolve(ep);
                 if (this.episodes[this.index] !== ep) return;
                 if (d && d.ready && d.url) { this.attach(d.url, d.kind); return; }
+                this.waitForSource(ep, d);
+            },
+
+            // The BrainX browser usually finishes within ~15s: poll quickly only while it works.
+            pollEvery(d) { return d?.relay?.state === 'pending' ? 3000 : 10000; },
+
+            relayTimedOut(d) {
+                if (!d?.relay && !this._relayWaitStarted) return false;
+                if (!this._relayWaitStarted) this._relayWaitStarted = Date.now();
+                if (d?.relay?.state !== 'retry_later' && Date.now() - this._relayWaitStarted < 120000) return false;
+                this.stopPoll(); this.resume(); this.clientBlocked = true;
+                this.err = 'ยังขอลิงก์ตอนนี้ไม่ได้ กรุณาลองอีกครั้งภายหลัง หรือเลือกตอนอื่น';
+                return true;
+            },
+
+            waitForSource(ep, d) {
+                this.stopPoll();
+                if (this.relayTimedOut(d)) return;
                 if (d?.client_blocked) this.showClientBlocked(d);
 
                 // Not resolvable yet — show the loader and poll until it becomes available.
                 if (! this.clientBlocked) this.stall();
                 const my = this.index;
+                let resolving = false;
                 this._poll = setInterval(async () => {
                     if (this.index !== my) { this.stopPoll(); return; }
-                    const r = await this.tryResolve(ep);
+                    if (this.relayTimedOut(null)) return;
+                    if (resolving) return;
+                    resolving = true;
+                    let r;
+                    try { r = await this.tryResolve(ep); } finally { resolving = false; }
                     if (this.index !== my) return;
+                    if (r && r.ready && r.url) { this.stopPoll(); this.clientBlocked = false; this.err = ''; this.attach(r.url, r.kind); return; }
+                    if (this.relayTimedOut(r)) return;
+                    if (r?.relay?.state === 'pending' && this.pollEvery(r) !== this.pollEvery(d)) { this.waitForSource(ep, r); return; }
                     if (r?.client_blocked) { this.showClientBlocked(r); return; }
-                    if (r && r.ready && r.url) { this.stopPoll(); this.clientBlocked = false; this.err = ''; this.attach(r.url, r.kind); }
-                }, 10000);
+                }, this.pollEvery(d));
             },
             async tryResolve(ep) {
                 if (!ep.resolve) return null;
@@ -499,6 +529,7 @@
                 this.err = 'ตอนนี้มีผู้ใช้งานจำนวนมาก กรุณารอสักครู่ ระบบจะลองขอลิงก์ให้เองอัตโนมัติ หรือรับชมในแอป NetWix ได้ทันที';
             },
             attach(url, kind) {
+                this._relayWaitStarted = 0;
                 // 9nung/abyss: a 3rd-party player iframe, not a stream — show the sandboxed iframe instead
                 // of the <video> (popups are blocked by its sandbox). No proxy, no watchdog.
                 if (kind === 'embed') { this.attachEmbed(url); return; }

@@ -53,6 +53,8 @@ return [
         'free_proxy_auto' => env('RONGYOK_FREE_PROXY_AUTO', true),
         // Opt in after installing a client with direct-resolution support; preserves old clients.
         'client_fallback' => env('RONGYOK_CLIENT_FALLBACK', true),
+        'browser_relay_enabled' => env('RONGYOK_BROWSER_RELAY_ENABLED', false),
+        'browser_relay_token' => env('RONGYOK_BROWSER_RELAY_TOKEN'),
     ],
 
     'ingest' => [

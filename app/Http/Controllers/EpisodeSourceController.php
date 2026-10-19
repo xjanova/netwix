@@ -7,6 +7,7 @@ use App\Models\Episode;
 use App\Services\GoldWallet;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
+use App\Support\BrowserRelay;
 use App\Support\MirrorRotation;
 use App\Support\PlaybackHealth;
 use App\Support\RongYokClientResolver;
@@ -82,9 +83,16 @@ class EpisodeSourceController extends Controller
         // source, then every mirror ([App\Support\MirrorRotation]). The link that WINS decides how the
         // stream is played back, which is why this resolves before choosing a response shape — a
         // progressive-source title can perfectly well end up playing from an HLS mirror.
-        $client = RongYokClientResolver::forEpisode($episode);
+        $client = RongYokClientResolver::forEpisode($episode) ?? BrowserRelay::descriptor($episode);
         if ($client && ($assisted = RongYokClientResolver::cached($client['series_id'], $client['episode']))) {
+            BrowserRelay::prefetchAfter($episode);
+
             return $this->ready($episode, ['kind' => $assisted->kind, 'url' => $assisted->url]);
+        }
+        // The BrainX browser is already opening this episode: answer the poll without walking the
+        // rotation again, so waiting viewers add no upstream requests and can poll every few seconds.
+        if (! $refresh && $client && BrowserRelay::inFlight($episode) && ($relay = BrowserRelay::enqueue($episode))) {
+            return response()->json(['ready' => false, 'relay' => $relay], 202);
         }
         $resolved = MirrorRotation::resolve($episode, $registry);
         if ($resolved === null) {
@@ -102,7 +110,10 @@ class EpisodeSourceController extends Controller
 
             $client = RongYokClientResolver::forEpisode($episode);
 
-            return response()->json(['ready' => false] + ($client ? ['client_resolve' => $client] : []), 202);
+            $relay = BrowserRelay::enqueue($episode);
+
+            return response()->json(['ready' => false] + ($client ? ['client_resolve' => $client] : [])
+                + ($relay ? ['relay' => $relay] : []), 202);
         }
 
         $stream = $resolved['stream'];
