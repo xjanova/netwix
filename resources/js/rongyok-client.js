@@ -35,7 +35,11 @@ export async function resolveRongYokClient(d, fetcher = fetch) {
 // Keep the server's membership/visibility checks ahead of every device request.
 export async function resolveEpisodeResponse(response, fetcher = fetch) {
     const payload = await response.json();
-    if (response.status !== 202 || payload?.error || !payload?.client_resolve) return payload;
+    if (response.status !== 202 || payload?.error) return payload;
+    // Avoid one duplicate upstream request per viewer while the Chrome worker handles the miss.
+    if (payload?.relay?.state === 'pending') return payload;
+    if (payload?.relay?.state === 'retry_later') return {...payload, client_blocked: true};
+    if (!payload?.client_resolve) return payload;
     const url = await resolveRongYokClient(payload.client_resolve, fetcher);
     return url ? {ready: true, url, kind: 'mp4'} : {...payload, client_blocked: true};
 }

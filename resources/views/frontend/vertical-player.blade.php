@@ -89,8 +89,8 @@
         {{-- preparing overlay (episode not resolvable yet) --}}
         <div x-show="preparing" x-cloak class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/85 px-8 text-center">
             <div x-show="!clientBlocked" class="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-brand"></div>
-            <div class="text-lg font-semibold" x-text="clientBlocked ? 'ตอนนี้มีผู้ใช้งานจำนวนมาก' : 'กำลังเตรียมไฟล์ไว้…'"></div>
-            <div class="max-w-xs text-sm text-cream/60" x-text="clientBlocked ? 'กรุณารอสักครู่ ระบบจะลองขอลิงก์ให้เองอัตโนมัติ หรือรับชมในแอป NetWix ได้ทันที' : 'ตอนนี้กำลังเตรียมพร้อมให้รับชม อีกสักครู่ — เมื่อพร้อมจะเล่นอัตโนมัติ'"></div>
+            <div class="text-lg font-semibold" x-text="relayUnavailable ? 'ยังขอลิงก์ตอนนี้ไม่ได้' : (clientBlocked ? 'ตอนนี้มีผู้ใช้งานจำนวนมาก' : 'กำลังเตรียมไฟล์ไว้…')"></div>
+            <div class="max-w-xs text-sm text-cream/60" x-text="relayUnavailable ? 'กรุณาลองอีกครั้งภายหลัง หรือเลือกตอนอื่น' : (clientBlocked ? 'กรุณารอสักครู่ ระบบจะลองขอลิงก์ให้เองอัตโนมัติ หรือรับชมในแอป NetWix ได้ทันที' : 'ตอนนี้กำลังเตรียมพร้อมให้รับชม อีกสักครู่ — เมื่อพร้อมจะเล่นอัตโนมัติ')"></div>
             <button x-show="clientBlocked" @click.stop="load()" class="rounded-lg bg-brand px-5 py-3 font-semibold text-white">ลองอีกครั้ง</button>
         </div>
 
@@ -240,6 +240,8 @@
             touchY: 0,
             preparing: false,
             clientBlocked: false,
+            relayUnavailable: false,
+            _relayWaitStarted: 0,
             ...nxEpPicker(),
             _poll: null,
             _stallT: null,
@@ -317,6 +319,8 @@
                 this.stopPoll();
                 this.preparing = false;
                 this.clientBlocked = false;
+                this.relayUnavailable = false;
+                this._relayWaitStarted = 0;
                 this._reResolves = 0;
                 const ep = this.episodes[this.index];
                 if (!ep) return;
@@ -326,18 +330,43 @@
                 const data = await this.tryResolve(ep);
                 if (this.episodes[this.index] !== ep) return;
                 if (data && data.ready && data.url) { this.attach(data.url); return; }
+                this.waitForSource(ep, data);
+            },
+
+            // The BrainX browser usually finishes within ~15s: poll quickly only while it works.
+            pollEvery(d) { return d?.relay?.state === 'pending' ? 3000 : 10000; },
+
+            relayTimedOut(d) {
+                if (!d?.relay && !this._relayWaitStarted) return false;
+                if (!this._relayWaitStarted) this._relayWaitStarted = Date.now();
+                if (d?.relay?.state !== 'retry_later' && Date.now() - this._relayWaitStarted < 120000) return false;
+                this.stopPoll(); this.resume();
+                this.preparing = true; this.clientBlocked = true; this.relayUnavailable = true;
+                return true;
+            },
+
+            waitForSource(ep, data) {
+                this.stopPoll();
+                if (this.relayTimedOut(data)) return;
                 if (data?.client_blocked) this.showClientBlocked(data);
 
                 // Not resolvable yet — show "preparing" and poll until it becomes available.
                 this.preparing = true;
                 const myIndex = this.index;
+                let resolving = false;
                 this._poll = setInterval(async () => {
                     if (this.index !== myIndex) { this.stopPoll(); return; }
-                    const d = await this.tryResolve(ep);
+                    if (this.relayTimedOut(null)) return;
+                    if (resolving) return;
+                    resolving = true;
+                    let d;
+                    try { d = await this.tryResolve(ep); } finally { resolving = false; }
                     if (this.index !== myIndex) return;
+                    if (d?.ready && d.url) { this.stopPoll(); this.clientBlocked = false; this.relayUnavailable = false; this.preparing = false; this.attach(d.url); return; }
+                    if (this.relayTimedOut(d)) return;
+                    if (d?.relay?.state === 'pending' && this.pollEvery(d) !== this.pollEvery(data)) { this.waitForSource(ep, d); return; }
                     if (d?.client_blocked) { this.clientBlocked = true; return; }
-                    if (d && d.ready && d.url) { this.stopPoll(); this.clientBlocked = false; this.preparing = false; this.attach(d.url); }
-                }, 10000);
+                }, this.pollEvery(data));
             },
 
             /**
@@ -373,6 +402,7 @@
                 } catch (e) { /* handled below */ }
                 this._reResolving = false;
                 if (this.index !== myIndex) return;   // the viewer swiped away while we were asking
+                if (d?.relay) { this.waitForSource(ep, d); return; }
                 if (d?.client_blocked) { this.showClientBlocked(d); this.stopPoll(); this._poll = setInterval(() => this.load(), 15000); return; }
 
                 if (d && d.ready && d.url) {
@@ -402,6 +432,8 @@
             },
 
             attach(url) {
+                this._relayWaitStarted = 0;
+                this.relayUnavailable = false;
                 this.preparing = false;
                 this.stall();   // show the loader only if the stream takes >700ms to start
                 const v = this.$refs.video;

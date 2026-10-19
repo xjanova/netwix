@@ -47,3 +47,6 @@ jobs:
 
       - name: Run tests
         run: php artisan test
+
+      - name: Test browser relay URL validation and viewer handoff
+        run: node --test tests/js/rongyok-client.test.mjs tests/js/browser-relay-wait.test.mjs tools/browser-relay/test/*.test.mjs

@@ -7,6 +7,7 @@ use App\Services\Import\Contracts\SearchesPosters;
 use App\Services\Import\JsonExtract;
 use App\Services\Import\RemoteSeries;
 use App\Services\Import\RemoteStream;
+use App\Support\BrowserRelay;
 use App\Support\PosterCandidate;
 use App\Support\RongYokClientResolver;
 use App\Support\RongYokProxyPool;
@@ -447,11 +448,11 @@ class RongYokSource implements MediaSource, SearchesPosters
 
     public function resolveByRef(string $sourceKey, string $sourceRef, array $extra = []): ?RemoteStream
     {
-        if (RongYokClientResolver::enabled() && ($assisted = RongYokClientResolver::cached($sourceKey, $sourceRef))) {
+        if ((RongYokClientResolver::enabled() || BrowserRelay::enabled()) && ($assisted = RongYokClientResolver::cached($sourceKey, $sourceRef))) {
             return $assisted;
         }
         // Without a configured proxy, hand resolution to the viewer immediately.
-        if (RongYokClientResolver::proxyUrl() === '' && RongYokClientResolver::descriptor($sourceKey, $sourceRef)) {
+        if (RongYokClientResolver::proxyUrl() === '' && (RongYokClientResolver::descriptor($sourceKey, $sourceRef) || BrowserRelay::enabled())) {
             return null;
         }
         // rongyok rotates the resolver endpoint filename to deter scrapers; the OLD get_video.php
@@ -468,7 +469,7 @@ class RongYokSource implements MediaSource, SearchesPosters
             return $stream;
         }
 
-        if (RongYokClientResolver::proxyUrl() === '' && RongYokClientResolver::descriptor($sourceKey, $sourceRef)) {
+        if (RongYokClientResolver::proxyUrl() === '' && (RongYokClientResolver::descriptor($sourceKey, $sourceRef) || BrowserRelay::enabled())) {
             return null; // the pool was exhausted; discovery must not fall back to the blocked server
         }
 

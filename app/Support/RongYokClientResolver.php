@@ -78,13 +78,13 @@ final class RongYokClientResolver
     /** Forget an assisted signed URL after a player reports it has stopped working. */
     public static function forget(Episode $ep): void
     {
-        $descriptor = self::forEpisode($ep);
+        $descriptor = self::forEpisode($ep) ?? BrowserRelay::descriptor($ep);
         if ($descriptor) {
             Cache::forget(self::cacheKey($descriptor['series_id'], $descriptor['episode']));
         }
     }
 
-    /** Only an authenticated owning admin can reach this via the assist controller. */
+    /** Called by the owning admin assist flow or the authenticated BrainX worker. */
     public static function accept(array $descriptor, string $url): bool
     {
         if (! self::validVideoUrl($url)) {
@@ -104,7 +104,7 @@ final class RongYokClientResolver
             return false;
         }
         parse_str((string) parse_url($url, PHP_URL_QUERY), $q);
-        $ttl = min(3600, (int) hexdec($q['ex']) - time() - 300);
+        $ttl = (int) hexdec($q['ex']) - time() - 300;
         Cache::put(self::cacheKey($descriptor['series_id'], $descriptor['episode']), $url, $ttl);
 
         return true;
