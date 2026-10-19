@@ -2,7 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Models\BlockedIp;
 use App\Models\Content;
+use App\Models\SecurityEvent;
+use App\Models\Setting;
 use App\Support\BrowserRelay;
 use App\Support\RongYokClientResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -259,6 +262,26 @@ class BrowserRelayTest extends TestCase
         }
         $this->assertSame(0, $walks);
         $this->assertDatabaseCount('browser_relay_jobs', 1);
+    }
+
+    public function test_scrape_guard_never_bans_the_authenticated_worker(): void
+    {
+        Setting::write('scrape_guard_mode', 'enforce');
+        Cache::flush();
+        for ($i = 0; $i < 60; $i++) {
+            $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50'])->withHeaders(['CF-Ray' => 'test', 'Authorization' => 'Bearer '.$this->token])
+                ->postJson('/api/browser-relay/jobs/claim')->assertOk();
+        }
+        $this->assertSame(0, BlockedIp::count());
+        $this->assertSame(0, SecurityEvent::count(), 'the referer-less poll is not even recorded as suspicious');
+    }
+
+    public function test_a_heartbeat_read_back_as_a_string_still_counts(): void
+    {
+        Cache::put('browser-relay:heartbeat', (string) now()->timestamp, 300);
+        $this->assertTrue(BrowserRelay::online());
+        Cache::put('browser-relay:heartbeat', (string) now()->subMinutes(4)->timestamp, 300);
+        $this->assertFalse(BrowserRelay::online());
     }
 
     public function test_offline_worker_leaves_playback_on_the_existing_paths(): void

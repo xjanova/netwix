@@ -38,7 +38,8 @@ final class BrowserRelay
     {
         $beat = Cache::get(self::HEARTBEAT_KEY);
 
-        return self::enabled() && is_int($beat) && $beat >= now()->timestamp - 180;
+        // Redis hands integers back as numeric strings.
+        return self::enabled() && is_numeric($beat) && (int) $beat >= now()->timestamp - 180;
     }
 
     /**
