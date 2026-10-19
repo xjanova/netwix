@@ -79,6 +79,12 @@ export class RelayDb {
         };
     }
 
+    /** Events since `since`, oldest first, without the idle `worker_waiting` noise. */
+    events(since, limit = 500) {
+        return this.db.prepare(`SELECT time, event, data FROM events WHERE time >= ? AND event <> 'worker_waiting'
+            ORDER BY id LIMIT ?`).all(since.toISOString(), limit).map(row => ({ ...row }));
+    }
+
     prune(days = RETENTION_DAYS, now = Date.now()) {
         const cutoff = new Date(now - days * 86400000).toISOString();
         this.db.prepare('DELETE FROM events WHERE time < ?').run(cutoff);

@@ -26,6 +26,8 @@ test('job history and stats are kept without signed links', { skip }, async () =
     assert.deepEqual(stats.errors, { source_blocked: 1 });
     assert.equal(stats.recent[0].episode, '52');
     assert.equal(JSON.stringify(stats).includes('https://'), false);
+    db.event({ time: new Date().toISOString(), event: 'worker_waiting', error: 'connection_failed' });
+    assert.deepEqual(db.events(started).map(row => row.event), ['job_completed']);
     db.close();
 });
 

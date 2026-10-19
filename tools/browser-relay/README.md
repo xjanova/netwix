@@ -135,6 +135,7 @@ Three successful claims confirm an update. Disable with `BROWSER_RELAY_AUTO_UPDA
 
 ```powershell
 node worker.mjs --version
+node worker.mjs --events 60          # last hour of history from relay.db
 node worker.mjs --update-now           # install the newest release now (relay stopped)
 node worker.mjs --update-now --force   # reinstall it even if already on that version
 ```

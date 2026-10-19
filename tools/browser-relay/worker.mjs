@@ -91,6 +91,13 @@ function rotateUrban(reason, target = null) {
 
 async function main() {
     if (process.argv.includes('--version')) { console.log(VERSION); return; }
+    if (process.argv.includes('--events')) {
+        // Recent history from relay.db, e.g. what a diagnostic run did after its console was lost.
+        if (!db) throw new Error('sqlite_unavailable');
+        const minutes = Math.min(10080, Math.max(1, parseInt(process.argv[process.argv.indexOf('--events') + 1], 10) || 30));
+        for (const row of db.events(new Date(Date.now() - minutes * 60000))) console.log(row.time, row.event, row.data ?? '');
+        return;
+    }
     if (process.argv.includes('--update-now')) {
         // Manual/bootstrap install of the newest relay release (--force also reinstalls the same version).
         const updater = new Updater({ root: resolvePath('.'), current: process.argv.includes('--force') ? '0.0.0' : VERSION });
