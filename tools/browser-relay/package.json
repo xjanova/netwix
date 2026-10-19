@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --env-file=.env worker.mjs",
+    "start": "node --disable-warning=ExperimentalWarning --env-file=.env worker.mjs",
     "test": "node --test test/*.test.mjs",
     "probe": "node worker.mjs --probe 8457 51"
   },
