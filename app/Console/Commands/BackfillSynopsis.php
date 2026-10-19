@@ -33,10 +33,17 @@ class BackfillSynopsis extends Command
             return self::FAILURE;
         }
 
+        // A title whose page had no synopsis is not asked again for a week, so the hourly run moves on
+        // through the backlog instead of re-asking the same empty pages every hour.
+        $limit = (int) $this->option('limit');
         $ids = SourceTitle::where('source', $sourceId)
             ->where(fn ($q) => $q->whereNull('description')->orWhere('description', ''))
-            ->orderByDesc('view_count')
-            ->limit((int) $this->option('limit'))
+            ->orderByDesc('view_count')->orderByDesc('id')
+            ->limit($limit * 5)
+            ->get(['id', 'extra'])
+            ->reject(fn (SourceTitle $st) => ($missed = data_get($st->extra, 'synopsis_missing_at'))
+                && strtotime((string) $missed) > now()->subDays(7)->getTimestamp())
+            ->take($limit)
             ->pluck('id');
 
         $total = $ids->count();
@@ -69,6 +76,7 @@ class BackfillSynopsis extends Command
                 }
                 $ok++;
             } else {
+                $st->forceFill(['extra' => array_merge((array) ($st->extra ?? []), ['synopsis_missing_at' => now()->toIso8601String()])])->save();
                 $miss++;
             }
 

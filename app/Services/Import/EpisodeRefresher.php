@@ -4,6 +4,7 @@ namespace App\Services\Import;
 
 use App\Models\SourceTitle;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Selects + refreshes imported titles that can legitimately gain episodes at the source (airing
@@ -17,7 +18,8 @@ use Illuminate\Database\Eloquent\Builder;
  *   - 24hdx / anime108 / 9nung → only where the source flags is_movie=false (also catches the
  *                                1-episode "movie" that is really a series, e.g. The Evil Lawyer;
  *                                9nung series = the clean-fembed /tvshows/ subset)
- *   - rongyok                  → opt-in only (short verticals arrive complete; low value)
+ *   - rongyok                  → opt-in (--include-rongyok); the scheduled run picks the ones still
+ *                                gaining episodes via [self::airingVerticals]
  *   - movies                   → never (single videos can't gain episodes)
  *
  * See [[NetWix — airing series stuck at old episode count (auto-import never re-imports)]].
@@ -60,6 +62,43 @@ class EpisodeRefresher
         }
 
         return $q->orderBy('updated_at');
+    }
+
+    /**
+     * rongyok verticals that may still be gaining episodes, the ones people are watching first.
+     *
+     * The class comment's old assumption — "short verticals arrive complete" — is wrong for rongyok:
+     * many titles go up a batch at a time, and nothing ever came back for the rest, so a series
+     * imported at 20 episodes stayed at 20. A title counts as possibly airing when it carries no
+     * "ended" marker AND either it was imported in the last $recentDays, or it gained an episode in
+     * the last $growthDays (it is demonstrably still growing). Order: titles someone watched in the
+     * last week (a viewer is waiting for the next episode), then least-recently-refreshed so the
+     * rest of the pool rotates.
+     */
+    public function airingVerticals(Builder $q, int $recentDays = 45, int $growthDays = 21): Builder
+    {
+        $q->where('source_titles.source', 'rongyok')
+            ->whereHas('content', fn ($c) => $c->where('created_at', '>=', now()->subDays(max(1, $recentDays)))
+                ->orWhereHas('episodes', fn ($e) => $e->where('created_at', '>=', now()->subDays(max(1, $growthDays)))
+                    // the import's own first batch is not growth
+                    ->whereRaw('episodes.created_at > '.self::plusOneDay('contents.created_at'))));
+        foreach (self::ENDED_MARKERS as $m) {
+            $q->where('source_titles.title', 'not like', '%'.$m.'%');
+        }
+        $watched = DB::table('watch_progress')->selectRaw('MAX(last_watched_at)')
+            ->whereColumn('watch_progress.content_id', 'source_titles.content_id')
+            ->where('last_watched_at', '>=', now()->subDays(7));
+
+        return $q->select('source_titles.*')
+            ->orderByRaw('('.$watched->toSql().') IS NULL', $watched->getBindings())
+            ->orderBy('source_titles.updated_at');
+    }
+
+    private static function plusOneDay(string $column): string
+    {
+        return DB::connection()->getDriverName() === 'sqlite'
+            ? "datetime({$column}, '+1 day')"
+            : "DATE_ADD({$column}, INTERVAL 1 DAY)";
     }
 
     /**

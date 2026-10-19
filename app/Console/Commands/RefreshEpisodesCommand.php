@@ -35,7 +35,10 @@ class RefreshEpisodesCommand extends Command
         $sleepUs = max(0, (int) $this->option('sleep')) * 1000;
 
         $q = $refresher->query($this->option('source'), (bool) $this->option('include-rongyok'));
-        if ($this->option('airing-only')) {
+        if ($this->option('airing-only') && $this->option('source') === 'rongyok') {
+            // Verticals: still growing + watched-first, not just "imported recently".
+            $refresher->airingVerticals($q, (int) $this->option('recent-days'));
+        } elseif ($this->option('airing-only')) {
             $refresher->airingOnly($q, (int) $this->option('recent-days'));
         } else {
             $q->orderByDesc('view_count')->orderBy('id');

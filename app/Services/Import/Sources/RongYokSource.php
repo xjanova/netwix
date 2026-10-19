@@ -3,6 +3,7 @@
 namespace App\Services\Import\Sources;
 
 use App\Services\Import\Contracts\MediaSource;
+use App\Services\Import\Contracts\ProvidesSynopsis;
 use App\Services\Import\Contracts\SearchesPosters;
 use App\Services\Import\JsonExtract;
 use App\Services\Import\RemoteSeries;
@@ -30,7 +31,7 @@ use Illuminate\Support\Facades\Http;
  * Videos are plain MP4 on Discord's CDN — signed URLs that expire ~24h, so resolve on demand.
  * PHP port of the Hive Download RongYokClient.
  */
-class RongYokSource implements MediaSource, SearchesPosters
+class RongYokSource implements MediaSource, ProvidesSynopsis, SearchesPosters
 {
     public const BASE = 'https://rongyok.com';
 
@@ -411,9 +412,46 @@ class RongYokSource implements MediaSource, SearchesPosters
         return str_starts_with($rel, 'http') ? $rel : self::BASE.'/'.ltrim($rel, '/');
     }
 
+    /**
+     * The series page (`/watch/?series_id=`) carries everything per title in one inline object:
+     * `const seriesData = {id,title,description,poster_url,jpg_url,view_count,created_at,
+     * episodes_count,episodes:[{id,episode_number}]}`. Import asks for episodes and then the synopsis
+     * of the same title; keeping the last few pages for a few minutes means that is ONE request to
+     * rongyok, not two. Short-lived on purpose: queue workers keep this object for hours, and a
+     * refresh must never be answered from a page fetched before the new episodes appeared.
+     *
+     * @var array<string,array{0:int,1:string}>
+     */
+    private array $watchPages = [];
+
+    private function watchPage(string $seriesId): string
+    {
+        // Prefixed key: a bare numeric id becomes an int key, and array_shift() renumbers int keys.
+        $key = 's'.$seriesId;
+        $now = time();
+        $this->watchPages = array_filter($this->watchPages, fn ($page) => $now - $page[0] < 300);
+        if (! isset($this->watchPages[$key])) {
+            if (count($this->watchPages) >= 8) {
+                array_shift($this->watchPages);
+            }
+            $this->watchPages[$key] = [$now, (string) $this->http()->get(self::BASE.'/watch/', ['series_id' => $seriesId])->body()];
+        }
+
+        return $this->watchPages[$key][1];
+    }
+
+    /** The page's `seriesData` object, or null when the page did not carry one (blocked/changed). */
+    public static function seriesData(string $html): ?array
+    {
+        $json = JsonExtract::balancedAfter($html, 'const seriesData', '{');
+        $data = $json !== null ? json_decode($json, true) : null;
+
+        return is_array($data) ? $data : null;
+    }
+
     public function fetchEpisodes(RemoteSeries $series): array
     {
-        $html = $this->http()->get(self::BASE.'/watch/', ['series_id' => $series->sourceKey])->body();
+        $html = $this->watchPage($series->sourceKey);
 
         $nums = [];
         if ($epJson = JsonExtract::episodesArray($html)) {
@@ -435,6 +473,23 @@ class RongYokSource implements MediaSource, SearchesPosters
         sort($nums);
 
         return array_map(fn ($n) => ['number' => $n, 'ref' => (string) $n], $nums);
+    }
+
+    /**
+     * The plot from the series page's own `description` — the catalogue grid stopped carrying one
+     * when it went behind a bot check, which left 651 rongyok titles with no synopsis. Never the
+     * page's SEO line ("ดู… ซับไทย หนังสั้นจีน… ดูได้ทันที"), which is not a plot.
+     */
+    public function fetchSynopsis(RemoteSeries $series): ?string
+    {
+        $data = self::seriesData($this->watchPage($series->sourceKey));
+        $text = is_string($data['description'] ?? null) ? $data['description'] : '';
+        $text = trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+        if (mb_strlen($text) < 20 || preg_match('/ดูได้ทันที|ออนไลน์ฟรี|ไม่ต้องสมัคร/u', $text)) {
+            return null;
+        }
+
+        return mb_substr($text, 0, 2000);
     }
 
     private const ENDPOINT_CACHE_KEY = 'rongyok:video_endpoint';
