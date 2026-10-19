@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 import { resolve as resolvePath } from 'node:path';
 import { existsSync, writeFileSync } from 'node:fs';
 import { ChromeResolver, validJob } from './resolver.mjs';
-import { waitForUrban, openUrbanPanel } from './urban.mjs';
+import { waitForUrban, openUrbanPanel, switchUrbanLocation, DEFAULT_LOCATIONS } from './urban.mjs';
 import { openRelayDb } from './relay-db.mjs';
 
 const urbanExtension = process.env.BROWSER_RELAY_URBAN_EXTENSION ||
@@ -22,6 +22,13 @@ const stopRequested = () => stopping || existsSync('worker.stop');
 const concurrency = Math.min(4, Math.max(1, parseInt(process.env.BROWSER_RELAY_CONCURRENCY || '2', 10) || 2));
 const db = await openRelayDb(resolvePath(process.env.BROWSER_RELAY_DB || 'relay.db')).catch(() => null);
 const active = new Map();
+// Urban exit rotation: a location RongYok blocked rests for 30 minutes before it is tried again.
+const preferredLocations = (process.env.BROWSER_RELAY_URBAN_LOCATIONS || '').split(',').map(name => name.trim()).filter(Boolean);
+const LOCATION_COOLDOWN_MS = 30 * 60000;
+const coolingUntil = new Map();
+let switching = null;
+let lastSwitchAt = 0;
+let urbanAt = null;
 let stats = null;
 let statsAt = 0;
 function refreshStats(force) {
@@ -33,18 +40,64 @@ const log = (event, fields = {}) => {
     console.log(JSON.stringify(record));
     try { db?.event(record); } catch { /* worker.log still has it. */ }
     refreshStats(event.startsWith('job_'));
-    const status = { ...record, active: active.size, concurrency, sqlite: !!db,
+    const status = { ...record, active: active.size, concurrency, sqlite: !!db, ...(urbanAt ? { urban: urbanAt } : {}),
         ...(stats ? { stats: { ...stats, recent: stats.recent.slice(0, 5) } } : {}) };
     try { writeFileSync('status.json', JSON.stringify(status), { mode: 0o600 }); } catch { /* Logs remain available. */ }
 };
 const expiresAt = url => new Date(parseInt(new URL(url).searchParams.get('ex'), 16) * 1000).toISOString();
 const KNOWN_ERRORS = ['source_blocked', 'timeout', 'no_video', 'browser_unavailable', 'invalid_url', 'urban_not_connected'];
 
+/**
+ * Move Urban to another location right away. Single-flight: every tab that hit the same block
+ * shares one switch. Tries up to three locations; one that does not connect rests like a blocked one.
+ * @returns {Promise<boolean>} whether Urban is now on a new location
+ */
+function rotateUrban(reason, target = null) {
+    if (!urbanExtension) return Promise.resolve(false);
+    if (switching) return switching;
+    if (!target && Date.now() - lastSwitchAt < 20000) return Promise.resolve(true); // another tab just switched
+    switching = (async () => {
+        try { await resolver.open(); } catch { return false; }
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const now = Date.now();
+            for (const [name, until] of coolingUntil) if (until <= now) coolingUntil.delete(name);
+            try {
+                const moved = await switchUrbanLocation(resolver.context, {
+                    cooling: new Set(coolingUntil.keys()), target,
+                    preferred: preferredLocations.length ? preferredLocations : DEFAULT_LOCATIONS,
+                });
+                if (moved.from && !target) coolingUntil.set(moved.from, Date.now() + LOCATION_COOLDOWN_MS);
+                lastSwitchAt = Date.now();
+                urbanAt = moved.to;
+                log('urban_switched', { reason, from: moved.from, to: moved.to, code: moved.code });
+                return true;
+            } catch (error) {
+                const code = /^urban_[a-z_]+$/.test(error.message) ? error.message : 'urban_switch_failed';
+                if (error.location) coolingUntil.set(error.location, Date.now() + LOCATION_COOLDOWN_MS);
+                log('urban_switch_failed', { reason, error: code, location: error.location ?? null });
+                // Everything is resting: start the round again rather than stay on a blocked exit.
+                if (code === 'urban_no_location') coolingUntil.clear();
+                if (target) return false;
+            }
+        }
+        return false;
+    })().finally(() => { switching = null; });
+    return switching;
+}
+
 async function main() {
     if (process.argv.includes('--stats')) {
         if (!db) throw new Error('sqlite_unavailable');
         const days = Math.min(30, Math.max(1, parseInt(process.argv[process.argv.indexOf('--stats') + 1], 10) || 1));
         console.log(JSON.stringify(db.stats(new Date(Date.now() - days * 86400000), 20), null, 2));
+        return;
+    }
+    if (process.argv.includes('--urban-switch')) {
+        // Diagnostic/manual: move Urban once (optionally to a named location, e.g. "Germany").
+        const name = process.argv[process.argv.indexOf('--urban-switch') + 1];
+        await resolver.open();
+        await waitForUrban(resolver.context).catch(() => {});
+        if (!await rotateUrban('manual', name && !name.startsWith('--') ? name : null)) throw new Error('urban_switch_failed');
         return;
     }
     if (process.argv.includes('--urban-setup') || process.argv.includes('--urban-status')) {
@@ -90,6 +143,7 @@ async function main() {
     let pauseUntil = 0;
     let restartBrowser = false;
     let lastJobAt = 0;
+    let failStreak = 0;
 
     async function runJob(job) {
         const startedAt = new Date();
@@ -105,6 +159,7 @@ async function main() {
             const accepted = Number.isInteger(reply?.extras_accepted) ? reply.extras_accepted : 0;
             finish({ outcome: 'completed', video_host: new URL(video).hostname, expires_at: expiresAt(video),
                 extras_found: sent.length, extras_accepted: accepted });
+            failStreak = 0;
             log('job_completed', { job_id: job.id, series_id: job.series_id, episode: job.episode,
                 duration_ms: Date.now() - startedAt, extras: accepted });
         } catch (error) {
@@ -116,8 +171,17 @@ async function main() {
             finish({ outcome: 'failed', error: code, extras_found: extras.size });
             log('job_failed', { job_id: job.id, series_id: job.series_id, episode: job.episode, error: code, duration_ms: Date.now() - startedAt });
             if (code === 'browser_unavailable' || code === 'urban_not_connected') restartBrowser = true;
-            // A block applies to the whole browser: stop opening tabs for a while.
-            pauseUntil = Math.max(pauseUntil, Date.now() + (code === 'source_blocked' ? 30000 : 3000));
+            if (!apiError) failStreak++;
+            // A block applies to the whole exit: move Urban to another location immediately. Three
+            // failures in a row without a block page (silent drops, endless challenges) count too.
+            const blocked = code === 'source_blocked' || (failStreak >= 3 && ['timeout', 'no_video'].includes(code));
+            if (blocked && await rotateUrban(code === 'source_blocked' ? 'source_blocked' : 'repeated_failures')) {
+                failStreak = 0;
+                pauseUntil = Math.max(pauseUntil, Date.now() + 1000);
+            } else {
+                // No Urban, or no location connected: back off as before.
+                pauseUntil = Math.max(pauseUntil, Date.now() + (code === 'source_blocked' ? 30000 : 3000));
+            }
         }
     }
 
@@ -127,7 +191,7 @@ async function main() {
     while (!stopRequested()) {
         // Restart a broken browser only once no other tab is still using it.
         if (restartBrowser && active.size === 0) { restartBrowser = false; await resolver.close(); }
-        if (active.size >= concurrency || restartBrowser || Date.now() < pauseUntil) {
+        if (active.size >= concurrency || restartBrowser || switching || Date.now() < pauseUntil) {
             await Promise.race([...active.values(), sleep(1000)]);
             continue;
         }

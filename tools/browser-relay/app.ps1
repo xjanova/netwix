@@ -117,7 +117,7 @@ function Update-RelayView {
         $statusPath = Join-Path $relayRoot 'status.json'
         if (Test-Path -LiteralPath $statusPath) {
             $record = Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            $labels = @{worker_started='Relay started';job_started='Resolving episode';job_completed='Link saved';job_failed='Request needs retry';probe_started='Testing link';probe_success='Link test passed';worker_waiting='Waiting for server';worker_stopped='Stopped';urban_setup_opened='Urban VPN settings open'}
+            $labels = @{worker_started='Relay started';job_started='Resolving episode';job_completed='Link saved';job_failed='Request needs retry';probe_started='Testing link';probe_success='Link test passed';worker_waiting='Waiting for server';worker_stopped='Stopped';urban_setup_opened='Urban VPN settings open';urban_switched='Blocked - switched VPN location';urban_switch_failed='VPN location switch failed'}
             $eventLabel = if ($labels.ContainsKey([string]$record.event)) {$labels[[string]$record.event]} else {$record.event}
             $eventTime = [DateTimeOffset]::Parse($record.time).ToOffset([TimeSpan]::FromHours(7)).ToString('yyyy-MM-dd HH:mm:ss',[Globalization.CultureInfo]::InvariantCulture)
             $relayDetails.Text = $eventLabel + '   ' + $eventTime + ' ICT'
@@ -125,6 +125,7 @@ function Update-RelayView {
             if ($record.stats) {
                 $avg = if ($record.stats.avg_ms) { ([double]$record.stats.avg_ms / 1000).ToString('0.0',[Globalization.CultureInfo]::InvariantCulture) + 's' } else { '-' }
                 $relayHint.Text = 'Last 24h: ' + $record.stats.completed + ' links, ' + $record.stats.failed + ' failed, ' + $record.stats.extras + ' bonus | avg ' + $avg + ' | tabs ' + $record.active + '/' + $record.concurrency
+                if ($record.urban) { $relayHint.Text += ' | VPN ' + $record.urban }
             }
             if ($record.event -eq 'probe_success') { $relayDetails.Text += "`r`nLink test passed. CDN: " + $record.video_host }
         } else { $relayDetails.Text = 'Use Test Link to check Urban and source access before starting.' }

@@ -111,6 +111,32 @@ guarantee future access. Test this dedicated profile on BrainX before enabling p
   `source_blocked` pauses new tabs for 30 s; a broken browser restarts once no tab still uses it.
 - Only polling/requests keep jobs current; there is no catalogue prefetch or bulk scraping.
 
+## Automatic Urban location switch
+
+When RongYok blocks the current exit (`source_blocked`), or three requests in a row fail without a
+block page (`timeout`/`no_video`), the worker immediately picks another location in Urban's own
+panel — the location selector and one listed location, nothing else (no upsell, rating or consent
+buttons) — and waits until Urban reports the new connection and controls the proxy again. The
+failed job is already back in the queue (5 s for a waiting viewer), so the next claim runs on the
+new exit. The switch is single-flight (tabs that hit the same block share it) and at most one
+per 20 s. A blocked location rests 30 minutes; a location that does not connect rests too, and up
+to three locations are tried per switch. When everything rests, the round starts again.
+
+Order: `BROWSER_RELAY_URBAN_LOCATIONS` (comma-separated names exactly as Urban lists them), else
+US, Germany, UK, Singapore, Japan, Netherlands, France, Canada, Hong Kong, Australia, then any
+other listed location. Every switch is logged (`urban_switched` / `urban_switch_failed`, also in
+`relay.db`), and the control window shows the current location.
+
+Manual (stop the relay first; it shares the browser profile):
+
+```powershell
+node worker.mjs --urban-switch              # next location
+node worker.mjs --urban-switch "Germany"    # a named one
+```
+
+Verified on BrainX 2026-10-19: US → Germany switched, a probe through Germany returned a CDN MP4
+in 11.5 s, and switching back to US worked.
+
 ## Local history (SQLite)
 
 The worker records its work in `relay.db` (SQLite through Node's built-in `node:sqlite`; Node
