@@ -170,6 +170,9 @@ async function main() {
     const autoUpdate = process.env.BROWSER_RELAY_AUTO_UPDATE !== 'false';
     const updater = new Updater({ root: resolvePath('.'), current: VERSION });
     const updateEvery = Math.max(30, parseInt(process.env.BROWSER_RELAY_UPDATE_SECONDS || '60', 10) || 60) * 1000;
+    // version -> { count, retryAt }. A failed install (often a network blip) is tried again later,
+    // never given up for the life of the process: 2.3.0 failed 3 times in one outage and was then
+    // skipped until a restart (2026-10-21).
     const failedVersions = new Map();
     let nextUpdateCheck = 0;
     let pendingUpdate = null;
@@ -230,7 +233,7 @@ async function main() {
             try {
                 const release = await updater.check();
                 lastCheckError = null;
-                if (release && (failedVersions.get(release.version) ?? 0) < 3) {
+                if (release && (failedVersions.get(release.version)?.retryAt ?? 0) <= Date.now()) {
                     pendingUpdate = release;
                     log('update_found', { to: release.version });
                 }
@@ -251,8 +254,11 @@ async function main() {
                 break;
             } catch (error) {
                 const code = /^update_[a-z_0-9]+$/.test(error.message) ? error.message : 'update_apply_failed';
-                failedVersions.set(pendingUpdate.version, (failedVersions.get(pendingUpdate.version) ?? 0) + 1);
-                log('update_failed', { to: pendingUpdate.version, error: code });
+                const count = (failedVersions.get(pendingUpdate.version)?.count ?? 0) + 1;
+                const retryIn = count >= 3 ? 30 * 60000 : 60000;
+                failedVersions.set(pendingUpdate.version, { count, retryAt: Date.now() + retryIn });
+                log('update_failed', { to: pendingUpdate.version, error: code, attempt: count, retry_in_s: retryIn / 1000,
+                    cause: String(error.cause?.code ?? error.code ?? error.name ?? '').slice(0, 40) });
                 pendingUpdate = null;
             }
         }
