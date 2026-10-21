@@ -13,11 +13,59 @@ $relayInv = [Globalization.CultureInfo]::InvariantCulture
 # ---- look ---------------------------------------------------------------------------------
 function New-RelayColor([string]$hex) { [Drawing.ColorTranslator]::FromHtml($hex) }
 $C = @{
-    Bg = New-RelayColor '#0F1117'; Card = New-RelayColor '#181B24'; Card2 = New-RelayColor '#1F2330'
-    Line = New-RelayColor '#2A2F3D'; Text = New-RelayColor '#E8EAF0'; Muted = New-RelayColor '#8B90A0'
-    Accent = New-RelayColor '#7C5CFF'; Green = New-RelayColor '#2ECC71'; GreenBg = New-RelayColor '#12301F'
-    Red = New-RelayColor '#FF6B6B'; RedBg = New-RelayColor '#3A1A1D'; Amber = New-RelayColor '#FFB020'
-    AmberBg = New-RelayColor '#3A2C10'; Grey = New-RelayColor '#5A6070'; GreyBg = New-RelayColor '#23262F'
+    Bg = New-RelayColor '#0B0812'; Card = New-RelayColor '#151020'; Card2 = New-RelayColor '#1D1729'
+    Line = New-RelayColor '#2C2340'; Text = New-RelayColor '#F1EEF7'; Muted = New-RelayColor '#958DA8'
+    Accent = New-RelayColor '#B026FF'; Pink = New-RelayColor '#FF2D55'; Blue = New-RelayColor '#4DA3FF'
+    Green = New-RelayColor '#2ECC71'; GreenBg = New-RelayColor '#0F2A1C'
+    Red = New-RelayColor '#FF6B6B'; RedBg = New-RelayColor '#3A1420'; Amber = New-RelayColor '#FFB020'
+    AmberBg = New-RelayColor '#33260E'; Grey = New-RelayColor '#5E5670'; GreyBg = New-RelayColor '#1F1A2A'
+}
+# NetWix brand gradient (pink -> purple) as a stretched bitmap: buttons and labels show it as
+# BackgroundImage, so no owner drawing is needed.
+function New-RelayGradient([int]$w, [int]$h) {
+    $w = [Math]::Max(2, $w); $h = [Math]::Max(1, $h)
+    $bitmap = New-Object Drawing.Bitmap($w, $h)
+    $g = [Drawing.Graphics]::FromImage($bitmap)
+    $brush = New-Object Drawing.Drawing2D.LinearGradientBrush((New-Object Drawing.Rectangle(0, 0, $w, $h)), $C.Pink, $C.Accent, [float]0)
+    $g.FillRectangle($brush, 0, 0, $w, $h)
+    $brush.Dispose(); $g.Dispose()
+    return $bitmap
+}
+function Set-RelayGradient($control, [bool]$on) {
+    $old = $control.BackgroundImage
+    if ($on -and $old -and $old.Size -eq $control.Size) { return }
+    $control.BackgroundImage = if ($on) { New-RelayGradient $control.Width $control.Height } else { $null }
+    $control.BackgroundImageLayout = 'Stretch'
+    if ($old) { $old.Dispose() }
+}
+# Rounded corners via Region; re-cut on every resize because DPI scaling changes the size after creation.
+function Update-RelayRound($c) {
+    $d = 16; $w = $c.Width; $h = $c.Height
+    if ($w -lt $d -or $h -lt $d) { return }
+    $path = New-Object Drawing.Drawing2D.GraphicsPath
+    $path.AddArc(0, 0, $d, $d, 180, 90); $path.AddArc($w - $d, 0, $d, $d, 270, 90)
+    $path.AddArc($w - $d, $h - $d, $d, $d, 0, 90); $path.AddArc(0, $h - $d, $d, $d, 90, 90)
+    $path.CloseFigure()
+    $old = $c.Region
+    $c.Region = New-Object Drawing.Region($path)
+    $path.Dispose()
+    if ($old) { $old.Dispose() }
+}
+function Set-RelayRound($c) { $c.Add_Resize({ param($s, $e) Update-RelayRound $s }); Update-RelayRound $c }
+function Get-RelayHover($color) {
+    [Drawing.Color]::FromArgb([int]($color.R + (255 - $color.R) * 0.12), [int]($color.G + (255 - $color.G) * 0.12), [int]($color.B + (255 - $color.B) * 0.12))
+}
+# Dark Windows title bar (Windows 10 2004+ / 11) and, on Windows 11, a caption in the window colour.
+try {
+    Add-Type -Namespace NetWixRelay -Name Dwm -MemberDefinition '[DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);'
+} catch { }
+function Set-RelayDarkTitle($form) {
+    $form.Add_HandleCreated({ param($s, $e)
+        try {
+            $dark = 1; [void][NetWixRelay.Dwm]::DwmSetWindowAttribute($s.Handle, 20, [ref]$dark, 4)
+            $caption = $C.Bg.R -bor ($C.Bg.G -shl 8) -bor ($C.Bg.B -shl 16); [void][NetWixRelay.Dwm]::DwmSetWindowAttribute($s.Handle, 35, [ref]$caption, 4)
+        } catch { }
+    })
 }
 # Leelawadee UI is the Windows Thai UI face; Segoe UI has no Thai glyphs.
 $relayFace = if ((New-Object Drawing.Text.InstalledFontCollection).Families.Name -contains 'Leelawadee UI') { 'Leelawadee UI' } else { 'Tahoma' }
@@ -34,6 +82,7 @@ $relayForm.StartPosition = 'CenterScreen'
 $relayForm.BackColor = $C.Bg
 $relayForm.ForeColor = $C.Text
 $relayForm.Font = New-RelayFont 10
+Set-RelayDarkTitle $relayForm
 
 function Add-RelayLabel($parent, [string]$text, $x, $y, $w, $h, $font = $null, $color = $null, $align = 'MiddleLeft') {
     $label = New-Object Windows.Forms.Label
@@ -66,6 +115,9 @@ function Add-RelayButton($parent, [string]$text, $x, $y, $w, $h, $back, $action)
     $button.ForeColor = $C.Text
     $button.Font = New-RelayFont 10 ([Drawing.FontStyle]::Bold)
     $button.Cursor = [Windows.Forms.Cursors]::Hand
+    $button.FlatAppearance.MouseOverBackColor = Get-RelayHover $back
+    $button.FlatAppearance.MouseDownBackColor = $C.Line
+    Set-RelayRound $button
     $button.Add_Click($action)
     $parent.Controls.Add($button)
     return $button
@@ -77,31 +129,39 @@ $relayHeader = Add-RelayPanel $relayForm 0 0 900 86 $C.Card
 $null = Add-RelayLabel $relayHeader 'NetWix Relay' 22 12 230 40 (New-RelayFont 20 ([Drawing.FontStyle]::Bold))
 $relayBadge = Add-RelayLabel $relayHeader ('v' + $relayVersion) 250 22 70 22 (New-RelayFont 9 ([Drawing.FontStyle]::Bold)) $C.Text 'MiddleCenter'
 $relayBadge.BackColor = $C.Accent
+Set-RelayGradient $relayBadge $true
+Set-RelayRound $relayBadge
+$relayStrip = Add-RelayPanel $relayForm 0 86 900 3 $C.Accent
+Set-RelayGradient $relayStrip $true
 $null = Add-RelayLabel $relayHeader 'ขอลิงก์หนังโรงหยกให้ผู้ชมอัตโนมัติ ผ่าน Urban VPN บนเครื่อง BrainX' 24 52 560 24 (New-RelayFont 10) $C.Muted
 $relayPill = Add-RelayLabel $relayHeader '' 632 24 244 38 (New-RelayFont 12 ([Drawing.FontStyle]::Bold)) $C.Text 'MiddleCenter'
+Set-RelayRound $relayPill
 
 # ---- stat cards ---------------------------------------------------------------------------
 $relayCards = @{}
 $relayCaptions = @{}
 $relayCardDefs = @(
-    @{ Key = 'ok'; Caption = 'ได้ลิงก์ · 24 ชม.' }, @{ Key = 'fail'; Caption = 'ไม่สำเร็จ · 24 ชม.' },
-    @{ Key = 'blocks'; Caption = 'โดนบล็อก · 24 ชม.' }, @{ Key = 'switches'; Caption = 'สลับ VPN · 24 ชม.' },
-    @{ Key = 'avg'; Caption = 'เวลาเฉลี่ยต่อลิงก์' }, @{ Key = 'vpn'; Caption = 'VPN ตอนนี้' }
+    @{ Key = 'ok'; Caption = 'ได้ลิงก์ · 24 ชม.'; Tint = $C.Green }, @{ Key = 'fail'; Caption = 'ไม่สำเร็จ · 24 ชม.'; Tint = $C.Red },
+    @{ Key = 'blocks'; Caption = 'โดนบล็อก · 24 ชม.'; Tint = $C.Amber }, @{ Key = 'switches'; Caption = 'สลับ VPN · 24 ชม.'; Tint = $C.Accent },
+    @{ Key = 'avg'; Caption = 'เวลาเฉลี่ยต่อลิงก์'; Tint = $C.Pink }, @{ Key = 'vpn'; Caption = 'VPN ตอนนี้'; Tint = $C.Blue }
 )
 for ($i = 0; $i -lt $relayCardDefs.Count; $i++) {
     $card = Add-RelayPanel $relayForm (24 + $i * 144) 102 132 88 $C.Card
+    Set-RelayRound $card
+    $null = Add-RelayPanel $card 0 0 132 3 $relayCardDefs[$i].Tint
     $relayCards[$relayCardDefs[$i].Key] = Add-RelayLabel $card '-' 12 6 116 40 (New-RelayFont 20 ([Drawing.FontStyle]::Bold))
     $relayCaptions[$relayCardDefs[$i].Key] = Add-RelayLabel $card $relayCardDefs[$i].Caption 12 46 118 38 (New-RelayFont 9) $C.Muted 'TopLeft'
 }
 
 # ---- latest activity ----------------------------------------------------------------------
 $relayNow = Add-RelayPanel $relayForm 24 204 852 62 $C.Card
+Set-RelayRound $relayNow
 $relayNowBar = Add-RelayPanel $relayNow 0 0 5 62 $C.Accent
 $null = Add-RelayLabel $relayNow 'ล่าสุด' 18 6 120 22 (New-RelayFont 9) $C.Muted
 $relayNowText = Add-RelayLabel $relayNow 'กำลังอ่านสถานะ...' 18 26 820 30 (New-RelayFont 12 ([Drawing.FontStyle]::Bold))
 
 # ---- recent requests ----------------------------------------------------------------------
-$null = Add-RelayLabel $relayForm 'คำขอล่าสุด' 24 278 300 26 (New-RelayFont 12 ([Drawing.FontStyle]::Bold))
+$null = Add-RelayLabel $relayForm 'คำขอล่าสุด' 24 278 112 26 (New-RelayFont 12 ([Drawing.FontStyle]::Bold))
 $null = Add-RelayLabel $relayForm 'ใคร ขอเรื่องอะไร เมื่อไหร่ และได้ผลยังไง' 140 280 500 24 (New-RelayFont 9) $C.Muted
 # The request table: this window's latest requests and the history window share its look.
 function New-RelayList($x, $y, $w, $h) {
@@ -155,6 +215,7 @@ $relayTips.SetToolTip($relayHistoryButton, 'ดูคำขอย้อนหล
 $relaySwitches = Add-RelayLabel $relayForm 'สลับ VPN ล่าสุด: ยังไม่เคยสลับ' 24 524 852 28 (New-RelayFont 9) $C.Muted
 $relaySwitches.BackColor = $C.Card
 $relaySwitches.Padding = New-Object Windows.Forms.Padding(10, 0, 0, 0)
+Set-RelayRound $relaySwitches
 $relayEmpty = Add-RelayLabel $relayForm 'ยังไม่มีคำขอ — เมื่อผู้ชมเปิดเรื่องที่ระบบปกติขอลิงก์ไม่ได้ จะขึ้นที่นี่' 24 410 852 30 (New-RelayFont 10) $C.Muted 'MiddleCenter'
 $relayEmpty.BackColor = $C.Card
 $relayEmpty.BringToFront()
@@ -201,6 +262,7 @@ $relayFolder = Add-RelayButton $relayForm 'เปิดโฟลเดอร์'
 $relayLogButton = Add-RelayButton $relayForm 'ดู log' 374 566 90 50 $C.Card2 { Show-RelayLog }
 
 $relayTools = Add-RelayPanel $relayForm 480 560 396 62 $C.Card
+Set-RelayRound $relayTools
 $null = Add-RelayLabel $relayTools 'ซีรีส์' 10 6 46 22 (New-RelayFont 9) $C.Muted
 $relaySeries = New-Object Windows.Forms.TextBox
 $relaySeries.Text = '8457'; $relaySeries.Location = New-Object Drawing.Point(10, 30); $relaySeries.Width = 74
@@ -217,6 +279,7 @@ $null = Add-RelayLabel $relayForm 'ปิดหน้าต่างนี้ไ
 function Show-RelayLog {
     $log = New-Object Windows.Forms.Form
     $log.Text = 'NetWix Relay - log ล่าสุด'; $log.Size = New-Object Drawing.Size(900, 520); $log.StartPosition = 'CenterParent'; $log.BackColor = $C.Bg
+    Set-RelayDarkTitle $log
     $box = New-Object Windows.Forms.TextBox
     $box.Multiline = $true; $box.ReadOnly = $true; $box.ScrollBars = 'Both'; $box.WordWrap = $false; $box.Dock = 'Fill'
     $box.BackColor = $C.Card; $box.ForeColor = $C.Text; $box.Font = New-Object Drawing.Font('Consolas', 9); $box.BorderStyle = 'None'
@@ -378,9 +441,13 @@ function Show-RelayHistory {
     $form.MinimumSize = New-Object Drawing.Size(820, 480)
     $form.StartPosition = 'CenterParent'
     $form.BackColor = $C.Bg; $form.ForeColor = $C.Text; $form.Font = New-RelayFont 10
+    Set-RelayDarkTitle $form
 
     $bar = Add-RelayPanel $form 0 0 1000 70 $C.Card
     $bar.Anchor = 'Top,Left,Right'
+    $strip = Add-RelayPanel $form 0 70 1000 3 $C.Accent
+    $strip.Anchor = 'Top,Left,Right'
+    Set-RelayGradient $strip $true
     $null = Add-RelayLabel $bar 'ช่วงเวลา' 20 6 190 22 (New-RelayFont 9) $C.Muted
     $period = New-Object Windows.Forms.ComboBox
     $period.DropDownStyle = 'DropDownList'; $period.Location = New-Object Drawing.Point(20, 30); $period.Width = 190
@@ -398,6 +465,7 @@ function Show-RelayHistory {
     foreach ($box in @($period, $outcome)) { $box.FlatStyle = 'Flat' }
     $reload = Add-RelayButton $bar 'โหลดใหม่' 860 16 120 38 $C.Accent { Import-RelayHistory }
     $reload.Anchor = 'Top,Right'
+    Set-RelayGradient $reload $true
 
     $summary = Add-RelayLabel $form 'กำลังอ่านประวัติ...' 20 80 720 26 (New-RelayFont 10 ([Drawing.FontStyle]::Bold))
     $summary.Anchor = 'Top,Left,Right'
@@ -445,6 +513,7 @@ function Update-RelayView {
         else { Set-RelayPill 'พร้อม รอคำขอ' $C.Green $C.GreenBg }
         $relayToggle.Text = if ($running) { '■   หยุดทำงาน' } else { '▶   เริ่มทำงาน' }
         $relayToggle.BackColor = if ($running) { $C.RedBg } else { $C.Accent }
+        Set-RelayGradient $relayToggle (-not $running)
         foreach ($b in @($relayTest, $relayUrban)) { $b.Enabled = -not $running; $b.ForeColor = if ($running) { $C.Grey } else { $C.Text } }
 
         if ($record) {
@@ -507,7 +576,7 @@ function Update-RelayView {
 function Resize-RelayForm {
     $right = 0; $bottom = 0
     foreach ($c in $relayForm.Controls) {
-        if ($c -eq $relayHeader) { continue }
+        if ($c -eq $relayHeader -or $c -eq $relayStrip) { continue }
         if ($c.Right -gt $right) { $right = $c.Right }
         if ($c.Bottom -gt $bottom) { $bottom = $c.Bottom }
     }
@@ -515,6 +584,7 @@ function Resize-RelayForm {
     $relayForm.ClientSize = New-Object Drawing.Size(($right + $pad), ($bottom + [int]($pad / 2)))
     $relayForm.MinimumSize = $relayForm.Size
     $relayHeader.Width = $relayForm.ClientSize.Width
+    $relayStrip.Width = $relayForm.ClientSize.Width
     $relayPill.Left = $relayHeader.Width - $relayPill.Width - $pad
 }
 $relayForm.Add_Shown({ Resize-RelayForm })
