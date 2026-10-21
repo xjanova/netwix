@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { openRelayDb } from '../relay-db.mjs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { openRelayDb, RETENTION_DAYS, MIN_RETENTION_DAYS } from '../relay-db.mjs';
 
 const sqlite = await import('node:sqlite').then(() => true, () => false);
 const skip = sqlite ? false : 'node:sqlite needs Node 22.13+';
@@ -42,6 +47,69 @@ test('history older than the retention window is pruned', { skip }, async () => 
     assert.equal(db.db.prepare('SELECT COUNT(*) AS n FROM jobs').get().n, 1);
     assert.equal(db.db.prepare('SELECT COUNT(*) AS n FROM events').get().n, 0);
     db.close();
+});
+
+test('prune never deletes history younger than 15 days', { skip }, async () => {
+    const db = await openRelayDb(':memory:');
+    const now = Date.now();
+    for (const daysAgo of [14, 16, 29, 31]) {
+        const when = new Date(now - daysAgo * 86400000);
+        db.jobStarted(job, when);
+        db.event({ time: when.toISOString(), event: 'job_started' });
+    }
+    const left = () => [db.db.prepare('SELECT COUNT(*) AS n FROM jobs').get().n, db.db.prepare('SELECT COUNT(*) AS n FROM events').get().n];
+    assert.ok(MIN_RETENTION_DAYS >= 15 && RETENTION_DAYS >= MIN_RETENTION_DAYS);
+    db.prune(RETENTION_DAYS, now);
+    assert.deepEqual(left(), [3, 3]);
+    // A shorter window than the minimum is raised to it.
+    db.prune(1, now);
+    assert.deepEqual(left(), [1, 1]);
+    db.close();
+});
+
+test('history lists a period newest first and counts what the limit leaves out', { skip }, async () => {
+    const db = await openRelayDb(':memory:');
+    const now = Date.now();
+    for (const [daysAgo, episode] of [[20, '1'], [10, '2'], [2, '3'], [0, '4']]) {
+        const when = new Date(now - daysAgo * 86400000);
+        db.jobFinished(db.jobStarted({ ...job, episode }, when, { title: 'ตอนที่ ' + episode }), when, { outcome: 'completed' }, when);
+    }
+    const since = new Date(now - 15 * 86400000);
+    const all = db.history(since);
+    assert.equal(all.total, 3);
+    assert.deepEqual(all.rows.map(r => r.episode), ['4', '3', '2']);
+    assert.equal(all.rows[0].title, 'ตอนที่ 4');
+    const capped = db.history(since, 2);
+    assert.equal(capped.total, 3);
+    assert.deepEqual(capped.rows.map(r => r.episode), ['4', '3']);
+    db.close();
+});
+
+test('history.mjs prints JSON without creating relay.db or writing status.json', { skip }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'relay-history-'));
+    try {
+        const file = join(dir, 'relay.db');
+        const run = () => JSON.parse(execFileSync(process.execPath, ['--disable-warning=ExperimentalWarning',
+            fileURLToPath(new URL('../history.mjs', import.meta.url)), '--since', new Date(Date.now() - 86400000).toISOString()],
+        { cwd: dir, env: { ...process.env, BROWSER_RELAY_DB: file }, encoding: 'utf8' }));
+        assert.equal(run().error, 'no_history');
+        assert.equal(existsSync(file), false);
+
+        const db = await openRelayDb(file);
+        const started = new Date(Date.now() - 3000);
+        db.jobFinished(db.jobStarted(job, started, { title: 'เรื่องทดสอบ', requester: 'guest', via: 'web', reason: 'viewer' }), started,
+            { outcome: 'failed', error: 'source_blocked', video_host: 'cdn.discordapp.com' });
+        db.close();
+        const out = run();
+        assert.equal(out.error, undefined);
+        assert.deepEqual([out.total, out.retention_days, out.min_retention_days], [1, RETENTION_DAYS, MIN_RETENTION_DAYS]);
+        assert.deepEqual([out.rows[0].title, out.rows[0].error, out.summary.failed, out.summary.blocks], ['เรื่องทดสอบ', 'source_blocked', 1, 1]);
+        assert.equal('vpn' in out.rows[0], false, 'nulls are left out');
+        assert.equal(JSON.stringify(out).includes('https://'), false);
+        assert.equal(existsSync(join(dir, 'status.json')), false);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
 });
 
 test('a relay.db from an older version gains the new columns on open', { skip }, async () => {

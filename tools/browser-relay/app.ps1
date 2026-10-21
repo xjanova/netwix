@@ -103,46 +103,55 @@ $relayNowText = Add-RelayLabel $relayNow 'กำลังอ่านสถา�
 # ---- recent requests ----------------------------------------------------------------------
 $null = Add-RelayLabel $relayForm 'คำขอล่าสุด' 24 278 300 26 (New-RelayFont 12 ([Drawing.FontStyle]::Bold))
 $null = Add-RelayLabel $relayForm 'ใคร ขอเรื่องอะไร เมื่อไหร่ และได้ผลยังไง' 140 280 500 24 (New-RelayFont 9) $C.Muted
-$relayList = New-Object Windows.Forms.ListView
-$relayList.View = 'Details'
-$relayList.FullRowSelect = $true
-$relayList.HeaderStyle = 'Nonclickable'
-$relayList.BorderStyle = 'None'
-$relayList.BackColor = $C.Card
-$relayList.ForeColor = $C.Text
-$relayList.Font = New-RelayFont 10
-$relayList.Location = New-Object Drawing.Point(24, 308)
-$relayList.Size = New-Object Drawing.Size(852, 210)
-$relayList.OwnerDraw = $true
-foreach ($col in @(@('เวลา', 92), @('เรื่อง / ตอน', 262), @('ขอโดย', 168), @('ประเภท', 116), @('ผล', 160), @('VPN', 50))) {
-    [void]$relayList.Columns.Add($col[0], $col[1])
+# The request table: this window's latest requests and the history window share its look.
+function New-RelayList($x, $y, $w, $h) {
+    $list = New-Object Windows.Forms.ListView
+    $list.View = 'Details'
+    $list.FullRowSelect = $true
+    $list.HeaderStyle = 'Nonclickable'
+    $list.BorderStyle = 'None'
+    $list.BackColor = $C.Card
+    $list.ForeColor = $C.Text
+    $list.Font = New-RelayFont 10
+    $list.Location = New-Object Drawing.Point($x, $y)
+    $list.Size = New-Object Drawing.Size($w, $h)
+    $list.OwnerDraw = $true
+    foreach ($col in @(@('เวลา', 92), @('เรื่อง / ตอน', 262), @('ขอโดย', 168), @('ประเภท', 116), @('ผล', 160), @('VPN', 50))) {
+        [void]$list.Columns.Add($col[0], $col[1])
+    }
+    # Last column fills the row (no blank header stub).
+    $list.Add_Resize({ param($s, $e) $s.Columns[$s.Columns.Count - 1].Width = -2 })
+    $list.Add_HandleCreated({ param($s, $e) $s.Columns[$s.Columns.Count - 1].Width = -2 })
+    # Smooth redraws: ListView.DoubleBuffered is protected.
+    [Windows.Forms.ListView].GetProperty('DoubleBuffered', [Reflection.BindingFlags]'NonPublic,Instance').SetValue($list, $true, $null)
+    $list.Add_DrawColumnHeader({ param($s, $e)
+        $fill = $e.Bounds
+        if ($e.ColumnIndex -eq $s.Columns.Count - 1) { $fill = New-Object Drawing.Rectangle($e.Bounds.X, $e.Bounds.Y, ($s.ClientSize.Width - $e.Bounds.X + 40), $e.Bounds.Height) }
+        $e.Graphics.FillRectangle((New-Object Drawing.SolidBrush($C.Card2)), $fill)
+        $r = New-Object Drawing.Rectangle(($e.Bounds.X + 8), $e.Bounds.Y, ($e.Bounds.Width - 8), $e.Bounds.Height)
+        [Windows.Forms.TextRenderer]::DrawText($e.Graphics, $e.Header.Text, (New-RelayFont 9 ([Drawing.FontStyle]::Bold)), $r, $C.Muted, [Windows.Forms.TextFormatFlags]'VerticalCenter,Left')
+    })
+    $list.Add_DrawItem({ param($s, $e) })
+    $list.Add_DrawSubItem({ param($s, $e)
+        $back = if ($e.ItemIndex % 2) { $C.Card } else { $C.Card2 }
+        $e.Graphics.FillRectangle((New-Object Drawing.SolidBrush($back)), $e.Bounds)
+        $color = $C.Text
+        if ($e.ColumnIndex -eq 0 -or $e.ColumnIndex -eq 5) { $color = $C.Muted }
+        if ($e.ColumnIndex -eq 4) { $color = if ($e.Item.Tag -eq 'completed') { $C.Green } elseif ($e.Item.Tag -eq 'failed') { $C.Red } else { $C.Amber } }
+        $r = New-Object Drawing.Rectangle(($e.Bounds.X + 8), $e.Bounds.Y, ($e.Bounds.Width - 10), $e.Bounds.Height)
+        [Windows.Forms.TextRenderer]::DrawText($e.Graphics, $e.SubItem.Text, $s.Font, $r, $color, [Windows.Forms.TextFormatFlags]'VerticalCenter,Left,EndEllipsis')
+    })
+    # Row height follows the image list; Thai needs the extra room for vowels above and below.
+    $rows = New-Object Windows.Forms.ImageList
+    $rows.ImageSize = New-Object Drawing.Size(1, 30)
+    $list.SmallImageList = $rows
+    return $list
 }
-$relayList.Add_Resize({ $relayList.Columns[5].Width = -2 })
-$relayList.Add_HandleCreated({ $relayList.Columns[5].Width = -2 })  # last column fills the row (no blank header stub)
-# Smooth redraws: ListView.DoubleBuffered is protected.
-[Windows.Forms.ListView].GetProperty('DoubleBuffered', [Reflection.BindingFlags]'NonPublic,Instance').SetValue($relayList, $true, $null)
-$relayList.Add_DrawColumnHeader({ param($s, $e)
-    $fill = $e.Bounds
-    if ($e.ColumnIndex -eq $relayList.Columns.Count - 1) { $fill = New-Object Drawing.Rectangle($e.Bounds.X, $e.Bounds.Y, ($relayList.ClientSize.Width - $e.Bounds.X + 40), $e.Bounds.Height) }
-    $e.Graphics.FillRectangle((New-Object Drawing.SolidBrush($C.Card2)), $fill)
-    $r = New-Object Drawing.Rectangle(($e.Bounds.X + 8), $e.Bounds.Y, ($e.Bounds.Width - 8), $e.Bounds.Height)
-    [Windows.Forms.TextRenderer]::DrawText($e.Graphics, $e.Header.Text, (New-RelayFont 9 ([Drawing.FontStyle]::Bold)), $r, $C.Muted, [Windows.Forms.TextFormatFlags]'VerticalCenter,Left')
-})
-$relayList.Add_DrawItem({ param($s, $e) })
-$relayList.Add_DrawSubItem({ param($s, $e)
-    $back = if ($e.ItemIndex % 2) { $C.Card } else { $C.Card2 }
-    $e.Graphics.FillRectangle((New-Object Drawing.SolidBrush($back)), $e.Bounds)
-    $color = $C.Text
-    if ($e.ColumnIndex -eq 0 -or $e.ColumnIndex -eq 5) { $color = $C.Muted }
-    if ($e.ColumnIndex -eq 4) { $color = if ($e.Item.Tag -eq 'completed') { $C.Green } elseif ($e.Item.Tag -eq 'failed') { $C.Red } else { $C.Amber } }
-    $r = New-Object Drawing.Rectangle(($e.Bounds.X + 8), $e.Bounds.Y, ($e.Bounds.Width - 10), $e.Bounds.Height)
-    [Windows.Forms.TextRenderer]::DrawText($e.Graphics, $e.SubItem.Text, $relayList.Font, $r, $color, [Windows.Forms.TextFormatFlags]'VerticalCenter,Left,EndEllipsis')
-})
-# Row height follows the image list; Thai needs the extra room for vowels above and below.
-$relayRows = New-Object Windows.Forms.ImageList
-$relayRows.ImageSize = New-Object Drawing.Size(1, 30)
-$relayList.SmallImageList = $relayRows
+$relayList = New-RelayList 24 308 852 210
 $relayForm.Controls.Add($relayList)
+$relayHistoryButton = Add-RelayButton $relayForm 'ประวัติย้อนหลัง' 716 274 160 30 $C.Card2 { Show-RelayHistory }
+$relayHistoryButton.Font = New-RelayFont 9 ([Drawing.FontStyle]::Bold)
+$relayTips.SetToolTip($relayHistoryButton, 'ดูคำขอย้อนหลังทั้งหมดที่เก็บไว้ในเครื่องนี้ (เก็บ 30 วัน แล้วลบอัตโนมัติ)')
 $relaySwitches = Add-RelayLabel $relayForm 'สลับ VPN ล่าสุด: ยังไม่เคยสลับ' 24 524 852 28 (New-RelayFont 9) $C.Muted
 $relaySwitches.BackColor = $C.Card
 $relaySwitches.Padding = New-Object Windows.Forms.Padding(10, 0, 0, 0)
@@ -238,12 +247,12 @@ function Format-RelayError([string]$code) {
     if ($code -match '^api_(\d+)$') { return 'เว็บตอบกลับ ' + $Matches[1] }
     return $code
 }
-function Format-RelayTime($iso, [switch]$Seconds) {
+function Format-RelayTime($iso, [switch]$Seconds, [switch]$Date) {
     if (-not $iso) { return '' }
     $t = [DateTimeOffset]::Parse([string]$iso, $relayInv).ToOffset($relayIct)
     $now = [DateTimeOffset]::UtcNow.ToOffset($relayIct)
     $fmt = if ($Seconds) { 'HH:mm:ss' } else { 'HH:mm' }
-    if ($t.Date -ne $now.Date) { $fmt = 'dd/MM ' + $fmt }
+    if ($Date -or $t.Date -ne $now.Date) { $fmt = 'dd/MM ' + $fmt }
     return $t.ToString($fmt, $relayInv)
 }
 # "United States (USA)" -> "USA": Urban's short form in brackets, or the name itself.
@@ -274,6 +283,150 @@ function Format-RelayResult($r) {
     }
     if ($r.outcome -eq 'failed') { return 'ไม่สำเร็จ · ' + (Format-RelayError $r.error) }
     return 'กำลังขอ...'
+}
+
+# ---- history ------------------------------------------------------------------------------
+# relay.db keeps RETENTION_DAYS (never fewer than 15). history.mjs reads it without touching
+# status.json, so the history can be opened while the relay is working.
+$relayPeriods = @(
+    @{ Text = 'วันนี้'; Short = 'วันนี้'; Days = 0 }, @{ Text = '24 ชั่วโมง'; Short = '24 ชม.'; Days = 1 }, @{ Text = '3 วัน'; Short = '3 วัน'; Days = 3 },
+    @{ Text = '7 วัน'; Short = '7 วัน'; Days = 7 }, @{ Text = '15 วัน'; Short = '15 วัน'; Days = 15 }, @{ Text = '30 วัน (ทั้งหมดที่เก็บไว้)'; Short = '30 วัน'; Days = 30 }
+)
+function Read-RelayHistory([DateTimeOffset]$since) {
+    $info = New-Object Diagnostics.ProcessStartInfo
+    $info.FileName = (Get-Command node.exe -ErrorAction Stop).Source
+    $line = '--disable-warning=ExperimentalWarning'
+    if (Test-Path -LiteralPath (Join-Path $relayRoot '.env')) { $line += ' --env-file=.env' }
+    $info.Arguments = $line + ' "' + (Join-Path $relayRoot 'history.mjs') + '" --since ' + $since.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", $relayInv)
+    $info.WorkingDirectory = $relayRoot
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $info.StandardOutputEncoding = New-Object Text.UTF8Encoding($false)
+    $process = [Diagnostics.Process]::Start($info)
+    try {
+        $errors = $process.StandardError.ReadToEndAsync()
+        $text = $process.StandardOutput.ReadToEnd()
+        if (-not $process.WaitForExit(30000)) { try { $process.Kill() } catch { }; throw 'อ่านประวัติไม่ทันเวลา' }
+        if (-not $text) { throw ('อ่านประวัติไม่ได้ ' + $errors.Result) }
+        return $text | ConvertFrom-Json
+    } finally { $process.Dispose() }
+}
+function Import-RelayHistory {
+    $h = $script:relayHistory
+    $h.Rows = @(); $h.Total = 0; $h.Failure = $null
+    $h.Form.Cursor = [Windows.Forms.Cursors]::WaitCursor
+    try {
+        $period = $relayPeriods[$h.Period.SelectedIndex]
+        $now = [DateTimeOffset]::UtcNow
+        $since = if ($period.Days -eq 0) { New-Object DateTimeOffset($now.ToOffset($relayIct).Date, $relayIct) } else { $now.AddDays(-$period.Days) }
+        $data = Read-RelayHistory $since
+        if ($data.retention_days) {
+            $h.Note.Text = 'เก็บประวัติไว้ในเครื่องนี้ ' + $data.retention_days + ' วัน (อย่างน้อย ' + $data.min_retention_days + ' วัน) แล้วลบอัตโนมัติ  ·  ไม่มีลิงก์วิดีโอ คุกกี้ หรือข้อมูลบัญชีในประวัติ'
+        }
+        if ($data.error -eq 'no_history') { $h.Failure = 'ยังไม่มีประวัติ — เครื่องนี้ยังไม่เคยรับคำขอ (ไม่มีไฟล์ relay.db)' }
+        elseif ($data.error -eq 'sqlite_unavailable') { $h.Failure = 'อ่านประวัติไม่ได้: Node บนเครื่องนี้ไม่มี node:sqlite (ต้องใช้ Node 22.13 ขึ้นไป)' }
+        elseif ($data.error) { $h.Failure = 'อ่านประวัติไม่ได้ (' + $data.error + ')' }
+        else {
+            $s = $data.summary
+            $text = $period.Short + ':   ' + [int]$s.jobs + ' คำขอ  ·  ได้ลิงก์ ' + [int]$s.completed + '  ·  ไม่สำเร็จ ' + [int]$s.failed +
+                '  ·  โดนบล็อก ' + [int]$s.blocks + '  ·  สลับ VPN ' + [int]$s.switches
+            if ($s.avg_ms) { $text += '  ·  เฉลี่ย ' + ([double]$s.avg_ms / 1000).ToString('0.0', $relayInv) + ' วิ' }
+            $h.Summary.Text = $text
+            $h.Summary.ForeColor = $C.Text
+            $h.Total = [int]$data.total
+            $h.Rows = @(foreach ($r in @($data.rows)) {
+                $cells = @((Format-RelayTime $r.started_at -Seconds -Date), (Format-RelayTitle $r), (Format-RelayWho $r),
+                    (Format-RelayReason $r), (Format-RelayResult $r), $(if ($r.vpn) { [string]$r.vpn } else { '-' }))
+                $item = [Windows.Forms.ListViewItem]::new([string[]]$cells)
+                $item.Tag = [string]$r.outcome
+                @{ Item = $item; Outcome = [string]$r.outcome; Error = [string]$r.error
+                    Text = ($cells -join ' ') + ' ' + $r.series_id + ' ' + $r.requester }
+            })
+        }
+    } catch { $h.Failure = 'อ่านประวัติไม่ได้: ' + $_.Exception.Message }
+    finally { $h.Form.Cursor = [Windows.Forms.Cursors]::Default }
+    if ($h.Failure) { $h.Summary.Text = $h.Failure; $h.Summary.ForeColor = $C.Amber }
+    Show-RelayHistoryRows
+}
+function Show-RelayHistoryRows {
+    $h = $script:relayHistory
+    $q = $h.Search.Text.Trim()
+    $want = $h.Outcome.SelectedIndex
+    $shown = @($h.Rows | Where-Object {
+        ($want -eq 0 -or ($want -eq 1 -and $_.Outcome -eq 'completed') -or ($want -eq 2 -and $_.Outcome -eq 'failed') -or ($want -eq 3 -and $_.Error -eq 'source_blocked')) -and
+        (-not $q -or $_.Text.IndexOf($q, [StringComparison]::OrdinalIgnoreCase) -ge 0)
+    } | ForEach-Object { $_.Item })
+    $h.List.BeginUpdate()
+    $h.List.Items.Clear()
+    if ($shown.Count) { $h.List.Items.AddRange([Windows.Forms.ListViewItem[]]$shown) }
+    $h.List.Columns[$h.List.Columns.Count - 1].Width = -2
+    $h.List.EndUpdate()
+    $h.Count.Text = if ($h.Failure) { '' }
+        elseif ($h.Total -gt $h.Rows.Count) { 'แสดง ' + $shown.Count + ' รายการ (ล่าสุด ' + $h.Rows.Count + ' จาก ' + $h.Total + ')' }
+        else { 'แสดง ' + $shown.Count + ' จาก ' + $h.Rows.Count + ' รายการ' }
+    $h.Empty.Text = if ($h.Failure) { $h.Failure } elseif ($h.Rows.Count) { 'ไม่พบรายการที่ตรงกับตัวกรอง' } else { 'ไม่มีคำขอในช่วงนี้' }
+    $h.Empty.Visible = $shown.Count -eq 0
+}
+function Show-RelayHistory {
+    $form = New-Object Windows.Forms.Form
+    $form.AutoScaleDimensions = New-Object Drawing.SizeF(96, 96)
+    $form.AutoScaleMode = 'Dpi'
+    $form.Text = 'NetWix Relay - ประวัติคำขอ'
+    $form.ClientSize = New-Object Drawing.Size(1000, 660)
+    $form.MinimumSize = New-Object Drawing.Size(820, 480)
+    $form.StartPosition = 'CenterParent'
+    $form.BackColor = $C.Bg; $form.ForeColor = $C.Text; $form.Font = New-RelayFont 10
+
+    $bar = Add-RelayPanel $form 0 0 1000 70 $C.Card
+    $bar.Anchor = 'Top,Left,Right'
+    $null = Add-RelayLabel $bar 'ช่วงเวลา' 20 6 190 22 (New-RelayFont 9) $C.Muted
+    $period = New-Object Windows.Forms.ComboBox
+    $period.DropDownStyle = 'DropDownList'; $period.Location = New-Object Drawing.Point(20, 30); $period.Width = 190
+    foreach ($p in $relayPeriods) { [void]$period.Items.Add($p.Text) }
+    $period.SelectedIndex = 4
+    $null = Add-RelayLabel $bar 'ผล' 224 6 130 22 (New-RelayFont 9) $C.Muted
+    $outcome = New-Object Windows.Forms.ComboBox
+    $outcome.DropDownStyle = 'DropDownList'; $outcome.Location = New-Object Drawing.Point(224, 30); $outcome.Width = 130
+    foreach ($o in @('ทั้งหมด', 'ได้ลิงก์', 'ไม่สำเร็จ', 'โดนบล็อก')) { [void]$outcome.Items.Add($o) }
+    $outcome.SelectedIndex = 0
+    $null = Add-RelayLabel $bar 'ค้นหา  ชื่อเรื่อง · ผู้ขอ · เลขซีรีส์' 368 6 360 22 (New-RelayFont 9) $C.Muted
+    $search = New-Object Windows.Forms.TextBox
+    $search.Location = New-Object Drawing.Point(368, 31); $search.Width = 360; $search.BorderStyle = 'FixedSingle'
+    foreach ($box in @($period, $outcome, $search)) { $box.BackColor = $C.Card2; $box.ForeColor = $C.Text; $bar.Controls.Add($box) }
+    foreach ($box in @($period, $outcome)) { $box.FlatStyle = 'Flat' }
+    $reload = Add-RelayButton $bar 'โหลดใหม่' 860 16 120 38 $C.Accent { Import-RelayHistory }
+    $reload.Anchor = 'Top,Right'
+
+    $summary = Add-RelayLabel $form 'กำลังอ่านประวัติ...' 20 80 720 26 (New-RelayFont 10 ([Drawing.FontStyle]::Bold))
+    $summary.Anchor = 'Top,Left,Right'
+    $summary.AutoEllipsis = $true
+    $count = Add-RelayLabel $form '' 740 80 240 26 (New-RelayFont 9) $C.Muted 'MiddleRight'
+    $count.Anchor = 'Top,Right'
+    $list = New-RelayList 20 112 960 506
+    $list.Anchor = 'Top,Bottom,Left,Right'
+    $list.Columns[0].Width = 124; $list.Columns[1].Width = 330
+    $form.Controls.Add($list)
+    $empty = Add-RelayLabel $form '' 21 340 958 30 (New-RelayFont 10) $C.Muted 'MiddleCenter'
+    $empty.BackColor = $C.Card
+    $empty.Anchor = 'Left,Right'
+    $empty.BringToFront()
+    $note = Add-RelayLabel $form '' 20 628 960 24 (New-RelayFont 9) $C.Muted
+    $note.Anchor = 'Bottom,Left,Right'
+
+    $timer = New-Object Windows.Forms.Timer
+    $timer.Interval = 300
+    $script:relayHistory = @{ Form = $form; Period = $period; Outcome = $outcome; Search = $search; Summary = $summary
+        Count = $count; List = $list; Empty = $empty; Note = $note; Timer = $timer; Rows = @(); Total = 0; Failure = $null }
+    # Typing filters what is already loaded; only another period reads relay.db again.
+    $timer.Add_Tick({ $script:relayHistory.Timer.Stop(); Show-RelayHistoryRows })
+    $search.Add_TextChanged({ $script:relayHistory.Timer.Stop(); $script:relayHistory.Timer.Start() })
+    $outcome.Add_SelectedIndexChanged({ Show-RelayHistoryRows })
+    $period.Add_SelectedIndexChanged({ Import-RelayHistory })
+    $form.Add_Shown({ Import-RelayHistory })
+    try { [void]$form.ShowDialog($relayForm) }
+    finally { $timer.Dispose(); $form.Dispose(); $script:relayHistory = $null }
 }
 
 # ---- refresh ------------------------------------------------------------------------------

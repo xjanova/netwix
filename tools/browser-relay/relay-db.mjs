@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_time ON events (time);
 `;
 
+// History is kept RETENTION_DAYS, and prune() never deletes anything younger than MIN_RETENTION_DAYS.
 export const RETENTION_DAYS = 30;
+export const MIN_RETENTION_DAYS = 15;
 
 // Columns added after the first release; old relay.db files get them on open.
 const LATER_COLUMNS = { title: 'TEXT', episode_number: 'INTEGER', reason: 'TEXT', requester: 'TEXT', via: 'TEXT', vpn: 'TEXT' };
@@ -102,6 +104,16 @@ export class RelayDb {
         };
     }
 
+    /** Jobs started since `since`, newest first, for the history window. `total` counts every one of them, not only the rows returned. */
+    history(since, limit = 5000) {
+        const from = since.toISOString();
+        const total = this.db.prepare('SELECT COUNT(*) AS n FROM jobs WHERE started_at >= ?').get(from).n ?? 0;
+        const rows = this.db.prepare(`SELECT job_id, series_id, episode, priority, started_at, finished_at, duration_ms, outcome, error,
+                extras_accepted, title, episode_number, reason, requester, via, vpn
+            FROM jobs WHERE started_at >= ? ORDER BY started_at DESC, id DESC LIMIT ?`).all(from, limit);
+        return { total, rows: rows.map(row => ({ ...row })) };
+    }
+
     /** Events since `since`, oldest first, without the idle `worker_waiting` noise. */
     events(since, limit = 500) {
         return this.db.prepare(`SELECT time, event, data FROM events WHERE time >= ? AND event <> 'worker_waiting'
@@ -109,7 +121,7 @@ export class RelayDb {
     }
 
     prune(days = RETENTION_DAYS, now = Date.now()) {
-        const cutoff = new Date(now - days * 86400000).toISOString();
+        const cutoff = new Date(now - Math.max(MIN_RETENTION_DAYS, days) * 86400000).toISOString();
         this.db.prepare('DELETE FROM events WHERE time < ?').run(cutoff);
         this.db.prepare('DELETE FROM jobs WHERE started_at < ?').run(cutoff);
     }
