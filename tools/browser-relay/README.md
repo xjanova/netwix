@@ -4,7 +4,8 @@
 
 Desktop shortcut: **NetWix Relay** (`C:\Users\Administrator\Desktop\NetWix Relay.lnk`).
 The program resides at `C:\brainx\netwix-browser-relay`. It has Start Relay, Stop Relay,
-Test Link, Urban VPN and Open Folder controls. The control window can close while the worker runs.
+Test Link, Urban VPN, Open Folder and **ประวัติย้อนหลัง** (request history) controls. The control
+window can close while the worker runs.
 The task **NetWix BrainX Browser Relay** keeps the worker detached from SSH and starts it at
 Administrator sign-in. RDP disconnect is supported; signing out ends that interactive session.
 
@@ -171,12 +172,21 @@ in 11.5 s, and switching back to US worked.
 The worker records its work in `relay.db` (SQLite through Node's built-in `node:sqlite`; Node
 22.13+ needs no flag). Table `jobs`: job id, series/episode, priority, start/finish time, duration,
 outcome, error code, CDN host, link expiry and extras found/accepted. Table `events`: every log
-record. Signed URLs, cookies and tokens are never stored. Rows older than 30 days are pruned.
+record. Signed URLs, cookies and tokens are never stored. Rows older than 30 days are pruned
+(at start and once a day); `prune()` never deletes anything younger than 15 days
+(`MIN_RETENTION_DAYS`), and `relay.db` is never replaced by a self-update.
 `status.json` carries a 24-hour summary that the control window shows.
+
+**ประวัติย้อนหลัง** in the control window lists every request kept: today, 24 hours, 3/7/15 days or
+all 30, filtered by result (got a link / failed / blocked) and searched by title, requester or
+series number. It reads `relay.db` through `history.mjs`, which only reads (no `status.json`, no
+log lines), so it is safe while the worker runs; the newest 5000 rows of a period are listed and
+the totals count all of them.
 
 ```powershell
 node worker.mjs --stats      # last 24 hours as JSON
 node worker.mjs --stats 7    # last 7 days
+node history.mjs --since 2026-10-06T00:00:00Z   # the requests the history window lists, as JSON
 ```
 
 Without `node:sqlite` the worker still runs and logs `sqlite: false`; `worker.log` keeps everything.
