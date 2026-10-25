@@ -6,6 +6,10 @@ Desktop shortcut: **NetWix Relay** (`C:\Users\Administrator\Desktop\NetWix Relay
 The program resides at `C:\brainx\netwix-browser-relay`. It has Start Relay, Stop Relay,
 Test Link, Urban VPN, Open Folder and **ประวัติย้อนหลัง** (request history) controls. The control
 window can close while the worker runs.
+The dashboard reflows its six statistics into 6, 3 or 2 equal-width columns as the window
+changes size. The request table grows with the window; narrow layouts stack the test/VPN
+panel below the main actions. Short windows scroll vertically so every action remains reachable.
+Long activity/VPN labels show their full text on hover. History search expands with its window.
 The task **NetWix BrainX Browser Relay** keeps the worker detached from SSH and starts it at
 Administrator sign-in. RDP disconnect is supported; signing out ends that interactive session.
 
@@ -30,6 +34,47 @@ to the verified Urban route. The working route depends on Urban continuing to co
 NetWix queues only a requested RongYok episode that the normal source resolver could not resolve.
 The BrainX worker polls over HTTPS, opens that episode in its own Chrome profile, and returns a
 signed MP4 URL. Viewers then stream from the CDN directly. BrainX does not proxy video bytes.
+
+## Can the relay recover every source?
+
+**Not with the current implementation.** It supports RongYok links anywhere in an episode's
+mirror chain, including a title imported from another source that has a RongYok backup.
+It does not resolve the other sources themselves. This is enforced on both sides:
+`BrowserRelay::descriptor/claim/complete` use RongYok descriptors and its cache/validator;
+`resolver.mjs` accepts only RongYok jobs, navigations and episode API responses, and fresh
+signed Discord MP4 URLs. Changing only the hostname or removing the allowlist is insufficient.
+
+The following assessment is based on the source adapters in this repository, not live
+browser-relay verification of these providers:
+
+| Source / family | Existing playback route | Work required for a relay fallback |
+| --- | --- | --- |
+| RongYok | Signed Discord MP4 | Already supported; production checks the MP4 outside the VPN before accepting it. |
+| Anifume | Signed player iframe, then MP4 | Source-specific page/episode matching, CDN allowlist and expiry handling; verify that the URL works outside the browser session. |
+| WowDrama / Goseries4k | Player embed, then HLS | Capture the correct episode's manifest and required Referer; verify manifest, variant and media segments from the serving side. |
+| Halim sites / Hd432 / Animeruka | Player-specific HLS (Animeruka can also return MP4) | Separate adapters for the player/API formats, source/CDN allowlists and playback validation. |
+| NaayNung | HLS, or Abyss/Hydrax embed fallback | HLS may be transferable after validation; an embed or browser-local `blob:` URL is not a reusable direct video link. |
+
+A shared browser worker can potentially help when the **page/link-resolution request** fails
+because of the server's IP or because ordinary browser JavaScript is needed. It does not repair
+a removed video, a broken provider API, DRM, or a CDN that requires the browser's cookies or
+VPN IP. If only the VPN browser can fetch the media, returning its URL does not solve playback;
+transporting the video would be a separate service with very different bandwidth requirements.
+
+For future support, keep normal resolution and mirror rotation first, then opt in a tested
+source adapter only on a recoverable miss. Each adapter needs bounded navigation/CDN hosts,
+exact episode identity, stream kind/Referer/expiry, independent cache keys, and validation from
+the actual playback route. The queue schema currently has no source column and assumes numeric
+RongYok series/episode IDs, so multi-source jobs also require a backward-compatible server/worker
+protocol and migration. Do not enqueue unsupported providers or claim universal recovery.
+
+## Dashboard layout verification (Windows)
+
+Run `powershell.exe -NoProfile -STA -File .\app.ps1 -Check` from this directory.
+It checks live control bounds, card widths, action overlap and scrolling across 30 size/scale
+combinations (including simulated 125% and 150% scaling), then saves `app-preview.png`.
+It does not start the worker or submit source requests. Inspect the real window as well:
+WinForms `DrawToBitmap` does not faithfully render rounded regions and overlapping empty labels.
 
 ## Production setup
 
