@@ -629,7 +629,9 @@ function Resize-RelayForm {
         $s = $script:relayScale
         $height = $relayViewport.ClientSize.Height / $s
         # Start without a scrollbar; if needed, recompute the breakpoints with its width reserved.
-        $width = $relayForm.ClientSize.Width / $s
+        # Windows can constrain the docked surface below the form's requested ClientSize
+        # (notably small Server/RDP desktops). Use its actual outer width, including scrollbars.
+        $width = $relayViewport.Width / $s
         for ($pass = 0; $pass -lt 2; $pass++) {
             $inner = $width - 48
             $columns = if ($width -ge 1000) { 6 } elseif ($width -ge 640) { 3 } else { 2 }
