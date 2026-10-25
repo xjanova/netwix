@@ -76,8 +76,8 @@ $relayForm = New-Object Windows.Forms.Form
 $relayForm.AutoScaleDimensions = New-Object Drawing.SizeF(96, 96)
 $relayForm.AutoScaleMode = 'Dpi'
 $relayForm.Text = 'NetWix Relay ' + $relayVersion
-$relayForm.ClientSize = New-Object Drawing.Size(900, 676)
-$relayForm.MinimumSize = $relayForm.Size
+$relayForm.ClientSize = New-Object Drawing.Size(1040, 760)
+$relayForm.MinimumSize = New-Object Drawing.Size(576, 480)
 $relayForm.StartPosition = 'CenterScreen'
 $relayForm.BackColor = $C.Bg
 $relayForm.ForeColor = $C.Text
@@ -133,13 +133,14 @@ Set-RelayGradient $relayBadge $true
 Set-RelayRound $relayBadge
 $relayStrip = Add-RelayPanel $relayForm 0 86 900 3 $C.Accent
 Set-RelayGradient $relayStrip $true
-$null = Add-RelayLabel $relayHeader 'ขอลิงก์หนังโรงหยกให้ผู้ชมอัตโนมัติ ผ่าน Urban VPN บนเครื่อง BrainX' 24 52 560 24 (New-RelayFont 10) $C.Muted
+$relaySubtitle = Add-RelayLabel $relayHeader 'ขอลิงก์หนังโรงหยกให้ผู้ชมอัตโนมัติ ผ่าน Urban VPN บนเครื่อง BrainX' 24 52 560 24 (New-RelayFont 10) $C.Muted
 $relayPill = Add-RelayLabel $relayHeader '' 632 24 244 38 (New-RelayFont 12 ([Drawing.FontStyle]::Bold)) $C.Text 'MiddleCenter'
 Set-RelayRound $relayPill
 
 # ---- stat cards ---------------------------------------------------------------------------
 $relayCards = @{}
 $relayCaptions = @{}
+$relayCardPanels = @()
 $relayCardDefs = @(
     @{ Key = 'ok'; Caption = 'ได้ลิงก์ · 24 ชม.'; Tint = $C.Green }, @{ Key = 'fail'; Caption = 'ไม่สำเร็จ · 24 ชม.'; Tint = $C.Red },
     @{ Key = 'blocks'; Caption = 'โดนบล็อก · 24 ชม.'; Tint = $C.Amber }, @{ Key = 'switches'; Caption = 'สลับ VPN · 24 ชม.'; Tint = $C.Accent },
@@ -147,6 +148,7 @@ $relayCardDefs = @(
 )
 for ($i = 0; $i -lt $relayCardDefs.Count; $i++) {
     $card = Add-RelayPanel $relayForm (24 + $i * 144) 102 132 88 $C.Card
+    $relayCardPanels += $card
     Set-RelayRound $card
     $null = Add-RelayPanel $card 0 0 132 3 $relayCardDefs[$i].Tint
     $relayCards[$relayCardDefs[$i].Key] = Add-RelayLabel $card '-' 12 6 116 40 (New-RelayFont 20 ([Drawing.FontStyle]::Bold))
@@ -161,9 +163,25 @@ $null = Add-RelayLabel $relayNow 'ล่าสุด' 18 6 120 22 (New-RelayFont
 $relayNowText = Add-RelayLabel $relayNow 'กำลังอ่านสถานะ...' 18 26 820 30 (New-RelayFont 12 ([Drawing.FontStyle]::Bold))
 
 # ---- recent requests ----------------------------------------------------------------------
-$null = Add-RelayLabel $relayForm 'คำขอล่าสุด' 24 278 112 26 (New-RelayFont 12 ([Drawing.FontStyle]::Bold))
-$null = Add-RelayLabel $relayForm 'ใคร ขอเรื่องอะไร เมื่อไหร่ และได้ผลยังไง' 140 280 500 24 (New-RelayFont 9) $C.Muted
+$relayRequestsTitle = Add-RelayLabel $relayForm 'คำขอล่าสุด' 24 278 112 26 (New-RelayFont 12 ([Drawing.FontStyle]::Bold))
+$relayRequestsHint = Add-RelayLabel $relayForm 'ใคร ขอเรื่องอะไร เมื่อไหร่ และได้ผลยังไง' 140 280 500 24 (New-RelayFont 9) $C.Muted
 # The request table: this window's latest requests and the history window share its look.
+function Resize-RelayColumns($list) {
+    if ($list.Columns.Count -ne 6) { return }
+    $scale = if ($script:relayScale) { $script:relayScale } else { 1.0 }
+    $widths = if ($list.Tag -eq 'history') { @(132, 230, 140, 108, 150, 70) } else { @(92, 230, 140, 108, 150, 70) }
+    $available = $list.ClientSize.Width
+    $minimum = ($widths | Measure-Object -Sum).Sum * $scale
+    $extra = [Math]::Max(0, $available - $minimum)
+    $shares = @(0, 0.50, 0.25, 0, 0.25, 0)
+    for ($i = 0; $i -lt $widths.Count; $i++) {
+        $list.Columns[$i].Width = [int][Math]::Floor($widths[$i] * $scale + $extra * $shares[$i])
+    }
+    if ($extra -gt 0) {
+        $used = ($list.Columns | Measure-Object -Property Width -Sum).Sum
+        $list.Columns[5].Width += [int]($available - $used)
+    }
+}
 function New-RelayList($x, $y, $w, $h) {
     $list = New-Object Windows.Forms.ListView
     $list.View = 'Details'
@@ -179,9 +197,11 @@ function New-RelayList($x, $y, $w, $h) {
     foreach ($col in @(@('เวลา', 92), @('เรื่อง / ตอน', 262), @('ขอโดย', 168), @('ประเภท', 116), @('ผล', 160), @('VPN', 50))) {
         [void]$list.Columns.Add($col[0], $col[1])
     }
-    # Last column fills the row (no blank header stub).
-    $list.Add_Resize({ param($s, $e) $s.Columns[$s.Columns.Count - 1].Width = -2 })
-    $list.Add_HandleCreated({ param($s, $e) $s.Columns[$s.Columns.Count - 1].Width = -2 })
+    # Share extra width with title/requester/result, not just the VPN column. Narrow windows
+    # retain readable minimum columns and use the ListView's own horizontal scrollbar.
+    $list.Tag = 'recent'
+    $list.Add_Resize({ param($s, $e) Resize-RelayColumns $s })
+    $list.Add_HandleCreated({ param($s, $e) Resize-RelayColumns $s })
     # Smooth redraws: ListView.DoubleBuffered is protected.
     [Windows.Forms.ListView].GetProperty('DoubleBuffered', [Reflection.BindingFlags]'NonPublic,Instance').SetValue($list, $true, $null)
     $list.Add_DrawColumnHeader({ param($s, $e)
@@ -274,7 +294,7 @@ $relayTest = Add-RelayButton $relayTools 'ทดสอบลิงก์' 146 12
 $relayUrban = Add-RelayButton $relayTools 'ตั้งค่า VPN' 272 12 114 40 $C.Card2 { Start-RelayTool 'urban' }
 $relayTips.SetToolTip($relayTest, 'เปิดตอนที่ระบุผ่าน VPN เพื่อดูว่าขอลิงก์ได้ไหม (ต้องหยุดโปรแกรมก่อน)')
 $relayTips.SetToolTip($relayUrban, 'เปิดหน้าตั้งค่า Urban VPN (ต้องหยุดโปรแกรมก่อน)')
-$null = Add-RelayLabel $relayForm 'ปิดหน้าต่างนี้ได้ โปรแกรมยังทำงานต่อเบื้องหลัง · อัปเดตเวอร์ชันใหม่ให้อัตโนมัติ · ทดสอบ/ตั้งค่า VPN ต้องหยุดโปรแกรมก่อน' 24 640 852 24 (New-RelayFont 9) $C.Muted
+$relayFooter = Add-RelayLabel $relayForm 'ปิดหน้าต่างนี้ได้ โปรแกรมยังทำงานต่อเบื้องหลัง · อัปเดตเวอร์ชันใหม่ให้อัตโนมัติ · ทดสอบ/ตั้งค่า VPN ต้องหยุดโปรแกรมก่อน' 24 640 852 24 (New-RelayFont 9) $C.Muted
 
 function Show-RelayLog {
     $log = New-Object Windows.Forms.Form
@@ -424,7 +444,7 @@ function Show-RelayHistoryRows {
     $h.List.BeginUpdate()
     $h.List.Items.Clear()
     if ($shown.Count) { $h.List.Items.AddRange([Windows.Forms.ListViewItem[]]$shown) }
-    $h.List.Columns[$h.List.Columns.Count - 1].Width = -2
+    Resize-RelayColumns $h.List
     $h.List.EndUpdate()
     $h.Count.Text = if ($h.Failure) { '' }
         elseif ($h.Total -gt $h.Rows.Count) { 'แสดง ' + $shown.Count + ' รายการ (ล่าสุด ' + $h.Rows.Count + ' จาก ' + $h.Total + ')' }
@@ -458,9 +478,11 @@ function Show-RelayHistory {
     $outcome.DropDownStyle = 'DropDownList'; $outcome.Location = New-Object Drawing.Point(224, 30); $outcome.Width = 130
     foreach ($o in @('ทั้งหมด', 'ได้ลิงก์', 'ไม่สำเร็จ', 'โดนบล็อก')) { [void]$outcome.Items.Add($o) }
     $outcome.SelectedIndex = 0
-    $null = Add-RelayLabel $bar 'ค้นหา  ชื่อเรื่อง · ผู้ขอ · เลขซีรีส์' 368 6 360 22 (New-RelayFont 9) $C.Muted
+    $searchLabel = Add-RelayLabel $bar 'ค้นหา  ชื่อเรื่อง · ผู้ขอ · เลขซีรีส์' 368 6 472 22 (New-RelayFont 9) $C.Muted
+    $searchLabel.Anchor = 'Top,Left,Right'; $searchLabel.AutoEllipsis = $true
     $search = New-Object Windows.Forms.TextBox
-    $search.Location = New-Object Drawing.Point(368, 31); $search.Width = 360; $search.BorderStyle = 'FixedSingle'
+    $search.Location = New-Object Drawing.Point(368, 31); $search.Width = 472; $search.BorderStyle = 'FixedSingle'
+    $search.Anchor = 'Top,Left,Right'
     foreach ($box in @($period, $outcome, $search)) { $box.BackColor = $C.Card2; $box.ForeColor = $C.Text; $bar.Controls.Add($box) }
     foreach ($box in @($period, $outcome)) { $box.FlatStyle = 'Flat' }
     $reload = Add-RelayButton $bar 'โหลดใหม่' 860 16 120 38 $C.Accent { Import-RelayHistory }
@@ -474,7 +496,7 @@ function Show-RelayHistory {
     $count.Anchor = 'Top,Right'
     $list = New-RelayList 20 112 960 506
     $list.Anchor = 'Top,Bottom,Left,Right'
-    $list.Columns[0].Width = 124; $list.Columns[1].Width = 330
+    $list.Tag = 'history'
     $form.Controls.Add($list)
     $empty = Add-RelayLabel $form '' 21 340 958 30 (New-RelayFont 10) $C.Muted 'MiddleCenter'
     $empty.BackColor = $C.Card
@@ -482,6 +504,7 @@ function Show-RelayHistory {
     $empty.BringToFront()
     $note = Add-RelayLabel $form '' 20 628 960 24 (New-RelayFont 9) $C.Muted
     $note.Anchor = 'Bottom,Left,Right'
+    $note.AutoEllipsis = $true
 
     $timer = New-Object Windows.Forms.Timer
     $timer.Interval = 300
@@ -562,7 +585,7 @@ function Update-RelayView {
                     $item.Tag = [string]$r.outcome
                     [void]$relayList.Items.Add($item)
                 }
-                $relayList.Columns[5].Width = -2
+                Resize-RelayColumns $relayList
                 $relayList.EndUpdate()
                 $relayEmpty.Visible = $relayList.Items.Count -eq 0
             }
@@ -572,22 +595,121 @@ function Update-RelayView {
     } catch { $relayNowText.Text = 'กำลังรออัปเดตสถานะ...' }
 }
 
-# Whatever the screen scaling did to the controls, size the window to hold all of them.
-function Resize-RelayForm {
-    $right = 0; $bottom = 0
-    foreach ($c in $relayForm.Controls) {
-        if ($c -eq $relayHeader -or $c -eq $relayStrip) { continue }
-        if ($c.Right -gt $right) { $right = $c.Right }
-        if ($c.Bottom -gt $bottom) { $bottom = $c.Bottom }
-    }
-    $pad = [int]($relayList.Left)
-    $relayForm.ClientSize = New-Object Drawing.Size(($right + $pad), ($bottom + [int]($pad / 2)))
-    $relayForm.MinimumSize = $relayForm.Size
-    $relayHeader.Width = $relayForm.ClientSize.Width
-    $relayStrip.Width = $relayForm.ClientSize.Width
-    $relayPill.Left = $relayHeader.Width - $relayPill.Width - $pad
+# Keep a scrollable content surface: short/narrow windows must still reach every action.
+# The form owns the viewport; all existing controls keep their handlers on the inner surface.
+$relayViewport = New-Object Windows.Forms.Panel
+$relayViewport.Dock = 'Fill'
+$relayViewport.AutoScroll = $true
+$relayBody = New-Object Windows.Forms.Panel
+$relayBody.BackColor = $C.Bg
+$relayBody.Margin = New-Object Windows.Forms.Padding(0)
+$relayBody.Dock = 'Top'
+foreach ($control in @($relayForm.Controls)) { $relayBody.Controls.Add($control) }
+$relayViewport.Controls.Add($relayBody)
+$relayForm.Controls.Add($relayViewport)
+$script:relayScale = 1.0
+$script:relayLayoutReady = $false
+$script:relayLayingOut = $false
+foreach ($label in @($relayNowText, $relaySwitches, $relaySubtitle, $relayRequestsHint) + @($relayCards.Values)) {
+    $label.AutoEllipsis = $true
+    $relayTips.SetToolTip($label, $label.Text)
+    $label.Add_TextChanged({ param($s, $e) $relayTips.SetToolTip($s, $s.Text) })
 }
-$relayForm.Add_Shown({ Resize-RelayForm })
+function Set-RelayBounds($control, [double]$x, [double]$y, [double]$w, [double]$h) {
+    $s = $script:relayScale
+    $control.SetBounds([int][Math]::Round($x * $s), [int][Math]::Round($y * $s),
+        [int][Math]::Round($w * $s), [int][Math]::Round($h * $s))
+}
+function Resize-RelayForm {
+    if (-not $script:relayLayoutReady -or $script:relayLayingOut -or $relayForm.WindowState -eq 'Minimized') { return }
+    $script:relayLayingOut = $true
+    $relayViewport.SuspendLayout()
+    $relayBody.SuspendLayout()
+    try {
+        $s = $script:relayScale
+        $height = $relayViewport.ClientSize.Height / $s
+        # Start without a scrollbar; if needed, recompute the breakpoints with its width reserved.
+        $width = $relayForm.ClientSize.Width / $s
+        for ($pass = 0; $pass -lt 2; $pass++) {
+            $inner = $width - 48
+            $columns = if ($width -ge 1000) { 6 } elseif ($width -ge 640) { 3 } else { 2 }
+            $rows = 6 / $columns
+            $headerHeight = if ($width -lt 760) { 130 } else { 86 }
+            $stackActions = $width -lt 960
+            $actionHeight = if ($stackActions) { 124 } else { 62 }
+            $cardsY = $headerHeight + 16
+            $nowY = $cardsY + $rows * 100 - 12 + 14
+            $titleY = $nowY + 70 + 12
+            $listY = $titleY + 36
+            $minimumHeight = $listY + 150 + 8 + 30 + 14 + $actionHeight + 12 + 44 + 12
+            if ($pass -eq 0 -and $height -lt $minimumHeight) {
+                $width -= [Windows.Forms.SystemInformation]::VerticalScrollBarWidth / $s
+            }
+        }
+        $bodyHeight = [Math]::Max($height, $minimumHeight)
+        $relayBody.Size = New-Object Drawing.Size(([int][Math]::Floor($width * $s)), ([int][Math]::Ceiling($bodyHeight * $s)))
+        Set-RelayBounds $relayHeader 0 0 $width $headerHeight
+        Set-RelayBounds $relayStrip 0 $headerHeight $width 3
+        Set-RelayBounds $relaySubtitle 24 52 $inner 24
+        if ($width -lt 760) { Set-RelayBounds $relayPill 24 82 $inner 36 }
+        else { Set-RelayBounds $relayPill ($width - 268) 16 244 34 }
+
+        $cardWidth = ($inner - ($columns - 1) * 12) / $columns
+        for ($i = 0; $i -lt 6; $i++) {
+            $panel = $relayCardPanels[$i]
+            $key = $relayCardDefs[$i].Key
+            Set-RelayBounds $panel (24 + ($i % $columns) * ($cardWidth + 12)) ($cardsY + [Math]::Floor($i / $columns) * 100) $cardWidth 88
+            Set-RelayBounds $panel.Controls[0] 0 0 $cardWidth 3
+            Set-RelayBounds $relayCards[$key] 12 6 ($cardWidth - 24) 40
+            Set-RelayBounds $relayCaptions[$key] 12 46 ($cardWidth - 24) 38
+        }
+        Set-RelayBounds $relayNow 24 $nowY $inner 70
+        Set-RelayBounds $relayNowBar 0 0 5 70
+        Set-RelayBounds $relayNowText 18 28 ($inner - 36) 34
+        Set-RelayBounds $relayRequestsTitle 24 $titleY 112 30
+        $relayRequestsHint.Visible = $width -ge 760
+        Set-RelayBounds $relayRequestsHint 148 $titleY ([Math]::Max(0, $inner - 300)) 30
+        Set-RelayBounds $relayHistoryButton ($width - 184) $titleY 160 30
+        $listHeight = 150 + $bodyHeight - $minimumHeight
+        Set-RelayBounds $relayList 24 $listY $inner $listHeight
+        Set-RelayBounds $relayEmpty 34 ($listY + ($listHeight - 60) / 2) ($inner - 20) 60
+        $switchY = $listY + $listHeight + 8
+        Set-RelayBounds $relaySwitches 24 $switchY $inner 30
+        $actionY = $switchY + 44
+        if ($stackActions) {
+            # Keep the primary action prominent; share the remaining width between utility buttons.
+            $primary = $inner * 0.46
+            $utility = ($inner - $primary - 20) / 2
+            Set-RelayBounds $relayToggle 24 $actionY $primary 50
+            Set-RelayBounds $relayFolder (34 + $primary) $actionY $utility 50
+            Set-RelayBounds $relayLogButton (44 + $primary + $utility) $actionY $utility 50
+            Set-RelayBounds $relayTools 24 ($actionY + 62) $inner 62
+        } else {
+            $primary = $inner - 638
+            Set-RelayBounds $relayToggle 24 ($actionY + 6) $primary 50
+            Set-RelayBounds $relayFolder (34 + $primary) ($actionY + 6) 120 50
+            Set-RelayBounds $relayLogButton (164 + $primary) ($actionY + 6) 90 50
+            Set-RelayBounds $relayTools ($width - 420) $actionY 396 62
+        }
+        $toolWidth = $relayTools.Width / $s
+        $toolButtonWidth = ($toolWidth - 164) / 2
+        Set-RelayBounds $relayTest 146 12 $toolButtonWidth 40
+        Set-RelayBounds $relayUrban (154 + $toolButtonWidth) 12 $toolButtonWidth 40
+        Set-RelayBounds $relayFooter 24 ($actionY + $actionHeight + 12) $inner 44
+        Resize-RelayColumns $relayList
+    } finally {
+        $relayBody.ResumeLayout($false)
+        $relayViewport.ResumeLayout($true)
+        $script:relayLayingOut = $false
+    }
+}
+$relayForm.Add_Shown({
+    # Read the actual WinForms scaling once, then always calculate from logical pixels.
+    $script:relayScale = $relayHeader.Height / 86.0
+    $script:relayLayoutReady = $true
+    Resize-RelayForm
+})
+$relayViewport.Add_ClientSizeChanged({ Resize-RelayForm })
 
 $relayTimer = New-Object Windows.Forms.Timer
 $relayTimer.Interval = 2000
@@ -598,6 +720,8 @@ Update-RelayView
 if ($Check) {
     $relayTimer.Stop()
     $relayForm.Show()
+    . (Join-Path $relayRoot 'test/layout-check.ps1')
+    Test-RelayLayout
     Resize-RelayForm
     [Windows.Forms.Application]::DoEvents()
     $relayForm.Refresh()
