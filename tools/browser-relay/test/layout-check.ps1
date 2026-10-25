@@ -66,7 +66,15 @@ function Test-RelayLayout {
         $relayForm.WindowState = 'Normal'
         [Windows.Forms.Application]::DoEvents()
         Assert-RelayLayout
+        # A small Server/RDP desktop can constrain the docked surface while the form still
+        # reports its requested ClientSize. Reproduce that mismatch on larger test desktops.
+        $relayViewport.MaximumSize = New-Object Drawing.Size(800, 600)
+        $relayForm.PerformLayout()
+        Resize-RelayForm
+        [Windows.Forms.Application]::DoEvents()
+        Assert-RelayLayout
     } finally {
+        $relayViewport.MaximumSize = New-Object Drawing.Size(0, 0)
         $ratio = $originalScale / $script:relayScale
         $relayForm.Scale((New-Object Drawing.SizeF($ratio, $ratio)))
         $script:relayScale = $originalScale
