@@ -318,11 +318,17 @@ $relayEvents = @{
     urban_switch_failed = 'สลับ VPN ไม่สำเร็จ'; update_found = 'พบเวอร์ชันใหม่ กำลังอัปเดต'
     update_applied = 'อัปเดตแล้ว กำลังเริ่มใหม่'; update_failed = 'อัปเดตไม่สำเร็จ จะลองใหม่'; worker_restarting = 'เริ่มใหม่เพื่อใช้เวอร์ชันใหม่'
     update_check_failed = 'เช็กเวอร์ชันใหม่ไม่ได้ชั่วคราว'
+    vpn_selected = 'กำลังเชื่อมต่อ VPN'; vpn_ready = 'VPN ขอลิงก์สำเร็จ'; vpn_failed = 'VPN ไม่พร้อม พักแล้วลองตัวถัดไป'
+    vpn_switched = 'สลับผู้ให้บริการ VPN'; vpn_cooling = 'พัก VPN ชั่วคราว แล้วจะลองใหม่'
+    vpn_location_changed = 'เปลี่ยนประเทศ VPN'
 }
 $relayErrors = @{
     source_blocked = 'โรงหยกบล็อก'; timeout = 'หมดเวลา'; no_video = 'ไม่พบวิดีโอ'; browser_unavailable = 'เบราว์เซอร์มีปัญหา'
     urban_not_connected = 'VPN ไม่ได้เชื่อมต่อ'; invalid_url = 'ลิงก์ไม่ถูกต้อง'; connection_failed = 'เน็ตหลุด'
     urban_switch_failed = 'VPN ต่อไม่ติด'; urban_no_location = 'ไม่มี VPN ให้สลับ'
+    urban_registration_failed = 'Urban ลงทะเบียนไม่สำเร็จ'; browsec_not_connected = 'Browsec ต่อไม่ติด'
+    browsec_setup_required = 'Browsec ต้องตั้งค่าครั้งแรก'; vpn_unavailable = 'VPN ทุกตัวที่ลองยังไม่พร้อม'
+    browsec_switch_failed = 'Browsec เปลี่ยนประเทศไม่ได้'
 }
 function Format-RelayError([string]$code) {
     if (-not $code) { return '' }
@@ -533,6 +539,7 @@ function Update-RelayView {
         if (-not $running) { Set-RelayPill 'หยุดทำงาน' $C.Muted $C.GreyBg }
         elseif ($record -and $record.event -eq 'worker_waiting') { Set-RelayPill 'ติดต่อเว็บไม่ได้' $C.Amber $C.AmberBg }
         elseif ($record -and [int]$record.active -gt 0) { Set-RelayPill ('กำลังขอลิงก์ ' + $record.active + '/' + $record.concurrency + ' แท็บ') $C.Green $C.GreenBg }
+        elseif ($record -and $record.vpn -and -not $record.vpn.connected -and $record.vpn.provider) { Set-RelayPill 'VPN ยังไม่พร้อม' $C.Amber $C.AmberBg }
         else { Set-RelayPill 'พร้อม รอคำขอ' $C.Green $C.GreenBg }
         $relayToggle.Text = if ($running) { '■   หยุดทำงาน' } else { '▶   เริ่มทำงาน' }
         $relayToggle.BackColor = if ($running) { $C.RedBg } else { $C.Accent }
@@ -546,7 +553,7 @@ function Update-RelayView {
             $relayCards.fail.Text = if ($s) { [string]$s.failed } else { '-' }
             $relayCards.fail.ForeColor = if ($s -and [int]$s.failed -gt 0) { $C.Red } else { $C.Text }
             $relayCards.avg.Text = if ($s -and $s.avg_ms) { ([double]$s.avg_ms / 1000).ToString('0.0', $relayInv) + ' วิ' } else { '-' }
-            $relayCards.vpn.Text = if ($record.urban) { Format-RelayPlace $record.urban } else { '-' }
+            $relayCards.vpn.Text = if ($record.vpn -and $record.vpn.provider) { [string]$record.vpn.provider + $(if ($record.vpn.connected) { '' } else { ' · รอ' }) } elseif ($record.urban) { Format-RelayPlace $record.urban } else { '-' }
             $relayCards.blocks.Text = if ($s) { [string][int]$s.blocks } else { '-' }
             $relayCards.blocks.ForeColor = if ($s -and [int]$s.blocks -gt 0) { $C.Amber } else { $C.Text }
             $relayCaptions.blocks.Text = 'โดนบล็อก · 24 ชม.' + "`n" + 'รวม 30 วัน ' + $(if ($s) { [int]$s.blocks_total } else { 0 }) + ' ครั้ง'
@@ -558,13 +565,16 @@ function Update-RelayView {
                     $why = switch ([string]$_.reason) { 'source_blocked' { 'โดนบล็อก' } 'repeated_failures' { 'ล้มเหลวติดกัน' } 'manual' { 'สั่งเอง' } default { [string]$_.reason } }
                     (Format-RelayTime $_.time) + '  ' + (Format-RelayPlace $_.from) + ' → ' + (Format-RelayPlace $_.to) + ' (' + $why + ')'
                 }) -join '     ·     ')
-            } else { 'สลับ VPN ล่าสุด:   ยังไม่เคยสลับ — ถ้าโรงหยกบล็อก ระบบจะสลับประเทศให้เองทันที' }
+            } else { 'สลับ VPN ล่าสุด:   ยังไม่เคยสลับ — ถ้า VPN ใช้งานไม่ได้ ระบบจะลองเส้นทางถัดไป' }
 
             $event = [string]$record.event
             $line = if ($relayEvents.ContainsKey($event)) { $relayEvents[$event] } else { $event }
             if ($record.title -or $record.series_id) { $line += '  —  ' + (Format-RelayTitle $record) }
             if ($record.requester -or $record.via) { $line += '  ·  ' + (Format-RelayWho $record) }
             if ($event -eq 'urban_switched') { $line += '  (' + $record.from + ' → ' + $record.to + ')' }
+            if ($event -in @('vpn_switched', 'vpn_location_changed')) { $line += '  (' + $record.from + ' → ' + $record.to + ')' }
+            elseif ($record.provider) { $line += '  ·  ' + $record.provider }
+            if ($record.retry_in_s) { $line += '  ·  ลองใหม่ใน ' + $record.retry_in_s + ' วินาที' }
             if ($record.error) { $line += '  ·  ' + (Format-RelayError ([string]$record.error)) }
             $relayNowText.Text = $line + '   ' + (Format-RelayTime $record.time -Seconds)
             $relayNowBar.BackColor = if ($event -match 'failed|waiting') { $C.Amber } elseif ($event -match 'completed|success|switched') { $C.Green } else { $C.Accent }

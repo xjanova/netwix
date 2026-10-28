@@ -6,6 +6,8 @@ import { waitForUrban, openUrbanPanel, switchUrbanLocation, urbanLocation, DEFAU
 import { openRelayDb } from './relay-db.mjs';
 import { Updater, UPDATE_EXIT_CODE } from './updater.mjs';
 import { readFileSync } from 'node:fs';
+import { BROWSEC_ID, waitForBrowsec, switchBrowsecLocation } from './browsec.mjs';
+import { VpnPool } from './vpn-pool.mjs';
 
 const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 
@@ -17,13 +19,36 @@ const resolver = new ChromeResolver(chromium, {
     headless: process.env.BROWSER_RELAY_HEADLESS === 'true',
     urbanExtension: urbanExtension ? resolvePath(urbanExtension) : null,
 });
+const browsecExtension = process.env.BROWSER_RELAY_BROWSEC_EXTENSION ||
+    (existsSync('browsec-extension/manifest.json') ? resolvePath('browsec-extension') : null);
+// Keep Urban's manual controls working on their original profile. Ordinary jobs/probes use the pool.
+const urbanOnly = process.argv.some(arg => ['--urban-switch', '--urban-setup', '--urban-status'].includes(arg));
+const providers = [];
+if (urbanExtension) providers.push({ id: 'urban', resolver, rotate: async () => {
+    await resolver.open(); await waitForUrban(resolver.context);
+    return switchUrbanLocation(resolver.context);
+} });
+if (browsecExtension) providers.push({ id: 'browsec', resolver: new ChromeResolver(chromium, {
+    profile: resolvePath(process.env.BROWSER_RELAY_BROWSEC_PROFILE || '.browsec-profile'),
+    headless: process.env.BROWSER_RELAY_HEADLESS === 'true',
+    vpn: { id: BROWSEC_ID, extension: resolvePath(browsecExtension), ready: waitForBrowsec },
+}) });
+const browsecProvider = providers.find(p => p.id === 'browsec');
+if (browsecProvider) browsecProvider.rotate = async () => {
+    await browsecProvider.resolver.open();
+    return switchBrowsecLocation(browsecProvider.resolver.context);
+};
+const pool = !urbanOnly && browsecExtension ? new VpnPool(providers, {
+    stateFile: resolvePath('vpn-state.json'), onEvent: (event, fields) => log(event, fields),
+}) : null;
+const jobResolver = pool || resolver;
 let stopping = false;
 process.on('SIGINT', () => { stopping = true; });
 process.on('SIGTERM', () => { stopping = true; });
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const stopRequested = () => stopping || existsSync('worker.stop');
 // Parallel episode tabs in the one isolated browser. Two keeps RongYok traffic ordinary.
-const concurrency = Math.min(4, Math.max(1, parseInt(process.env.BROWSER_RELAY_CONCURRENCY || '2', 10) || 2));
+const concurrency = pool ? 1 : Math.min(4, Math.max(1, parseInt(process.env.BROWSER_RELAY_CONCURRENCY || '2', 10) || 2));
 const db = await openRelayDb(resolvePath(process.env.BROWSER_RELAY_DB || 'relay.db')).catch(() => null);
 const active = new Map();
 // Urban exit rotation: a location RongYok blocked rests for 30 minutes before it is tried again.
@@ -43,13 +68,15 @@ const log = (event, fields = {}) => {
     const record = { time: new Date().toISOString(), pid: process.pid, version: VERSION, event, ...fields };
     console.log(JSON.stringify(record));
     try { db?.event(record); } catch { /* worker.log still has it. */ }
-    refreshStats(/^(job_|urban_)/.test(event));
-    const status = { ...record, active: active.size, concurrency, sqlite: !!db, ...(urbanAt ? { urban: urbanAt } : {}),
+    refreshStats(/^(job_|urban_|vpn_)/.test(event));
+    const status = { ...record, active: active.size, concurrency, sqlite: !!db,
+        ...(pool ? { vpn: pool.status } : urbanAt ? { urban: urbanAt } : {}),
         ...(stats ? { stats: { ...stats, recent: stats.recent.slice(0, 8) } } : {}) };
     try { writeFileSync('status.json', JSON.stringify(status), { mode: 0o600 }); } catch { /* Logs remain available. */ }
 };
 const expiresAt = url => new Date(parseInt(new URL(url).searchParams.get('ex'), 16) * 1000).toISOString();
-const KNOWN_ERRORS = ['source_blocked', 'timeout', 'no_video', 'browser_unavailable', 'invalid_url', 'urban_not_connected'];
+const KNOWN_ERRORS = ['source_blocked', 'timeout', 'no_video', 'browser_unavailable', 'invalid_url', 'urban_not_connected',
+    'urban_registration_failed', 'vpn_unavailable'];
 
 /**
  * Move Urban to another location right away. Single-flight: every tab that hit the same block
@@ -136,7 +163,7 @@ async function main() {
         const index = process.argv.indexOf('--probe');
         const job = { id: 1, lease_token: '0'.repeat(64), source: 'rongyok', series_id: process.argv[index + 1], episode: process.argv[index + 2] };
         log('probe_started', { series_id: job.series_id, episode: job.episode });
-        const video = new URL(await resolver.resolve(job));
+        const video = new URL(await jobResolver.resolve(job));
         if (process.argv.includes('--probe-export')) {
             // A private diagnostic artifact for an explicit outside-VPN test; never a routine log.
             writeFileSync('probe-result.json', JSON.stringify({ series_id: job.series_id, episode: job.episode, video_url: video.href }), { mode: 0o600 });
@@ -189,27 +216,30 @@ async function main() {
         log('job_started', { job_id: job.id, series_id: job.series_id, episode: job.episode, priority: job.priority ?? 0, ...ctx });
         const extras = new Map();
         try {
-            const video = await resolver.resolve(job, extras);
+            const video = await jobResolver.resolve(job, extras);
             const sent = [...extras].map(([episode, video_url]) => ({ episode, video_url }));
             const reply = await api(`jobs/${job.id}/complete`, { lease_token: job.lease_token, video_url: video, ...(sent.length ? { extras: sent } : {}) });
             const accepted = Number.isInteger(reply?.extras_accepted) ? reply.extras_accepted : 0;
-            if (!urbanAt && urbanExtension) urbanAt = (await urbanLocation(resolver.context).catch(() => null))?.code ?? null;
+            if (!pool && !urbanAt && urbanExtension) urbanAt = (await urbanLocation(resolver.context).catch(() => null))?.code ?? null;
+            const vpn = pool ? pool.status.provider : urbanAt;
             finish({ outcome: 'completed', video_host: new URL(video).hostname, expires_at: expiresAt(video),
-                extras_found: sent.length, extras_accepted: accepted, vpn: urbanAt });
+                extras_found: sent.length, extras_accepted: accepted, vpn });
             failStreak = 0;
             active.delete(job.id); // so status.json no longer counts this tab
             log('job_completed', { job_id: job.id, series_id: job.series_id, episode: job.episode,
-                duration_ms: Date.now() - startedAt, extras: accepted, vpn: urbanAt, ...ctx });
+                duration_ms: Date.now() - startedAt, extras: accepted, vpn, ...ctx });
         } catch (error) {
             const apiError = /^api_\d+$/.test(error.message);
             const code = KNOWN_ERRORS.includes(error.message) || apiError ? error.message : 'timeout';
             // Completion may have succeeded even if its response was lost. A 409 is harmless;
             // otherwise the bounded lease allows recovery after a network failure.
-            if (!apiError) await api(`jobs/${job.id}/fail`, { lease_token: job.lease_token, error: code }).catch(() => {});
-            finish({ outcome: 'failed', error: code, extras_found: extras.size, vpn: urbanAt });
+            const serverCode = ['vpn_unavailable', 'urban_registration_failed'].includes(code) ? 'urban_not_connected' : code;
+            if (!apiError) await api(`jobs/${job.id}/fail`, { lease_token: job.lease_token, error: serverCode }).catch(() => {});
+            finish({ outcome: 'failed', error: code, extras_found: extras.size, vpn: pool ? pool.status.provider : urbanAt });
             active.delete(job.id);
             log('job_failed', { job_id: job.id, series_id: job.series_id, episode: job.episode, error: code, duration_ms: Date.now() - startedAt, ...ctx });
-            if (code === 'browser_unavailable' || code === 'urban_not_connected') restartBrowser = true;
+            if (pool) { pauseUntil = Date.now() + Math.max(3000, pool.retryAfter()); return; }
+            if (['browser_unavailable', 'urban_not_connected', 'urban_registration_failed'].includes(code)) restartBrowser = true;
             if (!apiError) failStreak++;
             // A block applies to the whole exit: move Urban to another location immediately. Three
             // failures in a row without a block page (silent drops, endless challenges) count too.
@@ -224,7 +254,7 @@ async function main() {
         }
     }
 
-    log('worker_started', { server: base.hostname, concurrency, sqlite: !!db });
+    log('worker_started', { server: base.hostname, concurrency, sqlite: !!db, ...(pool ? { providers: providers.map(p => p.id) } : {}) });
     try { db?.prune(); } catch { /* Best effort. */ }
     let prunedAt = Date.now();
     while (!stopRequested()) {
@@ -264,7 +294,7 @@ async function main() {
         }
         // Restart a broken browser only once no other tab is still using it.
         if (restartBrowser && active.size === 0) { restartBrowser = false; await resolver.close(); }
-        if (active.size >= concurrency || restartBrowser || switching || Date.now() < pauseUntil) {
+        if (active.size >= concurrency || restartBrowser || switching || Date.now() < pauseUntil || (pool && pool.retryAfter() > 0)) {
             await Promise.race([...active.values(), sleep(1000)]);
             continue;
         }
@@ -307,7 +337,7 @@ catch (error) {
         ? { source_status: error.sourceStatus, source_title: error.sourceTitle } : {}) });
     process.exitCode = 1;
 } finally {
-    await resolver.close();
+    await jobResolver.close();
     if (stopRequested()) log('worker_stopped', { reason: 'requested' });
     db?.close();
 }

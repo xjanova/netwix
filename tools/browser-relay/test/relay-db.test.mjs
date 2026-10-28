@@ -141,5 +141,8 @@ test('blocks and VPN switches are counted for the day and in total', { skip }, a
     const s = db.stats();
     assert.deepEqual([s.blocks, s.blocks_total, s.switches, s.switches_total, s.switch_failures, s.locations_used], [2, 3, 2, 3, 1, 2]);
     assert.deepEqual(s.recent_switches[0], { time: now.toISOString(), from: 'Germany', to: 'United Kingdom (UK)', code: 'GB', reason: 'source_blocked' });
+    db.event({ time: now.toISOString(), event: 'vpn_switched', reason: 'provider_failed', from: 'urban', to: 'browsec' });
+    assert.equal(db.stats().switches, 3);
+    assert.equal(db.stats().recent_switches[0].to, 'browsec');
     db.close();
 });

@@ -68,13 +68,15 @@ export class ChromeResolver {
 
     async open() {
         if (this.context) return;
+        const extension = this.options.vpn?.extension || this.options.urbanExtension;
         this.context = await this.chromium.launchPersistentContext(this.options.profile, {
-            channel: this.options.urbanExtension ? 'chromium' : (this.options.channel || 'chrome'),
+            channel: extension ? 'chromium' : (this.options.channel || 'chrome'),
             headless: this.options.headless ?? false,
-            serviceWorkers: this.options.urbanExtension ? 'allow' : 'block', acceptDownloads: false,
-            ...(this.options.urbanExtension ? { args: [
-                '--disable-extensions-except=' + this.options.urbanExtension,
-                '--load-extension=' + this.options.urbanExtension,
+            timeout: 15000,
+            serviceWorkers: extension ? 'allow' : 'block', acceptDownloads: false,
+            ...(extension ? { args: [
+                '--disable-extensions-except=' + extension,
+                '--load-extension=' + extension,
             ] } : {}),
         });
         const context = this.context;
@@ -88,7 +90,7 @@ export class ChromeResolver {
             const request = route.request();
             if (['media', 'image', 'font'].includes(request.resourceType())) return route.abort();
             const u = new URL(request.url());
-            const urbanPage = u.protocol === 'chrome-extension:' && u.hostname === URBAN_ID;
+            const urbanPage = u.protocol === 'chrome-extension:' && u.hostname === (this.options.vpn?.id || URBAN_ID);
             if (request.isNavigationRequest() && !urbanPage && !['https://rongyok.com', 'https://challenges.cloudflare.com'].includes(u.origin)) return route.abort();
             return route.continue();
         });
@@ -98,7 +100,8 @@ export class ChromeResolver {
     async ready() {
         this.starting ??= (async () => {
             try { await this.open(); } catch { throw new Error('browser_unavailable'); }
-            if (this.options.urbanExtension) await waitForUrban(this.context);
+            if (this.options.vpn) await this.options.vpn.ready(this.context);
+            else if (this.options.urbanExtension) await waitForUrban(this.context);
         })().finally(() => { this.starting = null; });
         return this.starting;
     }

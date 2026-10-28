@@ -38,6 +38,7 @@ test('the checksum is read for the exact archive name', () => {
 test('an archive can never overwrite machine-local state or escape the folder', () => {
     for (const ok of ['worker.mjs', 'test/urban.test.mjs', 'deploy/deploy.sh']) assert.equal(updatablePath(ok), true, ok);
     for (const bad of ['.env', '.urban-profile/Default/Cookies', 'urban-extension/manifest.json', 'node_modules/x.js',
+        '.browsec-profile/Default/Cookies', 'browsec-extension/manifest.json', 'vpn-state.json', 'vpn-state.json.tmp',
         'relay.db', '../evil.mjs', 'a/../../evil.mjs', 'C:/Windows/x', '/etc/passwd', '.update/rollback.json']) {
         assert.equal(updatablePath(bad), false, bad);
     }

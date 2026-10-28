@@ -17,7 +17,8 @@ const TAG = /^relay-v(\d+\.\d+\.\d+)$/;
 const DOWNLOAD_HOSTS = ['github.com', 'api.github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com'];
 
 // Machine-local state that an update must never touch.
-const PROTECTED = new Set(['.env', '.urban-profile', '.chrome-profile', 'urban-extension', 'node_modules', '.update',
+const PROTECTED = new Set(['.env', '.urban-profile', '.chrome-profile', '.browsec-profile', 'browsec-extension',
+    'vpn-state.json', 'vpn-state.json.tmp', 'urban-extension', 'node_modules', '.update',
     'relay.db', 'relay.db-wal', 'relay.db-shm', 'status.json', 'worker.log', 'worker-error.log', 'worker.stop',
     'launcher.pid', 'probe-result.json', 'app-preview.png']);
 

@@ -102,6 +102,10 @@ export async function waitForUrban(context, timeoutMs = 20000) {
     await openUrbanPanel(context);
     const until = Date.now() + timeoutMs;
     while (Date.now() < until) {
+        const panel = panels.get(context);
+        if (panel && await panel.getByText('Registration error', { exact: true }).isVisible().catch(() => false)) {
+            throw new Error('urban_registration_failed');
+        }
         try {
             const status = await urbanStatus(context);
             if (status.connected) return status;
