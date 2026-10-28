@@ -291,9 +291,17 @@ $relayEpisode = New-Object Windows.Forms.TextBox
 $relayEpisode.Text = '51'; $relayEpisode.Location = New-Object Drawing.Point(92, 30); $relayEpisode.Width = 44
 foreach ($box in @($relaySeries, $relayEpisode)) { $box.BackColor = $C.Card2; $box.ForeColor = $C.Text; $box.BorderStyle = 'FixedSingle'; $relayTools.Controls.Add($box) }
 $relayTest = Add-RelayButton $relayTools 'ทดสอบลิงก์' 146 12 118 40 $C.Card2 { Start-RelayTool 'probe' }
-$relayUrban = Add-RelayButton $relayTools 'ตั้งค่า VPN' 272 12 114 40 $C.Card2 { Start-RelayTool 'urban' }
+# With Browsec installed the button asks which VPN to set up; Browsec's first-run terms are accepted by hand.
+$relayVpnMenu = New-Object Windows.Forms.ContextMenuStrip
+[void]$relayVpnMenu.Items.Add('Urban VPN', $null, { Start-RelayTool 'urban' })
+[void]$relayVpnMenu.Items.Add('Browsec (กดยอมรับเงื่อนไขครั้งแรกเอง)', $null, { Start-RelayTool 'browsec' })
+$relayUrban = Add-RelayButton $relayTools 'ตั้งค่า VPN' 272 12 114 40 $C.Card2 {
+    param($s, $e)
+    if (Test-Path -LiteralPath (Join-Path $relayRoot 'browsec-extension\manifest.json')) { $relayVpnMenu.Show($s, 0, $s.Height) }
+    else { Start-RelayTool 'urban' }
+}
 $relayTips.SetToolTip($relayTest, 'เปิดตอนที่ระบุผ่าน VPN เพื่อดูว่าขอลิงก์ได้ไหม (ต้องหยุดโปรแกรมก่อน)')
-$relayTips.SetToolTip($relayUrban, 'เปิดหน้าตั้งค่า Urban VPN (ต้องหยุดโปรแกรมก่อน)')
+$relayTips.SetToolTip($relayUrban, 'เปิดหน้าตั้งค่า Urban VPN หรือ Browsec (ต้องหยุดโปรแกรมก่อน)')
 $relayFooter = Add-RelayLabel $relayForm 'ปิดหน้าต่างนี้ได้ โปรแกรมยังทำงานต่อเบื้องหลัง · อัปเดตเวอร์ชันใหม่ให้อัตโนมัติ · ทดสอบ/ตั้งค่า VPN ต้องหยุดโปรแกรมก่อน' 24 640 852 24 (New-RelayFont 9) $C.Muted
 
 function Show-RelayLog {
@@ -314,7 +322,8 @@ $relayEvents = @{
     worker_started = 'เริ่มทำงานแล้ว รอคำขอจากผู้ชม'; job_started = 'กำลังขอลิงก์'; job_completed = 'ได้ลิงก์แล้ว'
     job_failed = 'ขอลิงก์ไม่สำเร็จ ระบบจะลองใหม่'; worker_waiting = 'ติดต่อเว็บ NetWix ไม่ได้ กำลังลองใหม่'
     worker_stopped = 'หยุดทำงานแล้ว'; probe_started = 'กำลังทดสอบลิงก์'; probe_success = 'ทดสอบผ่าน ขอลิงก์ได้'
-    urban_setup_opened = 'เปิดหน้าตั้งค่า Urban VPN อยู่'; urban_switched = 'โดนบล็อก สลับ VPN ให้แล้ว'
+    urban_setup_opened = 'เปิดหน้าตั้งค่า Urban VPN อยู่'; browsec_setup_opened = 'เปิดหน้าตั้งค่า Browsec อยู่'
+urban_switched = 'โดนบล็อก สลับ VPN ให้แล้ว'
     urban_switch_failed = 'สลับ VPN ไม่สำเร็จ'; update_found = 'พบเวอร์ชันใหม่ กำลังอัปเดต'
     update_applied = 'อัปเดตแล้ว กำลังเริ่มใหม่'; update_failed = 'อัปเดตไม่สำเร็จ จะลองใหม่'; worker_restarting = 'เริ่มใหม่เพื่อใช้เวอร์ชันใหม่'
     update_check_failed = 'เช็กเวอร์ชันใหม่ไม่ได้ชั่วคราว'
@@ -328,7 +337,8 @@ $relayErrors = @{
     urban_switch_failed = 'VPN ต่อไม่ติด'; urban_no_location = 'ไม่มี VPN ให้สลับ'
     urban_registration_failed = 'Urban ลงทะเบียนไม่สำเร็จ'; browsec_not_connected = 'Browsec ต่อไม่ติด'
     browsec_setup_required = 'Browsec ต้องตั้งค่าครั้งแรก'; vpn_unavailable = 'VPN ทุกตัวที่ลองยังไม่พร้อม'
-    browsec_switch_failed = 'Browsec เปลี่ยนประเทศไม่ได้'
+    browsec_switch_failed = 'Browsec เปลี่ยนประเทศไม่ได้'; vpn_not_connected = 'VPN ต่อไม่ติด'
+    vpn_switch_failed = 'VPN เปลี่ยนประเทศไม่ได้'
 }
 function Format-RelayError([string]$code) {
     if (-not $code) { return '' }

@@ -134,6 +134,9 @@ When `browsec-extension/manifest.json` is installed, ordinary jobs and probes us
 fallback. `BROWSER_RELAY_BROWSEC_EXTENSION` and `BROWSER_RELAY_BROWSEC_PROFILE` override its extension
 and profile paths; the default profile is `.browsec-profile`. Install Browsec from its official
 Chrome Web Store listing, complete its first-run setup once, and test it before enabling fallback.
+For that setup, stop the worker and choose **ตั้งค่า VPN → Browsec** in the window (or run
+`node worker.mjs --browsec-setup`): it opens Browsec's own panel in the relay's Browsec profile, where
+the owner accepts its terms by hand; close the panel when it shows connected.
 The worker does not accept terms, log in, or select Premium locations on its own. Each provider
 runs in its own persistent Chromium profile with only its own extension loaded. Keep these
 profiles private and never launch a diagnostic against a profile in use by the live worker.
@@ -146,6 +149,12 @@ cursor and cooldowns persist in `vpn-state.json`; updates preserve it and both p
 Once a cooldown expires the provider becomes eligible again; there is no permanent blacklist.
 When all providers are cooling, the worker waits without claiming more jobs. Its server heartbeat
 can expire during a long VPN outage and resumes when polling resumes.
+
+Raw browser failures inside a provider's connect or country-change step (Playwright timeouts, a
+closed context) count as that provider failing (`vpn_not_connected` / `vpn_switch_failed`) and
+fail over; program errors and invalid jobs do not rotate networks. Closing a failed provider's
+browser is bounded to 10 seconds. An attempt abandoned at its ceiling is held back until its late
+work settles, and whatever browser it opened is closed then.
 
 Each provider attempt has a 45-second ceiling; the whole job uses at most 90 seconds of its
 120-second lease, reserving time to report the result. A provider not reached within this budget

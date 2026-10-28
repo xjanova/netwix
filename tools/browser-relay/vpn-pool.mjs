@@ -2,16 +2,27 @@ import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 
 const FAILOVER_ERRORS = new Set(['urban_not_connected', 'urban_registration_failed', 'browsec_not_connected', 'browsec_setup_required',
     'urban_switch_failed', 'browsec_switch_failed', 'urban_no_location',
-    'vpn_not_connected', 'source_blocked', 'timeout', 'no_video', 'browser_unavailable']);
+    'vpn_not_connected', 'vpn_switch_failed', 'source_blocked', 'timeout', 'no_video', 'browser_unavailable']);
+// Playwright failures inside a provider's ready/country-change hooks (popup goto, clicks, a context
+// closed under it). Program errors (TypeError, invalid_job) are not network failures and still throw.
+const BROWSER_FAILURE = /Timeout \d+ms exceeded|Target page, context or browser has been closed|Browser has been closed|browser has disconnected|Execution context was destroyed|frame was detached|net::ERR_/i;
+
+/** The failover code for a provider error, or null when it must not rotate networks. */
+export function failoverCode(error, phase = 'ready') {
+    const message = String(error?.message ?? '');
+    if (FAILOVER_ERRORS.has(message)) return message;
+    if (error?.name === 'TimeoutError' || BROWSER_FAILURE.test(message)) return phase === 'rotate' ? 'vpn_switch_failed' : 'vpn_not_connected';
+    return null;
+}
 
 /** One job at a time: each provider owns a separate browser/profile. Never change a live tab's proxy. */
 export class VpnPool {
     constructor(providers, { now = Date.now, onEvent = () => {}, stateFile = null,
-        cooldownMs = 60000, maxCooldownMs = 300000, attemptMs = 45000 } = {}) {
+        cooldownMs = 60000, maxCooldownMs = 300000, attemptMs = 45000, closeMs = 10000 } = {}) {
         if (!providers.length || new Set(providers.map(p => p.id)).size !== providers.length) throw new Error('invalid_vpn_providers');
-        this.providers = providers.map(p => ({ ...p, failures: 0, until: 0, rotateNext: false }));
+        this.providers = providers.map(p => ({ ...p, failures: 0, until: 0, rotateNext: false, settling: null }));
         this.now = now; this.onEvent = onEvent; this.stateFile = stateFile;
-        this.cooldownMs = cooldownMs; this.maxCooldownMs = maxCooldownMs; this.attemptMs = attemptMs;
+        this.cooldownMs = cooldownMs; this.maxCooldownMs = maxCooldownMs; this.attemptMs = attemptMs; this.closeMs = closeMs;
         this.cursor = 0; this.busy = false; this.status = { provider: null, connected: false, location: null };
         try {
             const saved = JSON.parse(readFileSync(stateFile, 'utf8'));
@@ -35,7 +46,18 @@ export class VpnPool {
         } catch { /* State is only a restart hint; it never contains credentials. */ }
     }
 
-    retryAfter() { return Math.max(0, Math.min(...this.providers.map(p => p.until)) - this.now()); }
+    // A provider whose timed-out attempt is still unwinding is not offered until its browser is closed.
+    retryAfter() {
+        return Math.min(...this.providers.map(p => Math.max(p.settling ? 1000 : 0, p.until - this.now())));
+    }
+
+    // A hung Chromium must not hold the job past its lease: closing is bounded, never awaited forever.
+    async closeProvider(p) {
+        let timer;
+        await Promise.race([p.resolver.close().catch(() => {}),
+            new Promise(resolve => { timer = setTimeout(resolve, this.closeMs); })]);
+        clearTimeout(timer);
+    }
 
     async resolve(job, extras = null) {
         if (this.busy) throw new Error('vpn_pool_busy');
@@ -49,7 +71,7 @@ export class VpnPool {
             while (tried.size < this.providers.length && deadline - this.now() >= 1000) {
                 const offset = this.providers.findIndex((_, n) => {
                     const p = this.providers[(this.cursor + n) % this.providers.length];
-                    return !tried.has(p.id) && p.until <= this.now();
+                    return !tried.has(p.id) && !p.settling && p.until <= this.now();
                 });
                 if (offset < 0) break;
                 this.cursor = (this.cursor + offset) % this.providers.length;
@@ -62,14 +84,18 @@ export class VpnPool {
                 const captured = new Map();
                 let timer;
                 let expired = false;
+                let phase = 'ready';
+                let operation;
                 try {
                     const attemptBudget = Math.min(this.attemptMs, deadline - this.now());
-                    const operation = (async () => {
+                    operation = (async () => {
                         if (p.rotateNext && p.rotate) {
+                            phase = 'rotate';
                             const moved = await p.rotate();
                             if (expired) throw new Error('timeout');
                             p.rotateNext = false;
                             this.onEvent('vpn_location_changed', { provider: p.id, ...moved });
+                            phase = 'ready';
                         }
                         return p.resolver.resolve(job, captured);
                     })();
@@ -86,16 +112,29 @@ export class VpnPool {
                 } catch (error) {
                     clearTimeout(timer);
                     // A failed provider's prefetched links must never leak into the next attempt.
-                    await p.resolver.close();
-                    if (!FAILOVER_ERRORS.has(error.message)) throw error;
-                    lastError = error;
+                    await this.closeProvider(p);
+                    if (expired) {
+                        // The abandoned attempt may still be launching a browser after this close. Hold the
+                        // provider back until it settles, then close whatever it opened.
+                        // Bounded too, so a promise that never settles cannot retire the provider for good.
+                        let wait;
+                        p.settling = Promise.race([operation.catch(() => {}),
+                            new Promise(resolve => { wait = setTimeout(resolve, this.maxCooldownMs); wait.unref?.(); })])
+                            .then(() => { clearTimeout(wait); return this.closeProvider(p); })
+                            .finally(() => { p.settling = null; });
+                    }
+                    const code = failoverCode(error, phase);
+                    if (!code) throw error;
+                    lastError = code === error.message ? error : Object.assign(new Error(code), { cause: error });
                     p.failures++;
-                    if (['source_blocked', 'timeout', 'no_video'].includes(error.message)) p.rotateNext = true;
-                    const delay = ['urban_registration_failed', 'browsec_setup_required'].includes(error.message) ? this.maxCooldownMs
+                    if (['source_blocked', 'timeout', 'no_video'].includes(code)) p.rotateNext = true;
+                    const delay = ['urban_registration_failed', 'browsec_setup_required'].includes(code) ? this.maxCooldownMs
                         : Math.min(this.maxCooldownMs, this.cooldownMs * 2 ** Math.min(p.failures - 1, 10));
                     p.until = this.now() + delay;
                     this.status = { provider: p.id, connected: false, location: null };
-                    this.onEvent('vpn_failed', { provider: p.id, error: error.message, retry_in_s: Math.ceil(delay / 1000) });
+                    // Only the error class of a raw browser failure: its message can carry page URLs.
+                    this.onEvent('vpn_failed', { provider: p.id, error: code, retry_in_s: Math.ceil(delay / 1000),
+                        ...(code !== error.message ? { cause: error.name || 'Error' } : {}) });
                     this.cursor = (this.cursor + 1) % this.providers.length;
                     this.save();
                 }
@@ -106,5 +145,5 @@ export class VpnPool {
         } finally { this.busy = false; }
     }
 
-    async close() { await Promise.allSettled(this.providers.map(p => p.resolver.close())); }
+    async close() { await Promise.allSettled(this.providers.map(p => this.closeProvider(p))); }
 }

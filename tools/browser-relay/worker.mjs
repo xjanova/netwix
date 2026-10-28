@@ -6,7 +6,7 @@ import { waitForUrban, openUrbanPanel, switchUrbanLocation, urbanLocation, DEFAU
 import { openRelayDb } from './relay-db.mjs';
 import { Updater, UPDATE_EXIT_CODE } from './updater.mjs';
 import { readFileSync } from 'node:fs';
-import { BROWSEC_ID, waitForBrowsec, switchBrowsecLocation } from './browsec.mjs';
+import { BROWSEC_ID, waitForBrowsec, switchBrowsecLocation, openBrowsecPanel } from './browsec.mjs';
 import { VpnPool } from './vpn-pool.mjs';
 
 const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
@@ -22,7 +22,7 @@ const resolver = new ChromeResolver(chromium, {
 const browsecExtension = process.env.BROWSER_RELAY_BROWSEC_EXTENSION ||
     (existsSync('browsec-extension/manifest.json') ? resolvePath('browsec-extension') : null);
 // Keep Urban's manual controls working on their original profile. Ordinary jobs/probes use the pool.
-const urbanOnly = process.argv.some(arg => ['--urban-switch', '--urban-setup', '--urban-status'].includes(arg));
+const urbanOnly = process.argv.some(arg => ['--urban-switch', '--urban-setup', '--urban-status', '--browsec-setup'].includes(arg));
 const providers = [];
 if (urbanExtension) providers.push({ id: 'urban', resolver, rotate: async () => {
     await resolver.open(); await waitForUrban(resolver.context);
@@ -156,6 +156,15 @@ async function main() {
         }
         const page = await openUrbanPanel(resolver.context);
         log('urban_setup_opened');
+        while (!stopping && !page.isClosed() && !existsSync('worker.stop')) await sleep(1000);
+        return;
+    }
+    if (process.argv.includes('--browsec-setup')) {
+        // The owner accepts Browsec's first-run terms here by hand; the worker itself never does.
+        if (!browsecProvider) throw new Error('browsec_not_installed');
+        await browsecProvider.resolver.open();
+        const page = await openBrowsecPanel(browsecProvider.resolver.context);
+        log('browsec_setup_opened');
         while (!stopping && !page.isClosed() && !existsSync('worker.stop')) await sleep(1000);
         return;
     }
