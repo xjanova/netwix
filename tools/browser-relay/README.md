@@ -128,7 +128,7 @@ guarantee future access. Test this dedicated profile on BrainX before enabling p
 
 ## Behavior and recovery
 
-### Provider fallback (prepared locally; not yet deployed)
+### Provider fallback (2.5.0)
 
 When `browsec-extension/manifest.json` is installed, ordinary jobs and probes use Urban → Browsec
 fallback. `BROWSER_RELAY_BROWSEC_EXTENSION` and `BROWSER_RELAY_BROWSEC_PROFILE` override its extension
@@ -168,7 +168,8 @@ switches and results; credentials and signed links are never added to routine lo
 Browsec Lithuania timed out. Switching Browsec to US resolved series100928899/ep2; production
 outside the VPN verified HTTP206/video/mp4 and a valid MP4 header. The country rotation US→SG
 worked but the SG source request was blocked. These checks do not establish every country works.
-The production worker still runs 2.4.2. No release/tag/deploy has been performed for this change.
+A second staging run through the committed pool (Urban registration failure → Browsec US) resolved
+ep2, and the next job (ep3) stayed on Browsec without retrying Urban.
 
 - Work is created after the normal resolver misses, behind the existing publication, Pro and VIP
   checks. Other sources and episodes with working links do not enqueue work.
