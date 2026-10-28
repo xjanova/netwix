@@ -81,11 +81,11 @@ export class RelayDb {
         // Blocks and Urban switches: in the window, and over the whole kept history (RETENTION_DAYS).
         const count = (sql, ...args) => this.db.prepare(sql).get(...args).n ?? 0;
         const blocked = `SELECT COUNT(*) AS n FROM jobs WHERE outcome = 'failed' AND error = 'source_blocked'`;
-        const switched = `SELECT COUNT(*) AS n FROM events WHERE event = 'urban_switched'`;
-        const switches = this.db.prepare(`SELECT time, data FROM events WHERE event = 'urban_switched' ORDER BY time DESC, id DESC LIMIT 6`).all()
+        const switched = `SELECT COUNT(*) AS n FROM events WHERE event IN ('urban_switched', 'vpn_switched')`;
+        const switches = this.db.prepare(`SELECT time, data FROM events WHERE event IN ('urban_switched', 'vpn_switched') ORDER BY time DESC, id DESC LIMIT 6`).all()
             .map(row => { try { const d = JSON.parse(row.data); return { time: row.time, from: d.from ?? null, to: d.to ?? null, code: d.code ?? null, reason: d.reason ?? null }; } catch { return null; } })
             .filter(Boolean);
-        const places = this.db.prepare(`SELECT data FROM events WHERE event = 'urban_switched' AND time >= ?`).all(since.toISOString())
+        const places = this.db.prepare(`SELECT data FROM events WHERE event IN ('urban_switched', 'vpn_switched') AND time >= ?`).all(since.toISOString())
             .map(row => { try { return JSON.parse(row.data).to; } catch { return null; } }).filter(Boolean);
         const last = this.db.prepare(`SELECT job_id, series_id, episode, priority, started_at, duration_ms, outcome, error, extras_accepted,
                 title, episode_number, reason, requester, via, vpn

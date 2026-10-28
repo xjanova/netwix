@@ -128,6 +128,49 @@ guarantee future access. Test this dedicated profile on BrainX before enabling p
 
 ## Behavior and recovery
 
+### Provider fallback (2.5.0)
+
+When `browsec-extension/manifest.json` is installed, ordinary jobs and probes use Urban → Browsec
+fallback. `BROWSER_RELAY_BROWSEC_EXTENSION` and `BROWSER_RELAY_BROWSEC_PROFILE` override its extension
+and profile paths; the default profile is `.browsec-profile`. Install Browsec from its official
+Chrome Web Store listing, complete its first-run setup once, and test it before enabling fallback.
+For that setup, stop the worker and choose **ตั้งค่า VPN → Browsec** in the window (or run
+`node worker.mjs --browsec-setup`): it opens Browsec's own panel in the relay's Browsec profile, where
+the owner accepts its terms by hand; close the panel when it shows connected.
+The worker does not accept terms, log in, or select Premium locations on its own. Each provider
+runs in its own persistent Chromium profile with only its own extension loaded. Keep these
+profiles private and never launch a diagnostic against a profile in use by the live worker.
+
+The pool runs one episode at a time so switching cannot change another tab's proxy. It retains
+the last successful provider. On a connection/source failure it closes that provider's browser,
+tries the next eligible provider, and cools the failed one for 1, 2, 4, then 5 minutes (capped).
+Urban registration failures and incomplete Browsec setup rest for 5 minutes immediately. The
+cursor and cooldowns persist in `vpn-state.json`; updates preserve it and both provider profiles.
+Once a cooldown expires the provider becomes eligible again; there is no permanent blacklist.
+When all providers are cooling, the worker waits without claiming more jobs. Its server heartbeat
+can expire during a long VPN outage and resumes when polling resumes.
+
+Raw browser failures inside a provider's connect or country-change step (Playwright timeouts, a
+closed context) count as that provider failing (`vpn_not_connected` / `vpn_switch_failed`) and
+fail over; program errors and invalid jobs do not rotate networks. Closing a failed provider's
+browser is bounded to 10 seconds. An attempt abandoned at its ceiling is held back until its late
+work settles, and whatever browser it opened is closed then.
+
+Each provider attempt has a 45-second ceiling; the whole job uses at most 90 seconds of its
+120-second lease, reserving time to report the result. A provider not reached within this budget
+can be tried on the server's next retry. Existing server limits (three attempts and on-demand
+queueing) still apply: this is continuous provider recovery, not endless retries of one episode.
+After a source block, timeout or missing video, the provider changes country on its next turn
+when supported. Browsec selects only its listed free locations. Logs/history show provider
+switches and results; credentials and signed links are never added to routine logs.
+
+2026-10-28 staging checks on BrainX: Urban registration failed and the pool moved to Browsec;
+Browsec Lithuania timed out. Switching Browsec to US resolved series100928899/ep2; production
+outside the VPN verified HTTP206/video/mp4 and a valid MP4 header. The country rotation US→SG
+worked but the SG source request was blocked. These checks do not establish every country works.
+A second staging run through the committed pool (Urban registration failure → Browsec US) resolved
+ep2, and the next job (ep3) stayed on Browsec without retrying Urban.
+
 - Work is created after the normal resolver misses, behind the existing publication, Pro and VIP
   checks. Other sources and episodes with working links do not enqueue work.
 - One row per requested episode and a 120-second lease prevent duplicate concurrent work.

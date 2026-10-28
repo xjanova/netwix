@@ -1,4 +1,4 @@
-param([ValidateSet('probe','urban')][string]$Mode = 'probe', [string]$SeriesId = '8457', [string]$Episode = '51')
+param([ValidateSet('probe','urban','browsec')][string]$Mode = 'probe', [string]$SeriesId = '8457', [string]$Episode = '51')
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
 if ($SeriesId -notmatch '^\d{1,20}$' -or $Episode -notmatch '^[1-9]\d{0,3}$') { throw 'Invalid episode' }
@@ -11,6 +11,9 @@ if (Test-Path -LiteralPath $relayStop) { Remove-Item -LiteralPath $relayStop }
 if ($Mode -eq 'urban') {
     $env:BROWSER_RELAY_HEADLESS = 'false'
     $relayArguments += '--urban-setup'
+} elseif ($Mode -eq 'browsec') {
+    $env:BROWSER_RELAY_HEADLESS = 'false'
+    $relayArguments += '--browsec-setup'
 } else {
     $relayArguments += @('--probe', $SeriesId, $Episode)
 }
