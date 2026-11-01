@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\GuestWatch;
 use App\Services\Membership;
+use App\Support\AdminAlerts;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -15,8 +17,10 @@ use Illuminate\View\View;
 
 class RegisterController extends Controller
 {
-    public function show(): View
+    public function show(Request $request): View
     {
+        app(GuestWatch::class)->rememberDestination($request);
+
         return view('auth.register', [
             'emailReg' => Setting::flag('email_registration_enabled', true),
         ]);
@@ -68,13 +72,13 @@ class RegisterController extends Controller
         if (filled($data['ref'] ?? null)) {
             $membership->redeem($user, $data['ref']);
         }
-        \App\Support\AdminAlerts::noteSignup($user->id, (string) $user->name, 'อีเมล');
+        AdminAlerts::noteSignup($user->id, (string) $user->name, 'อีเมล');
 
         // remember: brand-new members shouldn't be the ones asked to sign in again
         // first (social sign-up already does this).
         Auth::login($user, remember: true);
         $request->session()->regenerate();
 
-        return redirect()->route('profiles.index');
+        return redirect()->intended(route('profiles.index'));
     }
 }

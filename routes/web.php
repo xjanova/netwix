@@ -225,8 +225,9 @@ Route::middleware(['auth', 'profile'])->group(function () {
 });
 
 // ---- Watch — guests welcome (campaign: ดูฟรีก่อน สมัครรับของฟรีทีหลัง) ----
-// The player page is open to guests now: they can watch general content with no
-// account/profile, and the layout shows the register-CTA banner derived from the
+// Guests can preview the configured first free_episodes of general content without an
+// account/profile; the player asks them to register before playing later episodes.
+// The layout also shows the register-CTA banner derived from the
 // live campaign config (Campaigns::active). A signed-in member still gets the full
 // profile behaviour (suspension kick / profile pick) via profile.optional. Adult
 // (18+/20+) and VIP titles stay fail-closed — WatchController bounces guests to

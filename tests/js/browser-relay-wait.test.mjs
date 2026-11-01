@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { guestSignup } from '../../resources/js/guest-signup.js';
 
 for (const [name, file] of [['watchPlayer', 'watch'], ['verticalPlayer', 'vertical-player']]) {
     function setup() {
@@ -9,7 +10,7 @@ for (const [name, file] of [['watchPlayer', 'watch'], ['verticalPlayer', 'vertic
         let stopped = 0;
         const source = readFileSync(new URL(`../../resources/views/frontend/${file}.blade.php`, import.meta.url), 'utf8');
         const script = source.match(/<script>([\s\S]*?)<\/script>/)[1];
-        const context = vm.createContext({ nxEpPicker: () => ({}), Date: { now: () => now }, clearTimeout() {} });
+        const context = vm.createContext({ nxEpPicker: () => ({}), nxGuestSignup: guestSignup, Date: { now: () => now }, clearTimeout() {} });
         vm.runInContext(script, context);
         const player = context[name]({ episodes: [], start: 0 });
         player.stopPoll = () => { stopped++; };

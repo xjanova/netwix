@@ -31,7 +31,7 @@ class ProfileSelectionController extends Controller
 
         ActiveProfile::remember($request, $profile);
 
-        return redirect()->route('browse');
+        return redirect()->intended(route('browse'));
     }
 
     public function store(Request $request): RedirectResponse

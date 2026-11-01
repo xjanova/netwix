@@ -1,8 +1,10 @@
 import './bootstrap';
 import Alpine from 'alpinejs';
+import { guestSignup } from './guest-signup';
 import { resolveRongYokClient, resolveEpisodeResponse } from './rongyok-client';
 window.nxResolveRongYokClient = resolveRongYokClient;
 window.nxResolveEpisodeResponse = resolveEpisodeResponse;
+window.nxGuestSignup = guestSignup;
 
 /**
  * POST helper that carries the CSRF token and JSON headers.
@@ -109,12 +111,14 @@ window.nxPreviewLoop = function (v, seconds = 18) {
  */
 window.nxAttachVideo = async function (video, src, reportUrl = null, kind = null) {
     if (!video || !src) return;
+    const loadId = video._nxLoadId = (video._nxLoadId || 0) + 1;
+    const isCurrent = () => video._nxLoadId === loadId;
 
     // Report playback health once per attach — the server auto-suspends a title once enough distinct
     // viewers can't play it. Only the real watch/vertical players pass reportUrl; previews don't.
     let _reported = false;
     const nxReport = (ok) => {
-        if (!reportUrl || _reported) return;
+        if (!isCurrent() || !reportUrl || _reported) return;
         _reported = true;
         try { window.nxPost(reportUrl, { ok: ok }).catch(() => {}); } catch (e) {}
     };
@@ -137,6 +141,7 @@ window.nxAttachVideo = async function (video, src, reportUrl = null, kind = null
         // (Safari/iOS, which really does play HLS) when hls.js itself isn't supported.
         let Hls = null;
         try { Hls = (await import('hls.js')).default; } catch (e) {}
+        if (!isCurrent()) return;
         if (Hls && Hls.isSupported()) {
             // Our HLS is a same-origin proxy in front of a high-bitrate, SINGLE-rendition CDN, so a
             // segment can be slow and there's no lower quality to fall back to. Buffer generously,
@@ -188,7 +193,7 @@ window.nxAttachVideo = async function (video, src, reportUrl = null, kind = null
     try { video.crossOrigin = 'anonymous'; } catch (e) {}
     let coRetried = false;
     const onCoErr = function () {
-        if (coRetried || video.readyState >= 1) return;   // only an initial-load CORS failure
+        if (!isCurrent() || coRetried || video.readyState >= 1) return;   // only an initial-load CORS failure
         coRetried = true;
         video.removeEventListener('error', onCoErr);
         video.removeAttribute('crossorigin');

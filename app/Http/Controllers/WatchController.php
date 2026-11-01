@@ -6,6 +6,7 @@ use App\Models\AdCampaign;
 use App\Models\Content;
 use App\Models\Episode;
 use App\Models\User;
+use App\Services\GoldWallet;
 use App\Support\PlaybackHealth;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -34,7 +35,7 @@ class WatchController extends Controller
             if (! $request->user()) {
                 return redirect()->guest(route('login'));
             }
-            $gold = app(\App\Services\GoldWallet::class);
+            $gold = app(GoldWallet::class);
             if ($gold->vipAccess($request->user(), $content) === 'locked') {
                 return view('frontend.locked-vip', [
                     'content' => $content,
@@ -64,18 +65,6 @@ class WatchController extends Controller
         // Pre-roll ad to play before the video starts (null when none is eligible / Pro-hidden / off).
         $ad = $this->preroll($content, $request->user());
 
-        // Vertical short-drama gets its own swipeable player.
-        if ($content->type === 'vertical') {
-            return view('frontend.vertical-player', [
-                'content' => $content,
-                'episodes' => $content->episodes,
-                'start' => (int) $request->query('ep', 0),
-                'ad' => $ad,
-            ]);
-        }
-
-        // Episode to start on: explicit, else the first. The player itself lists every episode and
-        // advances through them client-side, so we just pick the starting index here.
         if ($episode) {
             abort_unless($episode->content_id === $content->id, 404);
         } else {
@@ -83,6 +72,18 @@ class WatchController extends Controller
         }
         $startIndex = $episode ? $content->episodes->search(fn ($e) => $e->id === $episode->id) : 0;
 
+        // Vertical short-drama gets its own swipeable player.
+        if ($content->type === 'vertical') {
+            return view('frontend.vertical-player', [
+                'content' => $content,
+                'episodes' => $content->episodes,
+                'start' => min(max(0, $content->episodes->count() - 1), max(0, $request->route('episode') ? (int) $startIndex : (int) $request->query('ep', 0))),
+                'ad' => $ad,
+            ]);
+        }
+
+        // Episode to start on: explicit, else the first. The player itself lists every episode and
+        // advances through them client-side, so we just pick the starting index here.
         $source = $episode?->video_url ?? $content->video_url;
 
         return view('frontend.watch', [
