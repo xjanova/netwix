@@ -3,18 +3,23 @@
 @section('meta_keywords', $content->seo_keywords)
 
 @php
-    $eps = $episodes->map(fn ($e) => [
+    $guestWatch = app(\App\Services\GuestWatch::class);
+    $eps = $episodes->map(function ($e) use ($guestWatch, $content) {
+        $signup = $guestWatch->requiresSignup(auth()->user(), $e);
+        return [
         'n' => $e->number,
         'id' => $e->id,
         'title' => $e->title,
-        'url' => $e->video_url,
-        'resolve' => ($e->source && ! $e->video_url) ? route('episode.source', $e) : null,
+        'url' => $signup ? null : $e->video_url,
+        'resolve' => ! $signup && ($e->source || $e->video_url) ? route('episode.source', $e) : null,
+        'signupUrl' => $signup ? $guestWatch->signupUrl($content, $e) : null,
         // per-episode cover: captured frame if we have one, else the title's main poster
         'thumb' => $e->thumbnail_path ? $e->thumbnail_url : $content->poster_url,
         'has' => (bool) $e->thumbnail_path,
         // Cover generation is a member-only write — null for guests (the JS null-guards).
         'gen' => auth()->check() ? route('episode.gencover', $e) : null,
-    ])->values();
+        ];
+    })->values();
 
     // Rating + latest comments seed for the end-of-series card (last vertical episode). Same shapes as
     // partials/title-feedback + the horizontal watch player, reusing the content.rate/comment endpoints.
@@ -218,7 +223,8 @@
     </div>
 
     {{-- pre-roll ad: covers the feed (z-70) until skipped/finished, then _begin() starts the first clip --}}
-    @include('partials.preroll-ad', ['ad' => $ad ?? null])
+    @include('partials.preroll-ad', ['ad' => ($eps[$start]['signupUrl'] ?? null) ? null : ($ad ?? null)])
+    @include('partials.guest-signup')
 </div>
 
 @push('scripts')
@@ -243,6 +249,7 @@
             relayUnavailable: false,
             _relayWaitStarted: 0,
             ...nxEpPicker(),
+            ...nxGuestSignup(),
             _poll: null,
             _stallT: null,
             _reResolving: false,
@@ -324,6 +331,7 @@
                 this._reResolves = 0;
                 const ep = this.episodes[this.index];
                 if (!ep) return;
+                if (this.gateGuestEpisode(ep)) return;
 
                 if (ep.url) { this.attach(ep.url); return; }
 
@@ -347,6 +355,7 @@
 
             waitForSource(ep, data) {
                 this.stopPoll();
+                if (data?.error === 'signup_required') { this.gateGuestEpisode({ ...ep, signupUrl: data.signupUrl }); return; }
                 if (this.relayTimedOut(data)) return;
                 if (data?.client_blocked) this.showClientBlocked(data);
 
@@ -362,6 +371,7 @@
                     let d;
                     try { d = await this.tryResolve(ep); } finally { resolving = false; }
                     if (this.index !== myIndex) return;
+                    if (d?.error === 'signup_required') { this.gateGuestEpisode({ ...ep, signupUrl: d.signupUrl }); return; }
                     if (d?.ready && d.url) { this.stopPoll(); this.clientBlocked = false; this.relayUnavailable = false; this.preparing = false; this.attach(d.url); return; }
                     if (this.relayTimedOut(d)) return;
                     if (d?.relay?.state === 'pending' && this.pollEvery(d) !== this.pollEvery(data)) { this.waitForSource(ep, d); return; }
@@ -375,6 +385,7 @@
              * rotation, so a bad file has no failover behind it unless we go and ask for one.
              */
             onVideoError() {
+                if (this.episodes[this.index]?.signupUrl) return;
                 this.resume();
                 const v = this.$refs.video;
                 if (!v) return;
@@ -384,6 +395,7 @@
 
             /** Ask for a different link for this episode (skipping our stored copy) and resume from where we were. */
             async reResolve() {
+                if (this.signupOpen || this.episodes[this.index]?.signupUrl) return;
                 if (this._reResolving || this._reResolves >= 2) return;
                 this._reResolving = true;
                 this._reResolves++;
@@ -402,6 +414,7 @@
                 } catch (e) { /* handled below */ }
                 this._reResolving = false;
                 if (this.index !== myIndex) return;   // the viewer swiped away while we were asking
+                if (d?.error === 'signup_required') { this.gateGuestEpisode({ ...ep, signupUrl: d.signupUrl }); return; }
                 if (d?.relay) { this.waitForSource(ep, d); return; }
                 if (d?.client_blocked) { this.showClientBlocked(d); this.stopPoll(); this._poll = setInterval(() => this.load(), 15000); return; }
 
@@ -544,7 +557,7 @@
             prev() { if (this.index > 0) { this.index--; this.load(); } },
             go(i) {
                 this.epMenu = false;
-                if (i !== this.index) { this.index = i; this.load(); }
+                if (i !== this.index || this.episodes[i]?.signupUrl) { this.index = i; this.load(); }
             },
 
             // ---- end-of-series card: rate + comment on the last episode ---------
@@ -587,7 +600,7 @@
             // tapping 🔊 on mobile registers as a swipe and jumps episodes (owner: กดลำโพงแต่เปลี่ยนวีดีโอ).
             _onControl(e) { return !!(e.target && e.target.closest && e.target.closest('button, a, input, label, [role="button"]')); },
             onWheel(e) {
-                if (this.lock || this.epMenu || this.finished || this._onControl(e)) return;
+                if (this.lock || this.epMenu || this.finished || this.signupOpen || this._onControl(e)) return;
                 if (e.deltaY > 25) this.next();
                 else if (e.deltaY < -25) this.prev();
                 else return;
@@ -601,7 +614,7 @@
             onTouchEnd(e) {
                 // Skip when the gesture began on a control, or while the episode grid is open (its own
                 // scroll must not change the underlying episode).
-                if (this._touchCtl || this.epMenu || this.finished) { this._touchCtl = false; return; }
+                if (this._touchCtl || this.epMenu || this.finished || this.signupOpen) { this._touchCtl = false; return; }
                 const dy = this.touchY - e.changedTouches[0].clientY;
                 if (dy > 50) this.next();
                 else if (dy < -50) this.prev();

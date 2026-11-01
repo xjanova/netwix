@@ -3,12 +3,16 @@
 @section('meta_keywords', $content->seo_keywords)
 
 @php
-    $eps = $episodes->map(fn ($e) => [
+    $guestWatch = app(\App\Services\GuestWatch::class);
+    $eps = $episodes->map(function ($e) use ($guestWatch, $content) {
+        $signup = $guestWatch->requiresSignup(auth()->user(), $e);
+        return [
         'n' => $e->number,
         'title' => $e->title,
         'id' => $e->id,
-        'url' => $e->video_url,
-        'resolve' => ($e->source && ! $e->video_url) ? route('episode.source', $e) : null,
+        'url' => $signup ? null : $e->video_url,
+        'resolve' => ! $signup && ($e->source || $e->video_url) ? route('episode.source', $e) : null,
+        'signupUrl' => $signup ? $guestWatch->signupUrl($content, $e) : null,
         'thumb' => $e->thumbnail_path ? $e->thumbnail_url : $content->poster_url,
         'has' => (bool) $e->thumbnail_path,
         // Cover generation is a member-only write — null for guests (the JS null-guards).
@@ -16,12 +20,15 @@
         // Per-episode marker override, else the content default (0 = off).
         'introEnd' => (int) ($e->intro_end_seconds ?? $content->intro_end_seconds ?? 0),
         'outroSeconds' => (int) ($e->outro_seconds ?? $content->outro_seconds ?? 0),
-    ])->values();
+        ];
+    })->values();
     // Manual movie with a URL on the content itself and no episode rows → one synthetic entry.
-    if ($eps->isEmpty() && $content->video_url) {
+    if ($eps->isEmpty() && ($content->video_url || $content->youtube_id)) {
+        $signup = auth()->guest() && $guestWatch->limit() === 0;
         $eps = collect([[
             'n' => 1, 'title' => $content->title, 'id' => null,
-            'url' => $content->video_url, 'resolve' => null,
+            'url' => $signup ? null : $content->video_url, 'resolve' => null,
+            'signupUrl' => $signup ? $guestWatch->signupUrl($content) : null,
             'thumb' => $content->poster_url, 'has' => true, 'gen' => null,
             'introEnd' => (int) ($content->intro_end_seconds ?? 0),
             'outroSeconds' => (int) ($content->outro_seconds ?? 0),
@@ -274,7 +281,8 @@
     </div>
 
     {{-- pre-roll ad: sits on top (z-70) until skipped/finished, then playback begins (see beginPlayback) --}}
-    @include('partials.preroll-ad', ['ad' => $ad ?? null])
+    @include('partials.preroll-ad', ['ad' => ($eps[$startIndex]['signupUrl'] ?? null) ? null : ($ad ?? null)])
+    @include('partials.guest-signup')
 </div>
 
 @push('scripts')
@@ -285,6 +293,7 @@
             reportUrl: cfg.reportUrl,
             index: Math.min(cfg.start || 0, Math.max(0, (cfg.episodes || []).length - 1)),
             ...nxEpPicker(),
+            ...nxGuestSignup(),
             err: '',
             clientBlocked: false,
             _relayWaitStarted: 0,
@@ -343,6 +352,7 @@
             // Start the real video — YouTube gets its src now; a <video> title loads + arms the watchdog.
             beginPlayback() {
                 if (cfg.youtube) {
+                    if (this.gateGuestEpisode(this.episodes[this.index])) return;
                     this.ytSrc = 'https://www.youtube.com/embed/' + cfg.youtube + '?autoplay=1&rel=0&modestbranding=1&playsinline=1';
                     return;
                 }
@@ -388,6 +398,7 @@
              * rotation, so a bad file has no failover behind it unless we ask for one.
              */
             onVideoError() {
+                if (this.episodes[this.index]?.signupUrl) return;
                 this.resume();
                 const v = this.$refs.video;
                 if (!v || this.embedUrl) return;
@@ -404,6 +415,7 @@
              * auto-suspended for a storage fault.
              */
             async reResolve() {
+                if (this.signupOpen || this.episodes[this.index]?.signupUrl) return;
                 if (this._reResolving || this._reResolves >= 2) return;   // bounded: a rotation that
                 this._reResolving = true;                                  // cycles bad links must not loop
                 this._reResolves++;
@@ -420,6 +432,7 @@
                 this._reResolving = false;
 
                 if (this.episodes[this.index] !== ep) return;
+                if (d?.error === 'signup_required') { this.gateGuestEpisode({ ...ep, signupUrl: d.signupUrl }); return; }
                 if (d?.relay) { this.waitForSource(ep, d); return; }
 
                 if (d?.client_blocked) { this.showClientBlocked(d); this.stopPoll(); this._poll = setInterval(() => this.load(), 15000); return; }
@@ -473,6 +486,7 @@
                 this._reResolves = 0;
                 const ep = this.episodes[this.index];
                 if (!ep) return;
+                if (this.gateGuestEpisode(ep)) return;
                 this.introEnd = ep.introEnd || 0; this.outroSeconds = ep.outroSeconds || 0;   // per-episode override ?? content default
                 if (ep.url) { this.attach(ep.url); return; }
 
@@ -496,6 +510,7 @@
 
             waitForSource(ep, d) {
                 this.stopPoll();
+                if (d?.error === 'signup_required') { this.gateGuestEpisode({ ...ep, signupUrl: d.signupUrl }); return; }
                 if (this.relayTimedOut(d)) return;
                 if (d?.client_blocked) this.showClientBlocked(d);
 
@@ -511,6 +526,7 @@
                     let r;
                     try { r = await this.tryResolve(ep); } finally { resolving = false; }
                     if (this.index !== my) return;
+                    if (r?.error === 'signup_required') { this.gateGuestEpisode({ ...ep, signupUrl: r.signupUrl }); return; }
                     if (r && r.ready && r.url) { this.stopPoll(); this.clientBlocked = false; this.err = ''; this.attach(r.url, r.kind); return; }
                     if (this.relayTimedOut(r)) return;
                     if (r?.relay?.state === 'pending' && this.pollEvery(r) !== this.pollEvery(d)) { this.waitForSource(ep, r); return; }
@@ -616,7 +632,7 @@
                 if (p && p.catch) p.catch(() => { v.muted = true; this.syncMuted(); v.play?.().catch(() => {}); });
             },
 
-            go(i) { this.epMenu = false; if (i !== this.index) { this.index = i; this.load(); } },
+            go(i) { this.epMenu = false; if (i !== this.index || this.episodes[i]?.signupUrl) { this.index = i; this.load(); } },
             next() { if (this.index < this.episodes.length - 1) { this.index++; this.load(); } },
             onEnded() {
                 this.saveProgress(100);

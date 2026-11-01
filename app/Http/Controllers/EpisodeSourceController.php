@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Jobs\GenerateEpisodeThumb;
 use App\Models\Episode;
 use App\Services\GoldWallet;
+use App\Services\GuestWatch;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
 use App\Support\BrowserRelay;
@@ -45,6 +46,15 @@ class EpisodeSourceController extends Controller
             if ($access === 'locked') {
                 return response()->json(['ready' => false, 'error' => 'vip_required'], 403);
             }
+        }
+
+        $guestWatch = app(GuestWatch::class);
+        if ($request->routeIs('episode.source') && $guestWatch->requiresSignup($request->user(), $episode)) {
+            return response()->json([
+                'ready' => false,
+                'error' => 'signup_required',
+                'signupUrl' => $guestWatch->signupUrl($episode->content, $episode),
+            ], 403);
         }
 
         // A player only asks for refresh after the current media element has failed.  The normal

@@ -2,9 +2,10 @@
 
 namespace App\Http\Middleware;
 
-use Closure;
 use App\Support\ActiveProfile;
+use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\View;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -14,7 +15,7 @@ class EnsureProfileSelected
     {
         // A member suspended mid-session is logged out on their next authenticated request.
         if (! $request->user()->is_active) {
-            \Illuminate\Support\Facades\Auth::logout();
+            Auth::logout();
             ActiveProfile::forget($request);
             $request->session()->invalidate();
             $request->session()->regenerateToken();
@@ -27,6 +28,10 @@ class EnsureProfileSelected
         $profile = ActiveProfile::resolve($request);
 
         if (! $profile) {
+            if ($request->routeIs('watch')) {
+                return redirect()->guest(route('profiles.index'));
+            }
+
             return redirect()->route('profiles.index');
         }
 
