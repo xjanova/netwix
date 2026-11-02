@@ -1,49 +1,68 @@
 <?php
 
+use App\Http\Controllers\AccountController;
 use App\Http\Controllers\Admin;
+use App\Http\Controllers\AdvertiseController;
+use App\Http\Controllers\Api\App\AuthController;
+use App\Http\Controllers\AppDownloadController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\Auth\SetupController;
+use App\Http\Controllers\Auth\SocialController;
 use App\Http\Controllers\BrowseController;
 use App\Http\Controllers\EpisodeSourceController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\IngestController;
 use App\Http\Controllers\InteractionController;
+use App\Http\Controllers\MissionController;
 use App\Http\Controllers\PageController;
+use App\Http\Controllers\PlaybackController;
+use App\Http\Controllers\PosterHealController;
 use App\Http\Controllers\ProfileSelectionController;
 use App\Http\Controllers\PublicCatalogController;
 use App\Http\Controllers\PublicDirectoryController;
 use App\Http\Controllers\PublicGenreController;
 use App\Http\Controllers\PublicTitleController;
-use App\Http\Controllers\Auth\SocialController;
+use App\Http\Controllers\ResolveAssistController;
+use App\Http\Controllers\RewardCampaignController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SitemapController;
 use App\Http\Controllers\StreamController;
 use App\Http\Controllers\TitleController;
+use App\Http\Controllers\TurnstileController;
+use App\Http\Controllers\WalletController;
 use App\Http\Controllers\WatchController;
+use App\Models\AdBooking;
+use App\Models\HouseBanner;
+use App\Models\Setting;
+use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
+use Illuminate\Cookie\Middleware\EncryptCookies;
+use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 Route::get('/', [HomeController::class, 'index'])->name('home');
 
 // House-banner click-through: counts the click, then forwards to the admin-set destination. The
 // destination is validated as http(s) at save time AND here, so a malformed row can never turn this
 // into a javascript: sink or an open redirect to a scheme we didn't intend.
-Route::get('/b/{banner}', function (\App\Models\HouseBanner $banner) {
+Route::get('/b/{banner}', function (HouseBanner $banner) {
     $to = (string) $banner->link_url;
     abort_unless(preg_match('~^https?://~i', $to) === 1, 404);
 
-    \App\Models\HouseBanner::whereKey($banner->id)->increment('clicks');
+    HouseBanner::whereKey($banner->id)->increment('clicks');
 
     return redirect()->away($to);
 })->middleware('throttle:60,1')->name('house-banner.click');
 
 // Paid-ad click-through: counts, then forwards to the advertiser's screened destination. Same
 // re-validation as the house-banner route — a row is never trusted to hold a safe scheme.
-Route::get('/ad/{booking}', function (\App\Models\AdBooking $booking) {
+Route::get('/ad/{booking}', function (AdBooking $booking) {
     $to = (string) $booking->link_url;
     abort_unless(preg_match('~^https?://~i', $to) === 1, 404);
 
-    \App\Models\AdBooking::whereKey($booking->id)->increment('clicks');
+    AdBooking::whereKey($booking->id)->increment('clicks');
 
     return redirect()->away($to);
 })->middleware('throttle:60,1')->name('ad.click');
@@ -52,7 +71,7 @@ Route::get('/ad/{booking}', function (\App\Models\AdBooking $booking) {
 // setting so the owner can paste the line Google gives them; empty setting → 404, which is the
 // correct answer for "we don't publish one" (an empty 200 reads as a malformed file).
 Route::get('/ads.txt', function () {
-    $body = trim((string) \App\Models\Setting::get('ads_txt', ''));
+    $body = trim((string) Setting::get('ads_txt', ''));
     abort_if($body === '', 404);
 
     return response($body."\n", 200, ['Content-Type' => 'text/plain; charset=UTF-8']);
@@ -97,12 +116,12 @@ Route::middleware('throttle:120,1')->group(function () {
 });
 
 // The gate page above POSTs its solved token here to flag the session as human.
-Route::post('/turnstile/verify', [\App\Http\Controllers\TurnstileController::class, 'verify'])
+Route::post('/turnstile/verify', [TurnstileController::class, 'verify'])
     ->middleware('throttle:20,1')->name('turnstile.verify');
 
 // ---- Public info pages (guests + members) ------------------------------
 Route::get('/download', [PageController::class, 'download'])->name('download');
-Route::get('/download/apk', [\App\Http\Controllers\AppDownloadController::class, 'apk'])
+Route::get('/download/apk', [AppDownloadController::class, 'apk'])
     ->middleware('throttle:30,1')->name('download.apk');
 Route::get('/help', [PageController::class, 'help'])->name('help');
 Route::get('/privacy', [PageController::class, 'privacy'])->name('privacy');
@@ -141,9 +160,9 @@ Route::middleware('guest')->group(function () {
 // NB: the path is deliberately NOT under /app/… — the root .htaccess 404s the
 // top-level /app/ path (it guards the Laravel source dir), which silently ate
 // the query string on the bridge routes.
-Route::get('/mauth/start', [\App\Http\Controllers\Api\App\AuthController::class, 'start'])
+Route::get('/mauth/start', [AuthController::class, 'start'])
     ->name('app.auth.start');
-Route::get('/mauth/issue', [\App\Http\Controllers\Api\App\AuthController::class, 'issue'])
+Route::get('/mauth/issue', [AuthController::class, 'issue'])
     ->middleware('auth')->name('app.auth.issue');
 
 // ---- Authenticated (choose profile) ------------------------------------
@@ -171,7 +190,7 @@ Route::middleware(['auth', 'profile'])->group(function () {
 
     Route::post('/api/content/{content}/list', [InteractionController::class, 'toggleMyList'])->name('content.list');
     Route::post('/api/content/{content}/like', [InteractionController::class, 'toggleLike'])->name('content.like');
-    Route::post('/api/content/{content}/vip/unlock', [\App\Http\Controllers\WalletController::class, 'unlockVip'])
+    Route::post('/api/content/{content}/vip/unlock', [WalletController::class, 'unlockVip'])
         ->middleware('throttle:30,1')->name('content.vip.unlock');
     Route::post('/api/content/{content}/progress', [InteractionController::class, 'progress'])->name('content.progress');
     Route::post('/api/content/{content}/comment', [InteractionController::class, 'comment'])->middleware(['throttle:30,1', 'turnstile'])->name('content.comment');
@@ -184,43 +203,47 @@ Route::middleware(['auth', 'profile'])->group(function () {
         ->middleware('throttle:60,1')->name('episode.gencover');
 
     // Member account: Pro status, coins, referral code + share, redeem a code.
-    Route::get('/account', [\App\Http\Controllers\AccountController::class, 'index'])->name('account');
-    Route::post('/account/redeem', [\App\Http\Controllers\AccountController::class, 'redeem'])
+    Route::get('/account', [AccountController::class, 'index'])->name('account');
+    Route::post('/account/redeem', [AccountController::class, 'redeem'])
         ->middleware('throttle:10,1')->name('account.redeem');
     // Member self-service: own contact info + profile management.
-    Route::get('/account/settings', [\App\Http\Controllers\AccountController::class, 'settings'])->name('account.settings');
-    Route::post('/account/settings', [\App\Http\Controllers\AccountController::class, 'updateContact'])->name('account.contact');
+    Route::get('/account/settings', [AccountController::class, 'settings'])->name('account.settings');
+    Route::post('/account/settings', [AccountController::class, 'updateContact'])->name('account.contact');
 
     // Missions — watch a video → earn coins. beat is throttled (heartbeat ~every 15s).
     // ---- Self-serve advertising ("ลงโฆษณา") ----------------------------
     // Buying is member-only: an ad is paid for on-chain and reviewed by a human, both of which need
     // an account to attach to. Screening + pricing happen server-side in AdvertiseController.
-    Route::get('/advertise', [\App\Http\Controllers\AdvertiseController::class, 'index'])->name('advertise.index');
-    Route::get('/advertise/mine', [\App\Http\Controllers\AdvertiseController::class, 'mine'])->name('advertise.mine');
-    Route::get('/advertise/{placement}', [\App\Http\Controllers\AdvertiseController::class, 'create'])->name('advertise.create');
-    Route::post('/advertise/{placement}', [\App\Http\Controllers\AdvertiseController::class, 'store'])
+    Route::get('/advertise', [AdvertiseController::class, 'index'])->name('advertise.index');
+    Route::get('/advertise/mine', [AdvertiseController::class, 'mine'])->name('advertise.mine');
+    Route::get('/advertise/{placement}', [AdvertiseController::class, 'create'])->name('advertise.create');
+    Route::post('/advertise/{placement}', [AdvertiseController::class, 'store'])
         ->middleware('throttle:10,1')->name('advertise.store');
     // Fix + resubmit a REJECTED ad. The other half of "ไม่ผ่านไม่คืนเงิน แต่แก้แล้วส่งใหม่ได้" —
     // without it a rejection would strand money already taken.
-    Route::get('/advertise/order/{booking}/edit', [\App\Http\Controllers\AdvertiseController::class, 'edit'])->name('advertise.edit');
-    Route::put('/advertise/order/{booking}', [\App\Http\Controllers\AdvertiseController::class, 'resubmit'])
+    Route::get('/advertise/order/{booking}/edit', [AdvertiseController::class, 'edit'])->name('advertise.edit');
+    Route::put('/advertise/order/{booking}', [AdvertiseController::class, 'resubmit'])
         ->middleware('throttle:10,1')->name('advertise.resubmit');
-    Route::get('/advertise/order/{booking}', [\App\Http\Controllers\AdvertiseController::class, 'checkout'])->name('advertise.checkout');
-    Route::get('/advertise/order/{booking}/status', [\App\Http\Controllers\AdvertiseController::class, 'status'])
+    Route::get('/advertise/order/{booking}', [AdvertiseController::class, 'checkout'])->name('advertise.checkout');
+    Route::get('/advertise/order/{booking}/status', [AdvertiseController::class, 'status'])
         ->middleware('throttle:60,1')->name('advertise.status');
 
-    Route::get('/missions', [\App\Http\Controllers\MissionController::class, 'index'])->name('missions.index');
-    Route::post('/missions/{mission}/start', [\App\Http\Controllers\MissionController::class, 'start'])->middleware('throttle:20,1')->name('missions.start');
-    Route::post('/missions/{mission}/beat', [\App\Http\Controllers\MissionController::class, 'beat'])->middleware('throttle:30,1')->name('missions.beat');
+    Route::get('/missions', [MissionController::class, 'index'])->name('missions.index');
+    Route::get('/api/rewards/campaigns', [RewardCampaignController::class, 'index'])->name('rewards.campaigns');
+    Route::post('/api/rewards/watch/start', [RewardCampaignController::class, 'start'])->middleware('throttle:20,1')->name('rewards.watch.start');
+    Route::post('/api/rewards/watch/beat', [RewardCampaignController::class, 'beat'])->middleware('throttle:12,1')->name('rewards.watch.beat');
+    Route::post('/api/rewards/earn', [RewardCampaignController::class, 'earn'])->middleware('throttle:15,1')->name('rewards.earn');
+    Route::post('/missions/{mission}/start', [MissionController::class, 'start'])->middleware('throttle:20,1')->name('missions.start');
+    Route::post('/missions/{mission}/beat', [MissionController::class, 'beat'])->middleware('throttle:30,1')->name('missions.beat');
 
     // Gold wallet + real USDT (BSC) top-up on the account page.
-    Route::post('/account/gold/convert', [\App\Http\Controllers\WalletController::class, 'convert'])
+    Route::post('/account/gold/convert', [WalletController::class, 'convert'])
         ->middleware('throttle:30,1')->name('account.gold.convert');
-    Route::post('/account/pro/buy-gold', [\App\Http\Controllers\WalletController::class, 'buyProWithGold'])
+    Route::post('/account/pro/buy-gold', [WalletController::class, 'buyProWithGold'])
         ->middleware('throttle:30,1')->name('account.pro.buy-gold');
-    Route::post('/account/usdt/order', [\App\Http\Controllers\WalletController::class, 'createOrder'])
+    Route::post('/account/usdt/order', [WalletController::class, 'createOrder'])
         ->middleware('throttle:20,1')->name('account.usdt.order');
-    Route::get('/account/usdt/order/{order}', [\App\Http\Controllers\WalletController::class, 'orderStatus'])
+    Route::get('/account/usdt/order/{order}', [WalletController::class, 'orderStatus'])
         ->middleware('throttle:120,1')->name('account.usdt.status');
 });
 
@@ -251,11 +274,11 @@ Route::middleware('profile.optional')->group(function () {
 // where the Pro/adult gate lives) and each segment URL is HMAC-signed with an expiry. Offloading
 // segments to the CF edge is the single biggest scale win — origin PHP stops proxying every segment.
 Route::withoutMiddleware([
-    \Illuminate\Session\Middleware\StartSession::class,
-    \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
-    \Illuminate\Cookie\Middleware\EncryptCookies::class,
-    \Illuminate\View\Middleware\ShareErrorsFromSession::class,
-    \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class,
+    StartSession::class,
+    AddQueuedCookiesToResponse::class,
+    EncryptCookies::class,
+    ShareErrorsFromSession::class,
+    VerifyCsrfToken::class,
 ])->group(function () {
     Route::get('/stream/{episode}/index.m3u8', [StreamController::class, 'manifest'])
         ->middleware('throttle:60,1')->name('stream.manifest');
@@ -270,12 +293,12 @@ Route::get('/stream/{episode}/video.mp4', [StreamController::class, 'mp4'])
     ->middleware('throttle:240,1')->name('stream.mp4');
 
 // Browser player health ping (ok=played / !ok=couldn't play) → auto-suspend dead titles.
-Route::post('/api/playback/{content}/report', [\App\Http\Controllers\PlaybackController::class, 'report'])
+Route::post('/api/playback/{content}/report', [PlaybackController::class, 'report'])
     ->middleware('throttle:60,1')->name('playback.report');
 
 // On-demand cover heal: a card whose poster failed to load pings this → re-fetch + locally store the
 // cover on the spot (guest-callable; deduped by a per-title lock). Returns the new URL for a live swap.
-Route::post('/api/content/{content}/heal-cover', [\App\Http\Controllers\PosterHealController::class, 'heal'])
+Route::post('/api/content/{content}/heal-cover', [PosterHealController::class, 'heal'])
     ->middleware('throttle:60,1')->name('content.heal-cover');
 
 // ---- Admin -------------------------------------------------------------
@@ -375,9 +398,9 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     // Admin QA playback — watch anything for verification, bypassing public gates (unpublished/18+/VIP).
     // episode = imported episode (content management); source = not-yet-imported title (import preview).
     Route::get('preview/episode/{episode}', [Admin\AdminPreviewController::class, 'episode'])->name('preview.episode');
-    Route::post('resolve-assist/episode/{episode}', [\App\Http\Controllers\ResolveAssistController::class, 'create'])->middleware('throttle:10,1')->name('resolve-assist.create');
-    Route::get('resolve-assist/{code}', [\App\Http\Controllers\ResolveAssistController::class, 'status'])->middleware('throttle:40,1')->name('resolve-assist.status');
-    Route::post('resolve-assist/{code}', [\App\Http\Controllers\ResolveAssistController::class, 'submit'])->middleware('throttle:10,1')->name('resolve-assist.submit');
+    Route::post('resolve-assist/episode/{episode}', [ResolveAssistController::class, 'create'])->middleware('throttle:10,1')->name('resolve-assist.create');
+    Route::get('resolve-assist/{code}', [ResolveAssistController::class, 'status'])->middleware('throttle:40,1')->name('resolve-assist.status');
+    Route::post('resolve-assist/{code}', [ResolveAssistController::class, 'submit'])->middleware('throttle:10,1')->name('resolve-assist.submit');
     Route::get('preview/source/{sourceTitle}', [Admin\AdminPreviewController::class, 'source'])->name('preview.source');
     Route::get('preview/manifest', [Admin\AdminPreviewController::class, 'manifest'])->name('preview.manifest');
     Route::get('preview/segment', [Admin\AdminPreviewController::class, 'segment'])->name('preview.segment');
@@ -531,6 +554,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
 
     // Missions ("ภารกิจ / รางวัล") — watch-a-video → earn coins.
     Route::get('missions', [Admin\MissionController::class, 'index'])->name('missions.index');
+    Route::put('reward-campaigns', [Admin\RewardCampaignController::class, 'update'])->name('reward-campaigns.update');
     Route::post('missions', [Admin\MissionController::class, 'store'])->name('missions.store');
     Route::put('missions/{mission}', [Admin\MissionController::class, 'update'])->name('missions.update');
     Route::post('missions/{mission}/toggle', [Admin\MissionController::class, 'toggle'])->name('missions.toggle');

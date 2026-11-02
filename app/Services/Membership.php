@@ -7,6 +7,7 @@ use App\Models\Episode;
 use App\Models\EpisodeUnlock;
 use App\Models\Setting;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -196,36 +197,60 @@ class Membership
      */
     public function earn(User $u, string $kind): array
     {
-        $earn = $this->config()['earn'];
+        return DB::transaction(function () use ($u, $kind) {
+            $u = User::whereKey($u->id)->lockForUpdate()->firstOrFail();
+            $earn = $this->config()['earn'];
 
-        // kind => [coins, daily cap (0 = unlimited), "cap reached" message]
-        $rules = [
-            'daily' => [(int) ($earn['daily_checkin_coins'] ?? 0), 1, 'วันนี้เช็คอินไปแล้ว'],
-            'watch' => [(int) ($earn['watch_reward_coins'] ?? 0), (int) ($earn['watch_reward_daily_cap'] ?? 0), 'รับรางวัลครบตามจำนวนของวันนี้แล้ว'],
-            'like' => [(int) ($earn['like_coins'] ?? 0), (int) ($earn['like_daily_cap'] ?? 0), 'รับเหรียญจากไลก์ครบวันนี้แล้ว'],
-            'comment' => [(int) ($earn['comment_coins'] ?? 0), (int) ($earn['comment_daily_cap'] ?? 0), 'รับเหรียญจากคอมเมนต์ครบวันนี้แล้ว'],
-            'share' => [(int) ($earn['share_coins'] ?? 0), (int) ($earn['share_daily_cap'] ?? 0), 'รับเหรียญจากแชร์ครบวันนี้แล้ว'],
-        ];
+            // kind => [coins, daily cap (0 = unlimited), "cap reached" message]
+            $rules = [
+                'daily' => [(int) ($earn['daily_checkin_coins'] ?? 0), 1, 'วันนี้เช็คอินไปแล้ว'],
+                'watch' => [(int) ($earn['watch_reward_coins'] ?? 0), (int) ($earn['watch_reward_daily_cap'] ?? 0), 'รับรางวัลครบตามจำนวนของวันนี้แล้ว'],
+                'like' => [(int) ($earn['like_coins'] ?? 0), (int) ($earn['like_daily_cap'] ?? 0), 'รับเหรียญจากไลก์ครบวันนี้แล้ว'],
+                'comment' => [(int) ($earn['comment_coins'] ?? 0), (int) ($earn['comment_daily_cap'] ?? 0), 'รับเหรียญจากคอมเมนต์ครบวันนี้แล้ว'],
+                'share' => [(int) ($earn['share_coins'] ?? 0), (int) ($earn['share_daily_cap'] ?? 0), 'รับเหรียญจากแชร์ครบวันนี้แล้ว'],
+            ];
 
-        if (! isset($rules[$kind])) {
-            return ['ok' => false, 'error' => 'ไม่รู้จักกิจกรรมนี้'];
-        }
+            if (! isset($rules[$kind])) {
+                return ['ok' => false, 'error' => 'ไม่รู้จักกิจกรรมนี้'];
+            }
 
-        [$amt, $cap, $capMsg] = $rules[$kind];
-        $done = $this->earnedToday($u, $kind);
-        if ($cap > 0 && $done >= $cap) {
-            return ['ok' => false, 'error' => $capMsg];
-        }
+            [$amt, $cap, $capMsg] = $rules[$kind];
+            $done = $this->earnedToday($u, $kind);
+            if ($cap > 0 && $done >= $cap) {
+                $bonuses = $this->syncCampaignActivity($u, $kind);
+                if ($bonuses !== []) {
+                    return ['ok' => true, 'earned' => array_sum(array_column($bonuses, 'coins')), 'bonuses' => $bonuses, 'remaining' => 0];
+                }
+                return ['ok' => false, 'error' => $capMsg];
+            }
 
-        $this->addCoins($u, $amt, $kind);
+            $this->addCoins($u, $amt, $kind);
+            $bonuses = $this->syncCampaignActivity($u, $kind);
 
-        return ['ok' => true, 'earned' => $amt, 'remaining' => $cap > 0 ? max(0, $cap - $done - 1) : null];
+            return ['ok' => true, 'earned' => $amt + array_sum(array_column($bonuses, 'coins')), 'bonuses' => $bonuses, 'remaining' => $cap > 0 ? max(0, $cap - $done - 1) : null];
+        }, 3);
     }
 
     private function earnedToday(User $u, string $kind): int
     {
+        $start = now(RewardCampaigns::TIMEZONE)->startOfDay()->utc();
+
         return CoinTransaction::where('user_id', $u->id)->where('kind', $kind)
-            ->whereDate('created_at', today())->count();
+            ->where('created_at', '>=', $start)->where('created_at', '<', $start->copy()->addDay())->count();
+    }
+
+    /** Include a real check-in/share made earlier on launch day without minting its base reward twice. */
+    private function syncCampaignActivity(User $u, string $kind): array
+    {
+        if (! in_array($kind, ['daily', 'share'], true)) return [];
+        $start = now(RewardCampaigns::TIMEZONE)->startOfDay()->utc();
+        $ids = CoinTransaction::where('user_id', $u->id)->where('kind', $kind)
+            ->where('created_at', '>=', $start)->where('created_at', '<', $start->copy()->addDay())->pluck('id');
+        $bonuses = [];
+        foreach ($ids as $id) {
+            $bonuses = array_merge($bonuses, app(RewardCampaigns::class)->record($u, $kind, $kind === 'daily' ? 'checkin' : (string) $id));
+        }
+        return $bonuses;
     }
 
     // ---- Episode gating (free / coin-unlock / Pro) ---------------------
@@ -250,6 +275,7 @@ class Membership
 
     /**
      * Spend coins to unlock a locked episode (no-op if already playable).
+     *
      * @return array{ok:bool,access?:string,error?:string,need?:int,have?:int,spent?:int}
      */
     public function unlockEpisode(User $u, Episode $ep): array
@@ -286,41 +312,62 @@ class Membership
 
     /**
      * Redeem a friend's code: grants the promo to both sides per config.
+     *
      * @return array{ok:bool,error?:string}
      */
     public function redeem(User $u, string $code): array
     {
-        $cfg = $this->config()['referral'];
+        return DB::transaction(function () use ($u, $code) {
+            $cfg = $this->config()['referral'];
 
-        if (! ($cfg['enabled'] ?? true)) {
-            return ['ok' => false, 'error' => 'โปรโมชันโค้ดแนะนำปิดใช้งานชั่วคราว'];
-        }
-        if ($u->referred_by) {
-            return ['ok' => false, 'error' => 'คุณใช้โค้ดแนะนำไปแล้ว'];
-        }
+            if (! ($cfg['enabled'] ?? true)) {
+                return ['ok' => false, 'error' => 'โปรโมชันโค้ดแนะนำปิดใช้งานชั่วคราว'];
+            }
+            if ($u->referred_by) {
+                return ['ok' => false, 'error' => 'คุณใช้โค้ดแนะนำไปแล้ว'];
+            }
 
-        $code = strtoupper(trim($code));
-        $referrer = $code !== '' ? User::where('referral_code', $code)->first() : null;
+            $code = strtoupper(trim($code));
+            $referrer = $code !== '' ? User::where('referral_code', $code)->first() : null;
 
-        if (! $referrer) {
-            return ['ok' => false, 'error' => 'ไม่พบโค้ดแนะนำนี้'];
-        }
-        if ($referrer->id === $u->id) {
-            return ['ok' => false, 'error' => 'ใช้โค้ดของตัวเองไม่ได้'];
-        }
+            if (! $referrer) {
+                return ['ok' => false, 'error' => 'ไม่พบโค้ดแนะนำนี้'];
+            }
+            if ($referrer->id === $u->id) {
+                return ['ok' => false, 'error' => 'ใช้โค้ดของตัวเองไม่ได้'];
+            }
 
-        $max = (int) ($cfg['max_referrals'] ?? 0);
-        if ($max > 0 && User::where('referred_by', $referrer->id)->count() >= $max) {
-            return ['ok' => false, 'error' => 'โค้ดนี้ถูกใช้ครบจำนวนแล้ว'];
-        }
+            User::whereIn('id', [$u->id, $referrer->id])->orderBy('id')->lockForUpdate()->get();
+            $u->refresh();
+            $referrer->refresh();
+            if ($u->referred_by) {
+                return ['ok' => false, 'error' => 'คุณใช้โค้ดแนะนำไปแล้ว'];
+            }
+            $parent = $referrer;
+            for ($i = 0; $parent && $i < 32; $i++) {
+                if ($parent->id === $u->id) {
+                    return ['ok' => false, 'error' => 'โค้ดนี้ทำให้สายแนะนำวนกลับ'];
+                }
+                $parent = $parent->referred_by ? User::find($parent->referred_by) : null;
+            }
+            if ($parent) {
+                return ['ok' => false, 'error' => 'สายแนะนำยาวเกินกำหนด'];
+            }
 
-        $u->forceFill(['referred_by' => $referrer->id])->save();
-        $this->grantProDays($u, (int) ($cfg['referee_pro_days'] ?? 0));
-        $this->addCoins($u, (int) ($cfg['referee_coins'] ?? 0), 'referral');
-        $this->grantProDays($referrer, (int) ($cfg['referrer_pro_days'] ?? 0));
-        $this->addCoins($referrer, (int) ($cfg['referrer_coins'] ?? 0), 'referral');
+            $max = (int) ($cfg['max_referrals'] ?? 0);
+            if ($max > 0 && User::where('referred_by', $referrer->id)->count() >= $max) {
+                return ['ok' => false, 'error' => 'โค้ดนี้ถูกใช้ครบจำนวนแล้ว'];
+            }
 
-        return ['ok' => true];
+            $u->forceFill(['referred_by' => $referrer->id])->save();
+            $this->grantProDays($u, (int) ($cfg['referee_pro_days'] ?? 0));
+            $this->addCoins($u, (int) ($cfg['referee_coins'] ?? 0), 'referral');
+            $this->grantProDays($referrer, (int) ($cfg['referrer_pro_days'] ?? 0));
+            $this->addCoins($referrer, (int) ($cfg['referrer_coins'] ?? 0), 'referral');
+            app(RewardCampaigns::class)->record($referrer, 'referral', (string) $u->id);
+
+            return ['ok' => true];
+        }, 3);
     }
 
     // ---- Affiliate / downline dividend ---------------------------------

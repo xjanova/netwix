@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Content;
 use App\Models\Mission;
+use App\Services\RewardCampaigns;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -15,6 +16,7 @@ class MissionController extends Controller
     {
         return view('admin.missions.index', [
             'missions' => Mission::orderBy('sort')->orderByDesc('id')->get(),
+            'campaigns' => app(RewardCampaigns::class)->config(),
         ]);
     }
 

@@ -1,5 +1,9 @@
 import './bootstrap';
 import Alpine from 'alpinejs';
+import { watchRewards, campaignPage } from './engagement-rewards';
+window.nxEngagementWatch = watchRewards;
+window.nxCampaignPage = campaignPage;
+window.nxRewardShare = () => window.nxPostSoft('/api/rewards/earn', { kind: 'share' }).catch(() => {});
 import { guestSignup } from './guest-signup';
 import { resolveRongYokClient, resolveEpisodeResponse } from './rongyok-client';
 window.nxResolveRongYokClient = resolveRongYokClient;

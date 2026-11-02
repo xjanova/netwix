@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\App\WalletController;
 use App\Http\Controllers\Api\FacebookWebhookController;
 use App\Http\Controllers\BrowserRelayController;
 use App\Http\Controllers\ResolveAssistController;
+use App\Http\Controllers\RewardCampaignController;
 use App\Http\Middleware\AuthenticateBrowserRelay;
 use Illuminate\Support\Facades\Route;
 
@@ -167,6 +168,9 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
         // anti-cheat as the web /missions page; beat throttle matches the ~15s
         // client heartbeat.
         Route::get('missions', [MissionController::class, 'index']);
+        Route::get('rewards/campaigns', [RewardCampaignController::class, 'index']);
+        Route::post('rewards/watch/start', [RewardCampaignController::class, 'start'])->middleware('throttle:20,1');
+        Route::post('rewards/watch/beat', [RewardCampaignController::class, 'beat'])->middleware('throttle:12,1');
         Route::post('missions/{mission}/start', [MissionController::class, 'start'])->middleware('throttle:20,1');
         Route::post('missions/{mission}/beat', [MissionController::class, 'beat'])->middleware('throttle:30,1');
 

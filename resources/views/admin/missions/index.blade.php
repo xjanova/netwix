@@ -3,6 +3,7 @@
 @section('page-subtitle', 'ตั้งภารกิจให้สมาชิกดูวิดีโอครบเวลาแล้วรับเหรียญเงิน/ทอง')
 
 @section('content')
+@include('admin.missions._campaigns')
 {{-- add new --}}
 <div class="mb-6 nx-card p-5" x-data="{ open: false }">
     <button @click="open = !open" class="btn-brand px-4 py-2 text-sm">＋ เพิ่มภารกิจใหม่</button>

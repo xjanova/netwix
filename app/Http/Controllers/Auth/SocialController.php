@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Membership;
+use App\Support\AdminAlerts;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -54,6 +56,11 @@ class SocialController extends Controller
             return redirect()->route('login')->withErrors(['email' => 'บัญชีนี้ถูกระงับการใช้งาน — ติดต่อผู้ดูแลระบบ']);
         }
 
+        $invite = $request->session()->pull('referral.invite');
+        if ($user->wasRecentlyCreated && is_string($invite)) {
+            app(Membership::class)->redeem($user, $invite);
+        }
+
         Auth::login($user, remember: true);
         $request->session()->regenerate();
 
@@ -69,7 +76,7 @@ class SocialController extends Controller
      */
     private function unavailable(): ?RedirectResponse
     {
-        if (class_exists(\Laravel\Socialite\Facades\Socialite::class)) {
+        if (class_exists(Socialite::class)) {
             return null;
         }
 
@@ -116,10 +123,10 @@ class SocialController extends Controller
         // Brand-new social account → grant the same signup coin bonus that email
         // sign-ups get (RegisterController). wasRecentlyCreated is only true on insert.
         if ($user->wasRecentlyCreated) {
-            $m = app(\App\Services\Membership::class);
+            $m = app(Membership::class);
             $m->addCoins($user, (int) ($m->config()['signup_bonus_coins'] ?? 0), 'signup');
             $m->grantSignupPro($user);   // same free Pro window as email sign-ups (admin-configured)
-            \App\Support\AdminAlerts::noteSignup($user->id, (string) $user->name, $provider === 'line' ? 'LINE' : ucfirst($provider));
+            AdminAlerts::noteSignup($user->id, (string) $user->name, $provider === 'line' ? 'LINE' : ucfirst($provider));
         }
 
         // Give brand-new accounts a starter profile (mirrors RegisterController).

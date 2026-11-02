@@ -2,6 +2,7 @@
 @section('title', 'ภารกิจ · รับเหรียญ')
 
 @section('content')
+@include('partials.reward-campaigns')
 @php
     $missionsJs = $missions->map(fn ($x) => [
         'id' => $x['model']->id,
@@ -23,12 +24,12 @@
 <div class="mx-auto max-w-5xl px-4 py-8" x-data="missionsPage({ missions: {{ \Illuminate\Support\Js::from($missionsJs) }} })">
     <div class="mb-2 flex items-center gap-3">
         <span class="nx-gradient h-7 w-1.5 rounded-full"></span>
-        <h1 class="text-2xl font-bold">ภารกิจ · รับเหรียญ</h1>
+        <h2 class="text-2xl font-bold">ภารกิจดูคลิปพิเศษ</h2>
     </div>
     <p class="mb-6 text-sm text-cream/55">ดูวิดีโอให้ครบเวลาที่กำหนด (ต้องเปิดหน้านี้ไว้และเล่นจริง) แล้วรับเหรียญอัตโนมัติ</p>
 
     <template x-if="missions.length === 0">
-        <div class="nx-card p-10 text-center text-cream/50">ยังไม่มีภารกิจตอนนี้ — กลับมาเช็คใหม่ภายหลัง</div>
+        <div class="nx-card p-10 text-center text-cream/50">ยังไม่มีคลิปพิเศษเพิ่มในตอนนี้ — กลับมาเช็คใหม่ภายหลัง</div>
     </template>
 
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -10,7 +10,7 @@ for (const [name, file] of [['watchPlayer', 'watch'], ['verticalPlayer', 'vertic
         let stopped = 0;
         const source = readFileSync(new URL(`../../resources/views/frontend/${file}.blade.php`, import.meta.url), 'utf8');
         const script = source.match(/<script>([\s\S]*?)<\/script>/)[1];
-        const context = vm.createContext({ nxEpPicker: () => ({}), nxGuestSignup: guestSignup, Date: { now: () => now }, clearTimeout() {} });
+        const context = vm.createContext({ nxEpPicker: () => ({}), nxGuestSignup: guestSignup, nxEngagementWatch: () => ({}), Date: { now: () => now }, clearTimeout() {} });
         vm.runInContext(script, context);
         const player = context[name]({ episodes: [], start: 0 });
         player.stopPoll = () => { stopped++; };
