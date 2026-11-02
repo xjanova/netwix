@@ -30,6 +30,8 @@ Route::prefix('browser-relay')->middleware([AuthenticateBrowserRelay::class, 'th
     Route::post('jobs/claim', [BrowserRelayController::class, 'claim']);
     Route::post('jobs/{job}/complete', [BrowserRelayController::class, 'complete'])->whereNumber('job');
     Route::post('jobs/{job}/fail', [BrowserRelayController::class, 'fail'])->whereNumber('job');
+    Route::post('posters/{job}/complete', [BrowserRelayController::class, 'posterComplete'])->whereNumber('job');
+    Route::post('posters/{job}/fail', [BrowserRelayController::class, 'posterFail'])->whereNumber('job');
 });
 
 /*

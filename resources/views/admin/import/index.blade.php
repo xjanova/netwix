@@ -599,11 +599,9 @@ window.syncer = () => ({
                         @php($cover = $t->content?->poster_url ?: \App\Support\MediaUrl::adminPoster($t->poster_url))
                         @if ($cover)
                             <img src="{{ $cover }}" alt="" loading="lazy" referrerpolicy="no-referrer"
-                                 @if (parse_url((string) $t->poster_url, PHP_URL_HOST) === 'rongyok.com')
-                                 data-source-cover="{{ \App\Support\MediaUrl::encodePath($t->poster_url) }}"
-                                 @endif
+                                 @if (parse_url((string) $t->poster_url, PHP_URL_HOST) === 'rongyok.com') data-relay-poster="1" @endif
                                  class="absolute inset-0 h-full w-full object-cover"
-                                 onerror="if (this.dataset.sourceCover) { const u = this.dataset.sourceCover; delete this.dataset.sourceCover; this.src = u; } else { this.style.display='none'; }">
+                                 onerror="if (this.dataset.relayPoster && +(this.dataset.retries || 0) < 45) { this.dataset.retries = +(this.dataset.retries || 0) + 1; setTimeout(() => { if (this.isConnected) this.src = this.src; }, 4000); } else { this.style.display='none'; }">
                         @endif
                         {{-- Watch ep-1 from the source BEFORE importing (@click.stop.prevent so it doesn't toggle the checkbox). --}}
                         <button type="button" @click.stop.prevent="preview({{ $t->id }}, @js($t->displayTitle()))"

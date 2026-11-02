@@ -172,6 +172,17 @@ class ImportService
         $this->linkMirrors($content);          // duplicates on other sites become mutual backup links
 
         $st->update(['content_id' => $content->id, 'episodes_count' => $count]);
+        // A source-blocked cover is retried by Chrome and attached when ready. Signed episode
+        // URLs remain resolved on demand; importing never stores a short-lived CDN URL as permanent.
+        if ($st->source === 'rongyok' && str_starts_with((string) $content->fresh()->poster_path, 'http')) {
+            $admin = request()->user();
+            if (!$admin || $admin->role !== 'admin') {
+                $admin = \App\Models\User::where('role', 'admin')->first();
+            }
+            if ($admin) {
+                \App\Support\PosterRelay::enqueue($st, $admin);
+            }
+        }
 
         return $content;
     }

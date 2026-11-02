@@ -371,6 +371,7 @@ function Format-RelayWho($r) {
 }
 function Format-RelayReason($r) {
     $reason = if ($r.reason) { [string]$r.reason } elseif ([int]$r.priority -eq 0) { 'viewer' } else { 'prefetch' }
+    if ($reason -eq 'poster') { return 'โหลดปกจริงจากหน้าเรื่อง' }
     if ($reason -eq 'viewer') { return 'คนดูรออยู่' } else { return 'เตรียมตอนถัดไป' }
 }
 function Format-RelayResult($r) {

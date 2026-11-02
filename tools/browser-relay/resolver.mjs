@@ -1,4 +1,16 @@
 import { URBAN_ID, waitForUrban } from './urban.mjs';
+import { createHash } from 'node:crypto';
+
+export function validPosterUrl(value) {
+    try { const u = new URL(value); return u.origin === 'https://rongyok.com' && !u.username && !u.password
+        && !u.search && !u.hash && /^\/images\/poster\/[^/]+\.(webp|png|jpe?g)$/i.test(u.pathname); }
+    catch { return false; }
+}
+
+export function posterPageUrl(job) {
+    if (!validJob(job) || job.type !== 'poster') throw new Error('invalid_job');
+    return `https://rongyok.com/series/${job.series_id}/`;
+}
 
 export function validVideoUrl(value, now = Math.floor(Date.now() / 1000)) {
     if (typeof value !== 'string' || value.length > 2048) return false;
@@ -14,7 +26,7 @@ export function validVideoUrl(value, now = Math.floor(Date.now() / 1000)) {
 }
 
 export function validJob(job) {
-    return job?.source === 'rongyok' && Number.isSafeInteger(job.id) && job.id > 0 &&
+    return job?.source === 'rongyok' && (!job.type || ['video', 'poster'].includes(job.type)) && Number.isSafeInteger(job.id) && job.id > 0 &&
         typeof job.lease_token === 'string' && /^[a-f0-9]{64}$/.test(job.lease_token) &&
         typeof job.series_id === 'string' && /^\d{1,20}$/.test(job.series_id) &&
         typeof job.episode === 'string' && /^[1-9]\d{0,3}$/.test(job.episode);
@@ -27,9 +39,9 @@ export function jobContext(job) {
     return {
         title: typeof job?.title === 'string' ? job.title.replace(/[\u0000-\u001f]/g, '').slice(0, 120) : null,
         episode_number: Number.isSafeInteger(job?.episode_number) ? job.episode_number : null,
-        reason: ['viewer', 'prefetch'].includes(job?.reason) ? job.reason : null,
+        reason: ['viewer', 'prefetch', 'poster'].includes(job?.reason) ? job.reason : null,
         requester: name || (r.member === true ? 'member' : r.member === false ? 'guest' : null),
-        via: ['web', 'app'].includes(r.via) ? r.via : null,
+        via: ['web', 'app', 'admin'].includes(r.via) ? r.via : null,
     };
 }
 
@@ -83,11 +95,12 @@ export class ChromeResolver {
         context.on('close', () => { if (this.context === context) this.context = null; });
     }
 
-    async restrictSourcePage(page) {
+    async restrictSourcePage(page, posters = false) {
         // Scope source restrictions to the episode tab: Urban's own authentication
         // and offscreen pages must retain their ordinary provider connections.
         await page.route('**/*', async route => {
             const request = route.request();
+            if (request.resourceType() === 'image' && posters && validPosterUrl(request.url())) return route.continue();
             if (['media', 'image', 'font'].includes(request.resourceType())) return route.abort();
             const u = new URL(request.url());
             const urbanPage = u.protocol === 'chrome-extension:' && u.hostname === (this.options.vpn?.id || URBAN_ID);
@@ -108,6 +121,7 @@ export class ChromeResolver {
 
     /** @param {Map<string,string>|null} extras receives other episodes of this series the page fetched */
     async resolve(job, extras = null) {
+        if (job.type === 'poster') return this.resolvePoster(job);
         const url = watchUrl(job);
         await this.ready();
         let page;
@@ -160,6 +174,36 @@ export class ChromeResolver {
         const context = this.context;
         this.context = null;
         await context?.close().catch(() => {});
+    }
+
+    async resolvePoster(job) {
+        const url = posterPageUrl(job);
+        await this.ready();
+        const page = await this.context.newPage();
+        await this.restrictSourcePage(page, true);
+        page.on('popup', popup => popup.close().catch(() => {}));
+        const images = new Map();
+        page.on('response', response => {
+            if (validPosterUrl(response.url()) && response.ok()) images.set(response.url(), response);
+        });
+        try {
+            const response = await page.goto(url, {waitUntil:'domcontentloaded', timeout:25000});
+            if ([403,429].includes(response?.status())) throw new Error('source_blocked');
+            const image = page.locator('img[alt^="โปสเตอร์เรื่อง"]').first();
+            await image.waitFor({state:'visible', timeout:10000});
+            const src = await image.evaluate(i => i.currentSrc || i.src);
+            if (!validPosterUrl(src)) throw new Error('invalid_url');
+            // The browser fetched this with the series page as its Referer. Never make a second
+            // detached URL request: the source can answer that request with a different image.
+            const received = images.get(src) || await page.waitForResponse(r => r.url() === src && r.ok(), {timeout:10000});
+            const bytes = await received.body();
+            if (bytes.length > 4_000_000 || bytes.length < 500) throw new Error('invalid_url');
+            if (['50f0fadde3eaa21dc95493d2b81e1067','89b8d44d68ce766c8c60e0e83b65618c']
+                .includes(createHash('md5').update(bytes).digest('hex'))) throw new Error('source_blocked');
+            const type = received.headers()['content-type']?.split(';')[0];
+            if (!/^image\/(webp|png|jpeg)$/.test(type || '')) throw new Error('invalid_url');
+            return {image:`data:${type};base64,${bytes.toString('base64')}`, image_url:src};
+        } finally { await page.close().catch(() => {}); }
     }
 }
 
