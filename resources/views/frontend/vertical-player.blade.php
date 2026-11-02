@@ -39,6 +39,7 @@
 @section('content')
 <div
     x-data="verticalPlayer({ episodes: @js($eps), start: {{ $start }}, progressUrl: @js(auth()->check() ? route('content.progress', $content) : null), reportUrl: '{{ route('playback.report', $content) }}',
+        rewardWatch: @js(auth()->check() ? ['content' => $content->id, 'start' => route('rewards.watch.start'), 'beat' => route('rewards.watch.beat')] : null),
         rateUrl: '{{ route('content.rate', $content) }}', commentUrl: '{{ route('content.comment', $content) }}',
         myRating: {{ $myRating }}, ratingAvg: {{ $ratingAvg ?: 0 }}, ratingCount: {{ $ratingCount }}, comments: @js($endComments), commentCount: {{ $commentCount }} })"
     x-init="init()"
@@ -74,7 +75,7 @@
         <video x-ref="video" playsinline autoplay
                :muted="muted"
                @click="togglePlay()"
-               @timeupdate="onTime()"
+               @timeupdate="onTime(); rewardTick()"
                @ended="onEnded()"
                @play="playing = true" @pause="playing = false"
                @waiting="stall()" @stalled="stall()"
@@ -225,6 +226,7 @@
     {{-- pre-roll ad: covers the feed (z-70) until skipped/finished, then _begin() starts the first clip --}}
     @include('partials.preroll-ad', ['ad' => ($eps[$start]['signupUrl'] ?? null) ? null : ($ad ?? null)])
     @include('partials.guest-signup')
+    <div x-show="rewardNotice" x-cloak x-text="rewardNotice" role="status" class="pointer-events-none absolute inset-x-4 top-24 z-50 rounded-xl bg-black/85 p-4 text-center text-sm text-gold"></div>
 </div>
 
 @push('scripts')
@@ -250,6 +252,7 @@
             _relayWaitStarted: 0,
             ...nxEpPicker(),
             ...nxGuestSignup(),
+            ...nxEngagementWatch(cfg.rewardWatch),
             _poll: null,
             _stallT: null,
             _reResolving: false,

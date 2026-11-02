@@ -53,6 +53,7 @@
 @section('content')
 <div class="relative h-[100dvh] w-full bg-black"
      x-data="watchPlayer({
+        rewardWatch: @js(auth()->check() ? ['content' => $content->id, 'start' => route('rewards.watch.start'), 'beat' => route('rewards.watch.beat')] : null),
         progressUrl: @js(auth()->check() ? route('content.progress', $content) : null),
         reportUrl: '{{ route('playback.report', $content) }}',
         episodes: @js($eps),
@@ -133,7 +134,7 @@
              its native video fullscreen works, and our button falls back to it there.) --}}
         <video x-ref="video" x-show="!embedUrl" controls controlsList="nofullscreen" autoplay playsinline
                @timeupdate.throttle.10000ms="saveProgress()"
-               @timeupdate="resume(); marks()"
+               @timeupdate="resume(); marks(); rewardTick()"
                @ended="onEnded()"
                @waiting="stall()" @stalled="stall()"
                @seeked="_lastT = $refs.video.currentTime; _stuck = 0"
@@ -283,6 +284,7 @@
     {{-- pre-roll ad: sits on top (z-70) until skipped/finished, then playback begins (see beginPlayback) --}}
     @include('partials.preroll-ad', ['ad' => ($eps[$startIndex]['signupUrl'] ?? null) ? null : ($ad ?? null)])
     @include('partials.guest-signup')
+    <div x-show="rewardNotice" x-cloak x-text="rewardNotice" role="status" class="pointer-events-none absolute inset-x-4 top-24 z-50 rounded-xl bg-black/85 p-4 text-center text-sm text-gold"></div>
 </div>
 
 @push('scripts')
@@ -294,6 +296,7 @@
             index: Math.min(cfg.start || 0, Math.max(0, (cfg.episodes || []).length - 1)),
             ...nxEpPicker(),
             ...nxGuestSignup(),
+            ...nxEngagementWatch(cfg.rewardWatch),
             err: '',
             clientBlocked: false,
             _relayWaitStarted: 0,

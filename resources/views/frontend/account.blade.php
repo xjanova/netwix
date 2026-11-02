@@ -204,7 +204,7 @@
 
     {{-- Referral code + share --}}
     <div class="nx-card mt-4 p-6"
-         x-data="{ copied: '', copy(t, tag) { navigator.clipboard.writeText(t).then(() => { this.copied = tag; setTimeout(() => this.copied = '', 1500); }); } }">
+         x-data="{ copied: '', copy(t, tag) { navigator.clipboard.writeText(t).then(() => { this.copied = tag; window.nxRewardShare(); setTimeout(() => this.copied = '', 1500); }); } }">
         <h2 class="text-lg font-bold">โค้ดแนะนำของคุณ</h2>
         <p class="mt-1 text-[13.5px] text-cream/60">
             เพื่อนใช้โค้ดนี้ตอนสมัคร → เพื่อนได้ Pro ฟรี {{ $ref['referee_pro_days'] }} วัน
@@ -225,12 +225,12 @@
         {{-- share --}}
         <div class="mt-4 flex flex-wrap items-center gap-2.5">
             <span class="text-[13px] text-cream/50">แชร์:</span>
-            <a href="https://social-plugins.line.me/lineit/share?url={{ urlencode($refUrl) }}" target="_blank" rel="noopener"
+            <a href="https://social-plugins.line.me/lineit/share?url={{ urlencode($refUrl) }}" target="_blank" rel="noopener" @click="window.nxRewardShare()"
                class="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white" style="background:#06C755">
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3C6.48 3 2 6.63 2 11.02c0 3.93 3.32 7.22 7.8 7.85.3.06.72.2.82.46.09.24.06.6.03.85l-.13.79c-.04.24-.19.94.83.51 1.02-.43 5.5-3.24 7.5-5.55C20.5 14.42 22 12.86 22 11.02 22 6.63 17.52 3 12 3z"/></svg>
                 LINE
             </a>
-            <a href="https://www.facebook.com/sharer/sharer.php?u={{ urlencode($refUrl) }}" target="_blank" rel="noopener"
+            <a href="https://www.facebook.com/sharer/sharer.php?u={{ urlencode($refUrl) }}" target="_blank" rel="noopener" @click="window.nxRewardShare()"
                class="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white" style="background:#1877F2">
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.56 9.88v-6.99H7.9V12h2.54V9.8c0-2.5 1.49-3.89 3.78-3.89 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56V12h2.78l-.44 2.89h-2.34v6.99A10 10 0 0 0 22 12z"/></svg>
                 Facebook

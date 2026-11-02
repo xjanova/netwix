@@ -20,6 +20,9 @@ class RegisterController extends Controller
     public function show(Request $request): View
     {
         app(GuestWatch::class)->rememberDestination($request);
+        if (is_string($request->query('ref')) && preg_match('/\A[A-Za-z0-9]{1,16}\z/', $request->query('ref'))) {
+            $request->session()->put('referral.invite', strtoupper($request->query('ref')));
+        }
 
         return view('auth.register', [
             'emailReg' => Setting::flag('email_registration_enabled', true),
@@ -69,9 +72,11 @@ class RegisterController extends Controller
         $membership->ensureCode($user);
         $membership->addCoins($user, (int) $membership->config()['signup_bonus_coins'], 'signup');
         $membership->grantSignupPro($user);   // free Pro window for new members (admin-configured, default 1 month)
-        if (filled($data['ref'] ?? null)) {
-            $membership->redeem($user, $data['ref']);
+        $invite = $data['ref'] ?? $request->session()->get('referral.invite');
+        if (filled($invite)) {
+            $membership->redeem($user, $invite);
         }
+        $request->session()->forget('referral.invite');
         AdminAlerts::noteSignup($user->id, (string) $user->name, 'อีเมล');
 
         // remember: brand-new members shouldn't be the ones asked to sign in again
