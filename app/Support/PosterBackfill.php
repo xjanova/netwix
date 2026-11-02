@@ -315,6 +315,9 @@ class PosterBackfill
      */
     private function download(string $url): ?string
     {
+        if (AdvertCover::isAdvertHotlink($url) && ($bytes = PosterRelay::cached($url)) !== null) {
+            return $bytes;
+        }
         if (($bytes = $this->fetch($url)) !== null) {
             return $bytes;
         }

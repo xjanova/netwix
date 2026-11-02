@@ -60,6 +60,9 @@ class ImportService
                     // Merge, so flags the import wrote (e.g. `unplayable`) survive the next listing.
                     $row->extra = array_merge((array) ($row->extra ?? []), (array) ($rs->extra ?? []));
                     $row->save();
+                    if ($sourceId === 'rongyok' && $row->wasRecentlyCreated) {
+                        $this->requestPoster($row);
+                    }
                     $running++;
                 } catch (\Throwable $e) {
                     // One unusable remote row must not cost the whole catalogue. A 277-character
@@ -102,6 +105,14 @@ class ImportService
         $source = $this->registry->get($st->source);
         if (! $source) {
             throw new \RuntimeException("ไม่รู้จักแหล่งที่มา: {$st->source}");
+        }
+        if ($st->source === 'rongyok' && !$st->content_id) {
+            $episodes = $source->fetchEpisodes(new RemoteSeries(source: $st->source, sourceKey: $st->source_key,
+                title: $st->title, cleanTitle: $st->displayTitle(), extra: (array) $st->extra));
+            if ($episodes === []) {
+                $this->requestPoster($st);
+                throw new \RuntimeException('ยังอ่านข้อมูลตอนไม่ได้ — ส่งให้ NetWix Relay โหลดปกและข้อมูลแล้ว กรุณารอแล้วนำเข้าอีกครั้ง');
+            }
         }
 
         // SKIP un-playable EMBED titles up front (owner rule 2026-07-07: "if the player is abyss, skip it
@@ -172,8 +183,27 @@ class ImportService
         $this->linkMirrors($content);          // duplicates on other sites become mutual backup links
 
         $st->update(['content_id' => $content->id, 'episodes_count' => $count]);
+        // A source-blocked cover is retried by Chrome and attached when ready. Signed episode
+        // URLs remain resolved on demand; importing never stores a short-lived CDN URL as permanent.
+        if ($st->source === 'rongyok' && str_starts_with((string) $content->fresh()->poster_path, 'http')) {
+            $this->requestPoster($st);
+        }
 
         return $content;
+    }
+
+    private function requestPoster(SourceTitle $title): void
+    {
+        if (!\App\Support\BrowserRelay::online()) {
+            return;
+        }
+        $admin = request()->user();
+        if (!$admin || $admin->role !== 'admin') {
+            $admin = \App\Models\User::where('role', 'admin')->first();
+        }
+        if ($admin) {
+            \App\Support\PosterRelay::enqueue($title, $admin);
+        }
     }
 
     /**

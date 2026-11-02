@@ -51,6 +51,7 @@ const stopRequested = () => stopping || existsSync('worker.stop');
 const concurrency = pool ? 1 : Math.min(4, Math.max(1, parseInt(process.env.BROWSER_RELAY_CONCURRENCY || '2', 10) || 2));
 const db = await openRelayDb(resolvePath(process.env.BROWSER_RELAY_DB || 'relay.db')).catch(() => null);
 const active = new Map();
+const jobKey = job => `${job.type === 'poster' ? 'poster' : 'video'}:${job.id}`;
 // Urban exit rotation: a location RongYok blocked rests for 30 minutes before it is tried again.
 const preferredLocations = (process.env.BROWSER_RELAY_URBAN_LOCATIONS || '').split(',').map(name => name.trim()).filter(Boolean);
 const LOCATION_COOLDOWN_MS = 30 * 60000;
@@ -225,6 +226,15 @@ async function main() {
         log('job_started', { job_id: job.id, series_id: job.series_id, episode: job.episode, priority: job.priority ?? 0, ...ctx });
         const extras = new Map();
         try {
+            if (job.type === 'poster') {
+                const image = await jobResolver.resolve(job);
+                await api(`posters/${job.id}/complete`, {lease_token:job.lease_token, ...image});
+                finish({outcome:'completed', video_host:'rongyok.com'});
+                failStreak = 0;
+                active.delete(jobKey(job));
+                log('job_completed', {job_id:job.id, series_id:job.series_id, kind:'poster', duration_ms:Date.now()-startedAt, ...ctx});
+                return;
+            }
             const video = await jobResolver.resolve(job, extras);
             const sent = [...extras].map(([episode, video_url]) => ({ episode, video_url }));
             const reply = await api(`jobs/${job.id}/complete`, { lease_token: job.lease_token, video_url: video, ...(sent.length ? { extras: sent } : {}) });
@@ -234,7 +244,7 @@ async function main() {
             finish({ outcome: 'completed', video_host: new URL(video).hostname, expires_at: expiresAt(video),
                 extras_found: sent.length, extras_accepted: accepted, vpn });
             failStreak = 0;
-            active.delete(job.id); // so status.json no longer counts this tab
+            active.delete(jobKey(job)); // so status.json no longer counts this tab
             log('job_completed', { job_id: job.id, series_id: job.series_id, episode: job.episode,
                 duration_ms: Date.now() - startedAt, extras: accepted, vpn, ...ctx });
         } catch (error) {
@@ -243,9 +253,10 @@ async function main() {
             // Completion may have succeeded even if its response was lost. A 409 is harmless;
             // otherwise the bounded lease allows recovery after a network failure.
             const serverCode = ['vpn_unavailable', 'urban_registration_failed'].includes(code) ? 'urban_not_connected' : code;
-            if (!apiError) await api(`jobs/${job.id}/fail`, { lease_token: job.lease_token, error: serverCode }).catch(() => {});
+            if (!apiError || (job.type === 'poster' && code === 'api_422')) await api(`${job.type === 'poster' ? 'posters' : 'jobs'}/${job.id}/fail`,
+                { lease_token: job.lease_token, error: code === 'api_422' ? 'invalid_url' : serverCode }).catch(() => {});
             finish({ outcome: 'failed', error: code, extras_found: extras.size, vpn: pool ? pool.status.provider : urbanAt });
-            active.delete(job.id);
+            active.delete(jobKey(job));
             log('job_failed', { job_id: job.id, series_id: job.series_id, episode: job.episode, error: code, duration_ms: Date.now() - startedAt, ...ctx });
             if (pool) { pauseUntil = Date.now() + Math.max(3000, pool.retryAfter()); return; }
             if (['browser_unavailable', 'urban_not_connected', 'urban_registration_failed'].includes(code)) restartBrowser = true;
@@ -309,7 +320,7 @@ async function main() {
         }
         let job;
         try {
-            ({ job } = await api('jobs/claim'));
+            ({ job } = await api('jobs/claim', {posters:true}));
             // Three good round trips after an update: the new version works, drop the rollback.
             if (++claimsOk === 3) updater.confirmHealthy();
         }
@@ -323,7 +334,7 @@ async function main() {
         if (job) {
             if (!validJob(job)) { log('worker_waiting', { error: 'invalid_job' }); await sleep(15000); continue; }
             lastJobAt = Date.now();
-            active.set(job.id, runJob(job).finally(() => active.delete(job.id)));
+            active.set(jobKey(job), runJob(job).finally(() => active.delete(jobKey(job))));
             if (process.argv.includes('--once')) break;
             continue; // fill the remaining tabs straight away
         }

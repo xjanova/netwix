@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Support\PosterBackfill;
+use App\Support\PosterRelay;
+use App\Support\AdvertCover;
+use App\Models\SourceTitle;
 use App\Support\SafeUrl;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -39,12 +42,21 @@ class ImageProxyController extends Controller
 
         $key = 'admin:imgproxy:'.md5($url);
         $payload = Cache::get($key);
+        if ($payload && AdvertCover::looksLikeAdvert(base64_decode($payload['b']), $url)) {
+            $payload = null;
+            Cache::forget($key);
+        }
 
         if ($payload === null) {
             // Reuse the downloader the cover pipeline uses: it already handles the hosts that refuse
             // a blank Referer, and it verifies the bytes really are an image.
             $bytes = $backfill->fetchImage($url);
             if ($bytes === null || strlen($bytes) > self::MAX_BYTES) {
+                $title = AdvertCover::isAdvertHotlink($url)
+                    ? SourceTitle::where('source', 'rongyok')->where('poster_url', $url)->first() : null;
+                if ($title && $request->user() && PosterRelay::enqueue($title, $request->user())) {
+                    return response('', 503, ['Retry-After' => '4', 'Cache-Control' => 'no-store']);
+                }
                 return response('', 404);
             }
             $payload = ['b' => base64_encode($bytes), 't' => self::sniff($bytes)];

@@ -451,7 +451,11 @@ class RongYokSource implements MediaSource, ProvidesSynopsis, SearchesPosters
 
     public function fetchEpisodes(RemoteSeries $series): array
     {
-        $html = $this->watchPage($series->sourceKey);
+        try {
+            $html = $this->watchPage($series->sourceKey);
+        } catch (\Throwable) {
+            $html = '';
+        }
 
         $nums = [];
         if ($epJson = JsonExtract::episodesArray($html)) {
@@ -470,6 +474,13 @@ class RongYokSource implements MediaSource, ProvidesSynopsis, SearchesPosters
             }
         }
 
+        if (!$nums) {
+            $stored = \App\Models\SourceTitle::where('source', 'rongyok')->where('source_key', $series->sourceKey)->first();
+            $count = (int) ($stored?->extra['relay_episodes_count'] ?? 0);
+            if ($count > 0 && $count <= 1000) {
+                $nums = range(1, $count);
+            }
+        }
         sort($nums);
 
         return array_map(fn ($n) => ['number' => $n, 'ref' => (string) $n], $nums);
