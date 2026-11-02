@@ -31,12 +31,12 @@ final class PosterRelay
             return false;
         }
         DB::table('browser_relay_posters')->insertOrIgnore([
-            'source_title_id' => $title->id, 'requested_by' => $admin->id,
+            'source_title_id' => $title->id, 'series_id' => $title->source_key, 'requested_by' => $admin->id,
             'state' => 'queued', 'available_at' => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
         DB::table('browser_relay_posters')->where('source_title_id', $title->id)
             ->where(fn ($q) => $q->where('state', 'ready')->orWhere(fn ($x) => $x->where('state', 'failed')->where('available_at', '<=', now())))
-            ->update(['state' => 'queued', 'attempts' => 0, 'requested_by' => $admin->id, 'updated_at' => now()]);
+            ->update(['state' => 'queued', 'attempts' => 0, 'series_id' => $title->source_key, 'requested_by' => $admin->id, 'updated_at' => now()]);
 
         return true;
     }
@@ -54,7 +54,7 @@ final class PosterRelay
                 return null;
             }
             $title = SourceTitle::find($job->source_title_id);
-            if (!$title || $title->source !== 'rongyok' || !preg_match('/^\d{1,20}$/D', $title->source_key)
+            if (!$title || $title->source !== 'rongyok' || $title->source_key !== $job->series_id || !preg_match('/^\d{1,20}$/D', $title->source_key)
                 || !User::whereKey($job->requested_by)->where('role', 'admin')->exists()) {
                 DB::table('browser_relay_posters')->where('id', $job->id)->update(['state' => 'failed', 'last_error' => 'unavailable']);
                 return null;
@@ -80,11 +80,12 @@ final class PosterRelay
         return $job;
     }
 
-    public static function complete(int $id, string $token, string $data, string $url): bool
+    public static function complete(int $id, string $token, string $data, string $url, int $episodes, ?string $description = null): bool
     {
-        return DB::transaction(function () use ($id, $token, $data, $url) {
+        return DB::transaction(function () use ($id, $token, $data, $url, $episodes, $description) {
             $job = self::leased($id, $token);
             $title = SourceTitle::findOrFail($job->source_title_id);
+            abort_unless($title->source === 'rongyok' && $title->source_key === $job->series_id && $episodes >= 1 && $episodes <= 1000, 409);
             abort_unless(User::whereKey($job->requested_by)->where('role', 'admin')->exists(), 409);
             $bytes = ImageStore::decodeDataUrl($data, 4_000_000);
             $size = $bytes ? @getimagesizefromstring($bytes) : false;
@@ -100,7 +101,11 @@ final class PosterRelay
             $title->forceFill(['extra' => array_merge((array) $title->extra, [
                 'relay_poster_path' => $path, 'relay_poster_url' => $title->poster_url,
                 'relay_poster_page' => 'https://rongyok.com/series/'.$title->source_key.'/',
+                'relay_episodes_count' => $episodes, 'relay_metadata_at' => now()->toIso8601String(),
             ])])->save();
+            if (mb_strlen(trim((string) $description)) >= 20) {
+                $title->forceFill(['description' => mb_substr(trim(strip_tags($description)), 0, 2000)])->save();
+            }
             $content = Content::withoutGlobalScopes()->where('source', $title->source)->where('source_key', $title->source_key)->first();
             if ($content && (!$content->poster_path || AdvertCover::isAdvertHotlink($content->poster_path))) {
                 $stored = ImageStore::putCover($bytes, 'media/posters', (string) $content->id, $content->poster_path,

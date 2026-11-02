@@ -25,8 +25,11 @@ class BrowserRelayController extends Controller
             'lease_token' => ['required', 'string', 'size:64'],
             'image' => ['required', 'string', 'max:5400000'],
             'image_url' => ['required', 'string', 'max:2048'],
+            'episodes_count' => ['required', 'integer', 'between:1,1000'],
+            'description' => ['nullable', 'string', 'max:2000'],
         ]);
-        abort_unless(PosterRelay::complete($job, $data['lease_token'], $data['image'], $data['image_url']), 422, 'Invalid poster');
+        abort_unless(PosterRelay::complete($job, $data['lease_token'], $data['image'], $data['image_url'],
+            $data['episodes_count'], $data['description'] ?? null), 422, 'Invalid poster');
 
         return response()->json(['ok' => true]);
     }

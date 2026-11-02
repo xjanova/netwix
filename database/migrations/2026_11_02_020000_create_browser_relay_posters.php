@@ -11,6 +11,7 @@ return new class extends Migration
         Schema::create('browser_relay_posters', function (Blueprint $table) {
             $table->id();
             $table->foreignId('source_title_id')->unique()->constrained()->cascadeOnDelete();
+            $table->string('series_id', 20);
             $table->foreignId('requested_by')->constrained('users')->cascadeOnDelete();
             $table->string('state', 16)->default('queued');
             $table->unsignedSmallInteger('attempts')->default(0);

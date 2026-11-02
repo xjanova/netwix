@@ -191,6 +191,11 @@ export class ChromeResolver {
             if ([403,429].includes(response?.status())) throw new Error('source_blocked');
             const image = page.locator('img[alt^="โปสเตอร์เรื่อง"]').first();
             await image.waitFor({state:'visible', timeout:10000});
+            const text = await page.locator('body').innerText();
+            const episodes = Number(/จำนวนตอน\s*:?\s*(\d{1,4})/.exec(text)?.[1]);
+            if (!Number.isInteger(episodes) || episodes < 1 || episodes > 1000) throw new Error('no_video');
+            const description = await page.locator('h2').filter({hasText:'คำอธิบาย'}).first()
+                .evaluate(h => h.nextElementSibling?.textContent?.trim().slice(0,2000) || '').catch(() => '');
             const src = await image.evaluate(i => i.currentSrc || i.src);
             if (!validPosterUrl(src)) throw new Error('invalid_url');
             // The browser fetched this with the series page as its Referer. Never make a second
@@ -202,7 +207,7 @@ export class ChromeResolver {
                 .includes(createHash('md5').update(bytes).digest('hex'))) throw new Error('source_blocked');
             const type = received.headers()['content-type']?.split(';')[0];
             if (!/^image\/(webp|png|jpeg)$/.test(type || '')) throw new Error('invalid_url');
-            return {image:`data:${type};base64,${bytes.toString('base64')}`, image_url:src};
+            return {image:`data:${type};base64,${bytes.toString('base64')}`, image_url:src, episodes_count:episodes, description};
         } finally { await page.close().catch(() => {}); }
     }
 }

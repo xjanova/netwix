@@ -54,6 +54,7 @@ class PosterRelayTest extends TestCase
         return $this->postJson('/api/browser-relay/posters/'.$job['id'].'/complete', [
             'lease_token' => $job['lease_token'], 'image_url' => $this->title->poster_url,
             'image' => 'data:image/png;base64,'.base64_encode($this->png($advert)),
+            'episodes_count' => 2,
         ]);
     }
 
@@ -140,5 +141,24 @@ class PosterRelayTest extends TestCase
         $this->assertSame($first['id'], $next['id']);
         $this->assertNotSame($first['lease_token'], $next['lease_token']);
         $this->complete($next)->assertOk();
+    }
+
+    public function test_import_does_not_create_a_broken_title_when_episode_metadata_is_blocked(): void
+    {
+        Http::fake(['rongyok.com/*' => Http::response('blocked', 403)]);
+        try {
+            app(ImportService::class)->import($this->title, ['type' => 'vertical', 'publish' => true]);
+            $this->fail('Expected import to wait for relay metadata');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('NetWix Relay', $e->getMessage());
+        }
+        $this->assertDatabaseCount('contents', 0);
+        $this->assertDatabaseCount('episodes', 0);
+        $this->assertDatabaseCount('browser_relay_posters', 1);
+        $this->complete($this->claim())->assertOk();
+        $content = app(ImportService::class)->import($this->title->fresh(), ['type' => 'vertical', 'publish' => true]);
+        $this->assertSame(2, $content->episodes()->count());
+        $this->assertStringStartsWith('media/posters/', $content->poster_path);
+        $this->assertSame(0, $content->episodes()->whereNotNull('video_url')->count());
     }
 }
