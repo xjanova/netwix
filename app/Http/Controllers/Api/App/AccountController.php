@@ -26,6 +26,46 @@ use Illuminate\Support\Facades\DB;
  */
 class AccountController extends Controller
 {
+    /** GET /api/app/account — the contact details the web edits on /account/settings. */
+    public function show(Request $request): JsonResponse
+    {
+        return response()->json(['success' => true, 'data' => $this->contact($request->user())]);
+    }
+
+    /**
+     * POST /api/app/account — same rules as the web's /account/settings form, so a member edits
+     * one record from either side. Email (the login) is intentionally not editable here either.
+     */
+    public function update(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'phone' => ['nullable', 'string', 'max:32'],
+            'address' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $user = $request->user();
+        $user->update([
+            'name' => trim($data['name']),
+            'phone' => filled($data['phone'] ?? null) ? trim($data['phone']) : null,
+            'address' => filled($data['address'] ?? null) ? trim($data['address']) : null,
+        ]);
+
+        return response()->json(['success' => true, 'data' => $this->contact($user->refresh())]);
+    }
+
+    private function contact(User $user): array
+    {
+        return [
+            'name' => $user->name,
+            // Social sign-ups get a placeholder address; never show it as if it were theirs.
+            'email' => str_ends_with((string) $user->email, '@social.netwix') ? null : $user->email,
+            'phone' => $user->phone,
+            'address' => $user->address,
+            'provider' => $user->provider,
+        ];
+    }
+
     public function destroy(Request $request): JsonResponse
     {
         $request->validate(['confirm' => ['required', 'in:DELETE']]);

@@ -49,11 +49,15 @@ class EpisodeSourceController extends Controller
         }
 
         $guestWatch = app(GuestWatch::class);
-        if ($request->routeIs('episode.source') && $guestWatch->requiresSignup($request->user(), $episode)) {
+        // The app holds guests to the same quota once it says it can show the signup prompt;
+        // older app builds don't understand `signup_required` and would only show a dead player.
+        $gated = $request->routeIs('episode.source') || $request->header('X-NetWix-Guest-Quota') === '1';
+        if ($gated && $guestWatch->requiresSignup($request->user(), $episode)) {
             return response()->json([
                 'ready' => false,
                 'error' => 'signup_required',
                 'signupUrl' => $guestWatch->signupUrl($episode->content, $episode),
+                'freeEpisodes' => $guestWatch->limit(),
             ], 403);
         }
 

@@ -135,6 +135,10 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
 
+        // Contact details — the same record the web edits on /account/settings.
+        Route::get('account', [AccountController::class, 'show']);
+        Route::post('account', [AccountController::class, 'update'])->middleware('throttle:20,1');
+
         // Danger zone: self-service account deletion (requires confirm=DELETE).
         Route::delete('account', [AccountController::class, 'destroy'])->middleware('throttle:5,1');
 
