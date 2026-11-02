@@ -126,17 +126,19 @@ window.importer = () => ({
     pv: null, pvLoading: false, pvError: false, pvEmbed: null,
     pvBase: '{{ url('admin/preview/source') }}',
     async preview(id, title) {
-        this.pv = { id, title }; this.pvLoading = true; this.pvError = false; this.pvEmbed = null;
+        const current = { id, title };
+        this.pv = current; this.pvLoading = true; this.pvError = false; this.pvEmbed = null;
+        const active = this.pv;
         this.$nextTick(async () => {
             const v = this.$refs.pvVid;
             try {
-                const r = await fetch(this.pvBase + '/' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
-                const d = r.ok ? await r.json() : null;
+                const d = await window.nxAdminPreview(this.pvBase + '/' + id, {isCurrent: () => this.pv === active});
+                if (this.pv !== active) return;
                 this.pvLoading = false;
                 if (d && d.ready && d.url && d.kind === 'embed') { this.pvEmbed = d.url; }   // 9nung/abyss → iframe
                 else if (d && d.ready && d.url) { window.nxAttachVideo(v, d.url, null, d.kind); v.play?.().catch(() => {}); }
                 else { this.pvError = true; }
-            } catch (e) { this.pvLoading = false; this.pvError = true; }
+            } catch (e) { if (this.pv === active) { this.pvLoading = false; this.pvError = true; } }
         });
     },
     pvClose() {
@@ -597,8 +599,11 @@ window.syncer = () => ({
                         @php($cover = $t->content?->poster_url ?: \App\Support\MediaUrl::adminPoster($t->poster_url))
                         @if ($cover)
                             <img src="{{ $cover }}" alt="" loading="lazy" referrerpolicy="no-referrer"
+                                 @if (parse_url((string) $t->poster_url, PHP_URL_HOST) === 'rongyok.com')
+                                 data-source-cover="{{ \App\Support\MediaUrl::encodePath($t->poster_url) }}"
+                                 @endif
                                  class="absolute inset-0 h-full w-full object-cover"
-                                 onerror="this.style.display='none'">
+                                 onerror="if (this.dataset.sourceCover) { const u = this.dataset.sourceCover; delete this.dataset.sourceCover; this.src = u; } else { this.style.display='none'; }">
                         @endif
                         {{-- Watch ep-1 from the source BEFORE importing (@click.stop.prevent so it doesn't toggle the checkbox). --}}
                         <button type="button" @click.stop.prevent="preview({{ $t->id }}, @js($t->displayTitle()))"

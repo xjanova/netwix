@@ -6,6 +6,7 @@ use App\Models\BlockedIp;
 use App\Models\Content;
 use App\Models\SecurityEvent;
 use App\Models\Setting;
+use App\Models\SourceTitle;
 use App\Models\User;
 use App\Support\BrowserRelay;
 use App\Support\RongYokClientResolver;
@@ -77,6 +78,47 @@ class BrowserRelayTest extends TestCase
         $this->assertNotSame($job['lease_token'], DB::table('browser_relay_jobs')->value('lease_token'));
         $this->assertNull($this->claim());
         Http::assertNothingSent();
+    }
+
+    public function test_admin_can_preview_an_unimported_title_through_the_existing_worker(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $title = SourceTitle::create(['source' => 'rongyok', 'source_key' => '100852240', 'title' => 'Preview only']);
+        $url = route('admin.preview.source', $title);
+        $this->actingAs($admin)->getJson($url)->assertStatus(202)->assertJsonPath('relay.state', 'pending');
+        $this->getJson($url)->assertStatus(202);
+        $this->assertDatabaseCount('browser_relay_jobs', 1);
+        $this->assertDatabaseCount('contents', 0);
+        $this->assertDatabaseCount('episodes', 0);
+        $job = $this->claim();
+        $this->assertSame('100852240', $job['series_id']);
+        $this->assertSame('1', $job['episode']);
+        $this->assertSame('Preview only', $job['title']);
+        $this->mp4();
+        $this->assertSame(0, BrowserRelay::complete($job['id'], $job['lease_token'], $this->video('1')));
+        $this->getJson($url)->assertOk()->assertJsonPath('ready', true)->assertJsonPath('kind', 'mp4');
+        $this->assertDatabaseCount('contents', 0);
+    }
+
+    public function test_admin_preview_work_is_rejected_if_the_requester_is_no_longer_an_admin(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $title = SourceTitle::create(['source' => 'rongyok', 'source_key' => '100852240', 'title' => 'Preview only']);
+        BrowserRelay::enqueuePreview($title, $admin);
+        $admin->update(['role' => 'user']);
+        $this->assertNull($this->claim());
+        $this->assertDatabaseHas('browser_relay_jobs', ['source_title_id' => $title->id, 'state' => 'failed']);
+        $this->actingAs($admin)->getJson(route('admin.preview.source', $title))->assertForbidden();
+    }
+
+    public function test_admin_can_relay_an_unpublished_episode_without_publishing_it(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $ep = $this->episode(['is_published' => false]);
+        $this->actingAs($admin)->getJson(route('admin.preview.episode', $ep))
+            ->assertStatus(202)->assertJsonPath('relay.state', 'pending');
+        $this->assertSame((string) $ep->source_ref, $this->claim()['episode']);
+        $this->assertFalse($ep->content->fresh()->is_published);
     }
 
     public function test_completed_link_is_shared_and_survives_beyond_one_hour(): void

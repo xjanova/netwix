@@ -181,11 +181,12 @@
                 open(ep) {
                     this.stopAssist(); this.assistMessage = ''; this.assistCode = '';
                     this.ep = ep; this.msg = ''; this.ok = false; this.playError = false; this.embedUrl = null; this.loading = true;
+                    const active = this.ep;
                     this.$nextTick(async () => {
                         const v = this.$refs.vid;
                         try {
-                            const r = await fetch(ep.resolve, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
-                            const d = r.ok ? await r.json() : null;
+                            const d = await window.nxAdminPreview(ep.resolve, {isCurrent: () => this.ep === active});
+                            if (this.ep !== active) return;
                             this.loading = false;
                             if (d && d.ready && d.url && d.kind === 'embed') {
                                 this.embedUrl = d.url;   // 9nung/abyss → sandboxed iframe (no frame-capture)
@@ -196,6 +197,7 @@
                                 this.playError = true;
                             }
                         } catch (e) {
+                            if (this.ep !== active) return;
                             this.loading = false; this.playError = true;
                         }
                     });
