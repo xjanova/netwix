@@ -10,6 +10,8 @@ use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
 use App\Support\HlsManifest;
 use App\Support\HlsSegment;
+use App\Support\BrowserRelay;
+use App\Support\RongYokClientResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -44,7 +46,14 @@ class AdminPreviewController extends Controller
 
         $stream = $this->resolveEpisode($episode, $registry);
 
-        return $stream ? $this->play($stream->url, $stream->referer, $stream->kind) : response()->json(['ready' => false], 202);
+        if ($stream) {
+            return $this->play($stream->url, $stream->referer, $stream->kind);
+        }
+        $relay = request()->user() ? BrowserRelay::enqueue($episode, BrowserRelay::PRIORITY_VIEWER,
+            ['user_id' => request()->user()->id, 'via' => 'admin']) : null;
+
+        return response()->json(['ready' => false] + ($relay ? ['relay' => $relay] : [])
+            + (($client = RongYokClientResolver::forEpisode($episode)) ? ['client_resolve' => $client] : []), 202);
     }
 
     /**
@@ -56,6 +65,24 @@ class AdminPreviewController extends Controller
     {
         $source = $registry->get($sourceTitle->source);
         abort_unless($source, 404);
+
+        // RongYok episode one is stable. Its ordinary resolver may deliberately defer to Chrome;
+        // the old preview discarded that handoff and always displayed an immediate failure.
+        if ($sourceTitle->source === 'rongyok') {
+            try {
+                $stream = $source->resolveByRef($sourceTitle->source_key, '1');
+            } catch (\Throwable) {
+                $stream = null;
+            }
+            if ($stream) {
+                return $this->play($stream->url, $stream->referer, $stream->kind);
+            }
+            $relay = request()->user() ? BrowserRelay::enqueuePreview($sourceTitle, request()->user()) : null;
+            $client = RongYokClientResolver::descriptor($sourceTitle->source_key, '1');
+
+            return response()->json(['ready' => false] + ($relay ? ['relay' => $relay] : [])
+                + ($client ? ['client_resolve' => $client] : []), 202);
+        }
 
         $rs = new RemoteSeries(
             source: $sourceTitle->source,

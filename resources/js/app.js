@@ -1,5 +1,7 @@
 import './bootstrap';
 import Alpine from 'alpinejs';
+import { adminPreview } from './admin-preview';
+window.nxAdminPreview = adminPreview;
 import { watchRewards, campaignPage } from './engagement-rewards';
 window.nxEngagementWatch = watchRewards;
 window.nxCampaignPage = campaignPage;

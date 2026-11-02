@@ -3,6 +3,8 @@
 namespace App\Support;
 
 use App\Models\Episode;
+use App\Models\SourceTitle;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -130,6 +132,35 @@ final class BrowserRelay
         return $result;
     }
 
+    /** Admin-only preview before import. No Content/Episode is created or published. */
+    public static function enqueuePreview(SourceTitle $title, User $admin): ?array
+    {
+        if ($admin->role !== 'admin' || ! self::online() || $title->source !== 'rongyok'
+            || ! preg_match('/^\d{1,20}$/D', $title->source_key)) {
+            return null;
+        }
+        DB::table('browser_relay_jobs')->insertOrIgnore([
+            'source_title_id' => $title->id, 'series_id' => $title->source_key, 'episode' => '1',
+            'priority' => self::PRIORITY_VIEWER, 'requested_by' => $admin->id, 'requested_via' => 'admin',
+            'state' => 'queued', 'attempts' => 0, 'available_at' => now(), 'requested_at' => now(),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return DB::transaction(function () use ($title, $admin) {
+            $job = DB::table('browser_relay_jobs')->where('source_title_id', $title->id)->lockForUpdate()->first();
+            $update = ['requested_at' => now(), 'updated_at' => now(), 'requested_by' => $admin->id];
+            if ($job->series_id !== $title->source_key || $job->state === 'ready'
+                || ($job->state === 'failed' && $job->available_at <= now()->toDateTimeString())) {
+                $update += ['state' => 'queued', 'attempts' => 0, 'lease_token' => null,
+                    'lease_expires_at' => null, 'available_at' => now(), 'last_error' => null,
+                    'series_id' => $title->source_key];
+            }
+            DB::table('browser_relay_jobs')->where('id', $job->id)->update($update);
+
+            return ['state' => ($update['state'] ?? $job->state) === 'failed' ? 'retry_later' : 'pending', 'retry_after' => 3];
+        });
+    }
+
     /**
      * A viewer watching through the relay will most likely press "next": have the following
      * episodes opened while this one plays, so the next one starts without a wait. Bounded to
@@ -172,7 +203,13 @@ final class BrowserRelay
                     return null;
                 }
                 $ep = Episode::with('content')->find($job->episode_id);
-                $d = $ep && $ep->content?->is_published ? self::descriptor($ep) : null;
+                $adminPreview = $job->requested_via === 'admin' && $job->requested_by
+                    && User::whereKey($job->requested_by)->where('role', 'admin')->exists();
+                $title = $adminPreview && $job->source_title_id ? SourceTitle::find($job->source_title_id) : null;
+                $d = $ep && ($ep->content?->is_published || $adminPreview) ? self::descriptor($ep) : null;
+                if ($title?->source === 'rongyok' && preg_match('/^\d{1,20}$/D', $title->source_key)) {
+                    $d = ['series_id' => $title->source_key, 'episode' => '1'];
+                }
                 $live = $d && $d['series_id'] === $job->series_id && $d['episode'] === $job->episode;
                 if (! $live || $job->attempts >= 3) {
                     self::failRow($job, $live ? 'lease_expired' : 'content_unavailable', true);
@@ -198,8 +235,8 @@ final class BrowserRelay
                     'source' => 'rongyok', 'series_id' => $job->series_id, 'episode' => $job->episode,
                     'priority' => (int) $job->priority,
                     'reason' => (int) $job->priority === self::PRIORITY_VIEWER ? 'viewer' : 'prefetch',
-                    'title' => mb_substr((string) $ep->content->title, 0, 120),
-                    'episode_number' => (int) $ep->number,
+                    'title' => mb_substr((string) ($title?->displayTitle() ?? $ep?->content?->title), 0, 120),
+                    'episode_number' => $title ? 1 : (int) $ep->number,
                     'requester' => ['member' => $job->requested_by !== null,
                         'name' => $name !== null ? mb_substr((string) $name, 0, 40) : null,
                         'via' => $job->requested_via]];
