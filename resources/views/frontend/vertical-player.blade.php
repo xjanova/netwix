@@ -77,7 +77,7 @@
                @click="togglePlay()"
                @timeupdate="onTime(); rewardTick()"
                @ended="onEnded()"
-               @play="playing = true" @pause="playing = false"
+               @play="playing = true" @pause="playing = false; resetRewardWatch()" @seeking="resetRewardWatch()"
                @waiting="stall()" @stalled="stall()"
                @playing="resume(); maybeCapture()" @canplay="resume()" @loadeddata="resume()" x-on:error="onVideoError()"
                class="h-full w-full bg-black object-contain"></video>

@@ -1,19 +1,25 @@
 /** Position advancement + server time are checked together. Hidden/paused players never send beats. */
 export function watchRewards(cfg, post = (...args) => window.nxPostSoft(...args)) {
-    let token = null, episode = undefined, busy = false, last = 0;
+    let token = null, episode = undefined, busy = false, last = 0, generation = 0;
+    const reset = () => { token = null; last = 0; generation++; };
+    if (cfg && typeof document !== 'undefined') document.addEventListener?.('visibilitychange', reset);
     return {
         rewardNotice: '',
+        resetRewardWatch: reset,
         async rewardTick() {
             const v = this.$refs.video;
-            if (!cfg || !v || v.paused || v.ended || v.seeking || document.visibilityState !== 'visible' || !Number.isFinite(v.currentTime)) return;
+            if (!cfg || !v) return;
+            if (v.paused || v.ended || v.seeking || document.visibilityState !== 'visible' || !Number.isFinite(v.currentTime)) { reset(); return; }
             const ep = this.episodes[this.index]?.id ?? null;
             if (busy || Date.now() - last < 15000) return;
             busy = true; last = Date.now();
+            const requestGeneration = generation;
             try {
                 if (ep !== episode) { token = null; episode = ep; }
                 const result = token
                     ? await post(cfg.beat, { token, position: v.currentTime })
                     : await post(cfg.start, { content_id: cfg.content, episode_id: ep, position: v.currentTime });
+                if (generation !== requestGeneration) return;
                 if (this.episodes[this.index]?.id !== ep && ep !== null) { token = null; return; }
                 if (!result?.success) { token = null; return; }
                 if (result.data?.token) token = result.data.token;

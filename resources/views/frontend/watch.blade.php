@@ -135,6 +135,7 @@
         <video x-ref="video" x-show="!embedUrl" controls controlsList="nofullscreen" autoplay playsinline
                @timeupdate.throttle.10000ms="saveProgress()"
                @timeupdate="resume(); marks(); rewardTick()"
+               @pause="resetRewardWatch()" @seeking="resetRewardWatch()"
                @ended="onEnded()"
                @waiting="stall()" @stalled="stall()"
                @seeked="_lastT = $refs.video.currentTime; _stuck = 0"

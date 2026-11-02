@@ -30,6 +30,19 @@ test('guest players never request campaign credit', async () => {
     await p.rewardTick(); assert.equal(calls, 0);
 });
 
+test('returning from hidden playback starts a new baseline and does not credit the hidden gap', async t => {
+    let now = 100000;
+    t.mock.method(Date, 'now', () => now);
+    globalThis.document = { visibilityState: 'visible' };
+    const calls = [];
+    const p = { ...watchRewards({ content: 7, start: '/start', beat: '/beat' }, async url => {
+        calls.push(url); return { success: true, data: { token: 'token' } };
+    }), $refs: { video: { paused: false, ended: false, seeking: false, currentTime: 0 } }, episodes: [{id:1}], index:0 };
+    await p.rewardTick(); document.visibilityState = 'hidden'; now += 10000;
+    await p.rewardTick(); document.visibilityState = 'visible'; p.$refs.video.currentTime = 10;
+    await p.rewardTick(); assert.deepEqual(calls, ['/start','/start']);
+});
+
 test('cancelled native sharing is not rewarded', async () => {
     Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { share: async () => { const e = new Error('cancel'); e.name = 'AbortError'; throw e; } } });
     let paid = false;
