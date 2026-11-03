@@ -36,7 +36,10 @@ class FeedbackController extends Controller
         ]);
         $comment->setRelation('profile', $profile);
 
-        return $this->ok(['comment' => $this->commentPayload($comment)]);
+        return $this->ok([
+            'comment' => $this->commentPayload($comment),
+            'count' => $content->comments()->count(),
+        ]);
     }
 
     // -------------------------------------------------------------- ratings
@@ -74,8 +77,12 @@ class FeedbackController extends Controller
             'id' => $comment->id,
             'author' => $comment->profile?->name ?? 'สมาชิก',
             'avatar_color' => $comment->profile?->avatar_color,
+            'initial' => $comment->profile?->initial ?? 'N',
             'text' => $comment->body,
             'created_at' => $comment->created_at?->toIso8601String(),
+            // The web player's comment drawer reads this list too, so it gets the same "x ago" the
+            // Blade-seeded rows show.
+            'ago' => $comment->created_at?->diffForHumans(),
         ];
     }
 

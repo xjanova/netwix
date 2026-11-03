@@ -44,6 +44,16 @@ class Profile extends Model
         return $this->hasMany(WatchProgress::class);
     }
 
+    /**
+     * Only a hex colour ever leaves the model: it is printed into style="background:…" on every
+     * comment list, so anything else (an old row saved before validation, or "red;position:fixed")
+     * would let one profile restyle the page for every viewer. Null → the views' default tint.
+     */
+    public function getAvatarColorAttribute(?string $value): ?string
+    {
+        return $value !== null && preg_match('/^#[0-9a-fA-F]{3,8}$/', $value) ? $value : null;
+    }
+
     /** First grapheme of the name, for the avatar tile. */
     public function getInitialAttribute(): string
     {

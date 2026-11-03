@@ -95,15 +95,18 @@ class LibraryController extends Controller
         return $this->ok(['ok' => true]);
     }
 
-    /** Per-title state for the detail screen (liked / in-list / my rating + counts). */
+    /**
+     * Per-title state for the detail screen, Shorts and the player rail. Counts are public; a member
+     * token adds their own liked / in-list / rating flags (a guest gets false / null).
+     */
     public function contentState(Request $request, Content $content): JsonResponse
     {
-        $profile = $this->profile($request);
+        $profile = $request->user()?->defaultProfile();
 
         return $this->ok([
-            'liked' => $profile->likes()->where('content_id', $content->id)->exists(),
-            'in_list' => $profile->myList()->where('content_id', $content->id)->exists(),
-            'my_rating' => $content->ratings()->where('profile_id', $profile->id)->value('stars'),
+            'liked' => $profile ? $profile->likes()->where('content_id', $content->id)->exists() : false,
+            'in_list' => $profile ? $profile->myList()->where('content_id', $content->id)->exists() : false,
+            'my_rating' => $profile ? $content->ratings()->where('profile_id', $profile->id)->value('stars') : null,
             'likes_count' => $content->likedBy()->count(),
             'rating_avg' => round((float) $content->ratings()->avg('stars'), 1),
             'rating_count' => $content->ratings()->count(),

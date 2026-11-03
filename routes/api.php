@@ -103,6 +103,9 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
     // Public reads: comments list + rating summary (guests can see them).
     Route::get('content/{content:id}/comments', [FeedbackController::class, 'comments']);
     Route::get('content/{content:id}/ratings', [FeedbackController::class, 'ratings']);
+    // Like/comment counts for everyone; a member token adds their own liked / in-list / rating flags.
+    Route::get('content/{content:id}/state', [LibraryController::class, 'contentState'])
+        ->middleware('auth.apptoken.optional');
 
     // Public: count a watch (deduped server-side).
     Route::post('content/{content:id}/view', [CatalogController::class, 'view']);
@@ -155,12 +158,14 @@ Route::prefix('app')->middleware('throttle:90,1')->group(function () {
         Route::get('my-list', [LibraryController::class, 'myList']);
         Route::get('progress', [LibraryController::class, 'progress']);
         Route::post('progress', [LibraryController::class, 'saveProgress']);
-        Route::get('content/{content:id}/state', [LibraryController::class, 'contentState']);
         Route::post('content/{content:id}/list', [LibraryController::class, 'toggleList']);
         Route::post('content/{content:id}/like', [LibraryController::class, 'toggleLike']);
 
         // Feedback (writes)
-        Route::post('content/{content:id}/comments', [FeedbackController::class, 'storeComment']);
+        // Same 30/min as the web comment route. The named prefix keeps this counter apart from the
+        // group's unnamed throttle:90 — two unnamed throttles share one cache key and count twice.
+        Route::post('content/{content:id}/comments', [FeedbackController::class, 'storeComment'])
+            ->middleware('throttle:30,1,app-comment');
         Route::post('content/{content:id}/rating', [FeedbackController::class, 'storeRating']);
 
         // Membership: this member's Pro/coins/referral state + redeem a code.

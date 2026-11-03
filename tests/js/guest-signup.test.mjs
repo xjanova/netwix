@@ -8,7 +8,7 @@ for (const [name, file] of [['watchPlayer', 'watch'], ['verticalPlayer', 'vertic
     function setup() {
         const calls = [];
         const context = vm.createContext({
-            nxEpPicker: () => ({}), nxGuestSignup: guestSignup, nxEngagementWatch: () => ({}),
+            nxEpPicker: () => ({}), nxGuestSignup: guestSignup, nxEngagementWatch: () => ({}), nxSocial: () => ({}),
             clearTimeout() {}, clearInterval() {}, setTimeout() {},
             window: { nxAttachVideo: () => calls.push('attach') },
         });

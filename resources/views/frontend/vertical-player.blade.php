@@ -21,27 +21,21 @@
         ];
     })->values();
 
-    // Rating + latest comments seed for the end-of-series card (last vertical episode). Same shapes as
-    // partials/title-feedback + the horizontal watch player, reusing the content.rate/comment endpoints.
+    // Rating seed for the end-of-series card (last vertical episode). Same shapes as
+    // partials/title-feedback + the horizontal watch player, reusing the content.rate endpoint.
     $ratingAvg = round((float) $content->ratings()->avg('stars'), 1);
     $ratingCount = $content->ratings()->count();
     $myRating = isset($currentProfile) ? (int) $content->ratings()->where('profile_id', $currentProfile->id)->value('stars') : 0;
-    $commentCount = $content->comments()->count();
-    $endComments = $content->comments()->with('profile')->latest()->limit(6)->get()->map(fn ($c) => [
-        'author' => $c->profile?->name ?? 'สมาชิก',
-        'color' => $c->profile?->avatar_color ?? '#8b2ff0',
-        'initial' => $c->profile?->initial ?? 'N',
-        'text' => $c->body,
-        'ago' => optional($c->created_at)->diffForHumans(),
-    ])->values();
+    // Like / comment / share rail + comments drawer (partials/player-social-*), shared with the app.
+    $social = \App\Support\PlayerSocial::seed($content, $currentProfile ?? null);
 @endphp
 
 @section('content')
 <div
     x-data="verticalPlayer({ episodes: @js($eps), start: {{ $start }}, progressUrl: @js(auth()->check() ? route('content.progress', $content) : null), reportUrl: '{{ route('playback.report', $content) }}',
         rewardWatch: @js(auth()->check() ? ['content' => $content->id, 'start' => route('rewards.watch.start'), 'beat' => route('rewards.watch.beat')] : null),
-        rateUrl: '{{ route('content.rate', $content) }}', commentUrl: '{{ route('content.comment', $content) }}',
-        myRating: {{ $myRating }}, ratingAvg: {{ $ratingAvg ?: 0 }}, ratingCount: {{ $ratingCount }}, comments: @js($endComments), commentCount: {{ $commentCount }} })"
+        rateUrl: '{{ route('content.rate', $content) }}', social: @js($social),
+        myRating: {{ $myRating }}, ratingAvg: {{ $ratingAvg ?: 0 }}, ratingCount: {{ $ratingCount }} })"
     x-init="init()"
     @wheel.prevent="onWheel($event)"
     @touchstart.passive="onTouchStart($event)"
@@ -113,8 +107,10 @@
             <div class="text-sm text-cream/70">ตอนที่ <span x-text="episodes[index]?.n"></span> / {{ $eps->count() }}</div>
         </div>
 
-        {{-- up / down episode nav --}}
-        <div x-show="ui || !playing" x-transition.opacity class="absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col gap-3">
+        {{-- like · comment · share, then the up / down episode nav — one column, so they never overlap --}}
+        <div x-show="ui || !playing" x-transition.opacity class="absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-3">
+            @include('partials.player-social-rail')
+            <span class="h-1"></span>
             <button @click.stop="prev()" :disabled="index === 0" class="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-xl backdrop-blur disabled:opacity-30 hover:bg-white/20">↑</button>
             <button @click.stop="next()" :disabled="index === episodes.length - 1" class="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-xl backdrop-blur disabled:opacity-30 hover:bg-white/20">↓</button>
         </div>
@@ -145,9 +141,11 @@
         <div x-show="episodes.length === 0" class="absolute inset-0 flex items-center justify-center text-cream/60">ยังไม่มีตอน</div>
     </div>
 
+    @include('partials.player-social-drawer')
+
     {{-- End-of-series card: shown by onEnded() when the LAST vertical episode finishes. Members get
-         interactive stars + a comment box (same content.rate/comment endpoints); guests see the score
-         read-only + a login CTA. Full-screen so it's readable over the narrow 9:16 player. --}}
+         interactive stars (content.rate), guests the score read-only + a login CTA; both get a button
+         into the comments drawer. Full-screen so it's readable over the narrow 9:16 player. --}}
     <div x-show="finished" x-cloak x-transition.opacity
          class="absolute inset-0 z-[55] flex items-start justify-center overflow-y-auto bg-black/90 px-4 py-8 backdrop-blur">
         <div class="w-full max-w-lg">
@@ -179,38 +177,11 @@
                     </div>
                 @endauth
 
-                {{-- comment --}}
-                <div class="mt-5 border-t border-white/10 pt-4">
-                    <div class="mb-2 text-sm font-semibold">ความคิดเห็น <span class="text-cream/45">(<span x-text="ccount"></span>)</span></div>
-                    @auth
-                        <form @submit.prevent="postComment()">
-                            <textarea x-model="cbody" maxlength="500" rows="2" placeholder="บอกความรู้สึกหลังดูจบ…"
-                                      class="w-full resize-none rounded-lg border border-white/10 bg-surface-2 px-3.5 py-2.5 text-sm outline-none focus:border-brand"></textarea>
-                            @include('partials.turnstile')
-                            <div class="mt-2 flex justify-end">
-                                <button type="submit" :disabled="cbusy || !cbody.trim()" class="btn-brand px-5 py-1.5 text-sm disabled:opacity-40">ส่งความคิดเห็น</button>
-                            </div>
-                        </form>
-                    @else
-                        <a href="{{ route('login') }}" class="flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-surface-2 px-3.5 py-3 text-sm text-cream/70 transition hover:border-brand hover:text-cream">
-                            เข้าสู่ระบบเพื่อร่วมแสดงความคิดเห็น
-                        </a>
-                    @endauth
-
-                    <div class="mt-3 flex max-h-40 flex-col gap-3 overflow-y-auto">
-                        <template x-for="(c, i) in comments" :key="i">
-                            <div class="flex gap-2.5">
-                                <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-black/60"
-                                      :style="'background:' + (c.color || '#8b2ff0')" x-text="c.initial || (c.author || '?').charAt(0)"></span>
-                                <div class="min-w-0 flex-1">
-                                    <div class="flex items-center gap-2 text-[12px]"><span class="font-semibold" x-text="c.author"></span><span class="text-cream/40" x-text="c.ago"></span></div>
-                                    <p class="mt-0.5 whitespace-pre-line break-words text-[13px] text-cream/80" x-text="c.text"></p>
-                                </div>
-                            </div>
-                        </template>
-                        <p x-show="comments.length === 0" class="py-3 text-center text-[13px] text-cream/40">ยังไม่มีความคิดเห็น — เป็นคนแรกเลย!</p>
-                    </div>
-                </div>
+                {{-- comments live in the player's drawer (one composer, one Turnstile widget per page) --}}
+                <button type="button" @click.stop="soOpenComments()"
+                        class="mt-5 flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-surface-2 px-3.5 py-3 text-sm font-semibold text-cream/85 transition hover:border-brand hover:text-cream">
+                    💬 ความคิดเห็น <span class="text-cream/45">(<span x-text="soCount"></span>)</span> · ร่วมพูดคุย
+                </button>
             </div>
 
             {{-- actions --}}
@@ -253,6 +224,7 @@
             ...nxEpPicker(),
             ...nxGuestSignup(),
             ...nxEngagementWatch(cfg.rewardWatch),
+            ...nxSocial(cfg.social),
             _poll: null,
             _stallT: null,
             _reResolving: false,
@@ -273,10 +245,9 @@
             _ambi: null,
             _lastSave: 0,
 
-            // end-of-series rate + comment card (last episode)
+            // end-of-series rate card (last episode)
             finished: false,
             my: cfg.myRating || 0, avg: cfg.ratingAvg || 0, rcount: cfg.ratingCount || 0, hoverStar: 0, rbusy: false,
-            comments: cfg.comments || [], ccount: cfg.commentCount || 0, cbody: '', cbusy: false,
 
             init() {
                 document.addEventListener('fullscreenchange', () => { this.fs = window.nxFullscreenActive(); });
@@ -563,33 +534,19 @@
                 if (i !== this.index || this.episodes[i]?.signupUrl) { this.index = i; this.load(); }
             },
 
-            // ---- end-of-series card: rate + comment on the last episode ---------
+            // ---- end-of-series card: rate on the last episode (comments: the drawer) ---------
             onEnded() {
                 if (this.index < this.episodes.length - 1) { this.next(); return; }
                 this.showEndCard();   // finished the LAST vertical episode → invite a rating + comment
             },
             showEndCard() {
                 this.finished = true; this.ui = true;
-                // nudge the Turnstile widget (it rendered while the card was display:none) so the
-                // comment post gets a fresh token.
-                this.$nextTick(() => { try { window.turnstile && window.turnstile.reset(); } catch (e) {} });
             },
             async rate(n) {
                 if (this.rbusy) return;
                 this.rbusy = true;
                 try { const d = await nxPost(cfg.rateUrl, { stars: n }); this.my = d.my_rating; this.avg = d.avg; this.rcount = d.count; }
                 catch (e) {} finally { this.rbusy = false; }
-            },
-            async postComment() {
-                if (this.cbusy || !this.cbody.trim()) return;
-                this.cbusy = true;
-                const ts = window.turnstile ? window.turnstile.getResponse() : '';
-                try {
-                    const d = await nxPost(cfg.commentUrl, { body: this.cbody, 'cf-turnstile-response': ts });
-                    this.comments.unshift({ author: d.comment.author, color: d.comment.avatar_color, initial: d.comment.initial, text: d.comment.text, ago: d.comment.ago });
-                    this.ccount = d.count; this.cbody = '';
-                    if (window.turnstile) window.turnstile.reset();
-                } catch (e) {} finally { this.cbusy = false; }
             },
             replayAll() { this.finished = false; this.go(0); },   // rewatch from episode 1
 
@@ -603,7 +560,7 @@
             // tapping 🔊 on mobile registers as a swipe and jumps episodes (owner: กดลำโพงแต่เปลี่ยนวีดีโอ).
             _onControl(e) { return !!(e.target && e.target.closest && e.target.closest('button, a, input, label, [role="button"]')); },
             onWheel(e) {
-                if (this.lock || this.epMenu || this.finished || this.signupOpen || this._onControl(e)) return;
+                if (this.lock || this.epMenu || this.finished || this.signupOpen || this.soOpen || this.soShare || this._onControl(e)) return;
                 if (e.deltaY > 25) this.next();
                 else if (e.deltaY < -25) this.prev();
                 else return;
@@ -617,7 +574,7 @@
             onTouchEnd(e) {
                 // Skip when the gesture began on a control, or while the episode grid is open (its own
                 // scroll must not change the underlying episode).
-                if (this._touchCtl || this.epMenu || this.finished || this.signupOpen) { this._touchCtl = false; return; }
+                if (this._touchCtl || this.epMenu || this.finished || this.signupOpen || this.soOpen || this.soShare) { this._touchCtl = false; return; }
                 const dy = this.touchY - e.changedTouches[0].clientY;
                 if (dy > 50) this.next();
                 else if (dy < -50) this.prev();
