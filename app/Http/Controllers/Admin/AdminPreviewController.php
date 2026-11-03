@@ -11,6 +11,7 @@ use App\Services\Import\SourceRegistry;
 use App\Support\HlsManifest;
 use App\Support\HlsSegment;
 use App\Support\BrowserRelay;
+use App\Support\MirrorRotation;
 use App\Support\RongYokClientResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -227,22 +228,23 @@ class AdminPreviewController extends Controller
 
     // ------------------------------------------------------------- helpers
 
-    /** Effective (backup-aware) stream for an episode — mirrors StreamController::resolve, no caching. */
+    /**
+     * Effective stream for an episode: the same chain viewers walk ([MirrorRotation::chain] — forced
+     * backup, active mirror, own source, other mirrors, legacy backup), but read-only and uncached, so
+     * an admin trying a suspended title neither moves its link health nor sees a stale resolve. It
+     * used to try only the primary and the backup_* triple, so a title rescued by a mirror still
+     * previewed as dead.
+     */
     private function resolveEpisode(Episode $episode, SourceRegistry $registry): ?RemoteStream
     {
-        if (! $episode->source || ! $episode->source_ref) {
-            return null;
-        }
-        $hasBackup = $episode->backup_source && $episode->backup_key;
-        $primary = fn () => $this->via($registry, $episode->source, $episode->content->source_key ?? '', (string) $episode->source_ref);
-        $backup = fn () => $this->via($registry, (string) $episode->backup_source, (string) $episode->backup_key, (string) ($episode->backup_ref ?: $episode->source_ref));
-
-        $s = ($episode->backup_forced && $hasBackup) ? $backup() : $primary();
-        if ($s === null) {
-            $s = ($episode->backup_forced && $hasBackup) ? $primary() : ($hasBackup ? $backup() : null);
+        foreach (MirrorRotation::chain($episode) as $link) {
+            $s = $this->via($registry, $link->source, $link->key, $link->ref);
+            if ($s !== null) {
+                return $s;
+            }
         }
 
-        return $s;
+        return null;
     }
 
     private function via(SourceRegistry $registry, string $sourceId, string $key, string $ref): ?RemoteStream
