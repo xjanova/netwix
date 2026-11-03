@@ -57,8 +57,26 @@ class SuspendedController extends Controller
         $data = $request->validate([
             'source_title' => ['required', 'integer'],
             'force' => ['sometimes', 'boolean'],
+            'merge' => ['sometimes', 'boolean'],
         ]);
         $st = SourceTitle::findOrFail($data['source_title']);
+
+        // That copy is already live here under its own entry: send this one's viewers there instead
+        // of listing the title twice.
+        if ($request->boolean('merge')) {
+            $live = Content::withoutGlobalScopes()
+                ->where('source', $st->source)->where('source_key', $st->source_key)
+                ->whereKeyNot($content->id)->where('is_published', true)->first();
+            if (! $live) {
+                return response()->json(['ok' => false, 'message' => 'ไม่พบเรื่องนี้ที่ออนไลน์อยู่ในเว็บแล้ว'], 422);
+            }
+            $finder->retire($content, $live);
+
+            return response()->json([
+                'ok' => true,
+                'message' => 'ปิด “'.$content->title.'” แล้ว — คนที่เปิดลิงก์เดิมจะถูกพาไปที่ “'.$live->title.'” (#'.$live->id.')',
+            ]);
+        }
 
         if (! $request->boolean('force')) {
             $check = $finder->verify($content, $st->source, $st->source_key);

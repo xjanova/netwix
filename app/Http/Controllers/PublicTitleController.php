@@ -17,6 +17,9 @@ class PublicTitleController extends Controller
 {
     public function show(Request $request, Content $content): View|RedirectResponse
     {
+        if ($live = $content->duplicateTarget()) {
+            return redirect()->route('title.show', $live, 301);   // retired duplicate → the live entry
+        }
         abort_unless($content->is_published, 404);
 
         // Signed-in member with an active profile → the personalised member title page (their nav +

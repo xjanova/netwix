@@ -90,11 +90,21 @@
                                         <span x-show="r.episodes" x-text="'· ' + r.episodes + ' ตอน'"></span>
                                         <span :class="r.score >= 90 ? 'text-success' : 'text-[#f5a524]'" x-text="r.score >= 90 ? '· ชื่อตรงกัน' : '· ชื่อใกล้เคียง ' + r.score + '%'"></span>
                                         <span x-show="r.mirrored" class="text-cream/60">· เป็นลิงก์สำรองอยู่แล้ว</span>
+                                        <span x-show="r.covers === false" class="text-[#f5a524]">· ตอนไม่ครบ</span>
+                                        <span x-show="r.failed" class="text-[#ff6b81]">· เพิ่งลองแล้วเล่นไม่ได้</span>
+                                        <span x-show="r.imported_as" class="text-[#8ab4ff]"
+                                              x-text="r.imported_as ? '· มีในเว็บแล้ว #' + r.imported_as.id + (r.imported_as.published ? ' (ออนไลน์)' : ' (ปิดอยู่)') : ''"></span>
                                     </div>
                                 </div>
                                 <button type="button" @click="preview(r.preview, r.site + ' · ' + r.title)"
                                         class="rounded-lg bg-white/5 px-2.5 py-1.5 text-[12px] text-cream/70 hover:bg-white/10">▶ ลองเล่น</button>
+                                <template x-if="r.imported_as && r.imported_as.published">
+                                    <button type="button" @click="merge({{ $c->id }}, @js(route('admin.suspended.attach', $c)), r)" :disabled="busy !== null"
+                                            class="rounded-lg bg-[#3b82f6]/15 px-2.5 py-1.5 text-[12px] font-semibold text-[#8ab4ff] hover:bg-[#3b82f6]/25 disabled:opacity-50"
+                                            x-text="busy === r.id ? 'กำลังย้าย…' : 'ย้ายคนดูไปเรื่องนี้'"></button>
+                                </template>
                                 <button type="button" @click="attach({{ $c->id }}, @js(route('admin.suspended.attach', $c)), r)" :disabled="busy !== null"
+                                        x-show="!(r.imported_as && r.imported_as.published)"
                                         class="rounded-lg bg-success/15 px-2.5 py-1.5 text-[12px] font-semibold text-success hover:bg-success/25 disabled:opacity-50"
                                         x-text="busy === r.id ? 'กำลังตรวจ…' : 'ใช้ลิงก์นี้'"></button>
                             </div>
@@ -141,12 +151,17 @@
             }
             if (this.open === id) this.loading = false;
         },
-        async attach(id, url, r, force = false) {
+        async merge(id, url, r) {
+            if (!confirm('ปิดเรื่องนี้ แล้วพาคนที่เปิดลิงก์เดิมไปที่ “' + r.imported_as.title + '” (#' + r.imported_as.id + ') แทน?')) return;
+            await this.attach(id, url, r, false, true);
+        },
+        async attach(id, url, r, force = false, merge = false) {
             if (this.busy !== null) return;
             this.busy = r.id;
             try {
                 const body = new URLSearchParams({ _token: document.querySelector('meta[name="csrf-token"]').content, source_title: r.id });
                 if (force) body.set('force', '1');
+                if (merge) body.set('merge', '1');
                 const res = await fetch(url, { method: 'POST', body, headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' } });
                 const d = await res.json().catch(() => null);
                 this.busy = null;

@@ -61,6 +61,21 @@ class Content extends Model
         return $this->review_flagged_at !== null && ! $this->review_ignored && $this->suspended_at === null;
     }
 
+    /**
+     * A dead entry retired as a duplicate of a live one ([App\Support\ReplacementFinder::retire]) →
+     * that live entry, so old links, bookmarks and history land on a title that plays. Resolved
+     * through the normal scopes: a kids profile is never redirected onto an adult title.
+     */
+    public function duplicateTarget(): ?self
+    {
+        if ($this->is_published || ! str_starts_with((string) $this->suspend_reason, 'duplicate:')) {
+            return null;
+        }
+        $target = self::find((int) substr((string) $this->suspend_reason, strlen('duplicate:')));
+
+        return $target?->is_published ? $target : null;
+    }
+
     /** Auto-suspended (un-playable) titles parked for admin review. */
     public function scopeSuspended(Builder $q): Builder
     {

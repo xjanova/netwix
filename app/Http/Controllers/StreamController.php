@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Episode;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
+use App\Support\DeadHosts;
 use App\Support\HlsManifest;
 use App\Support\HlsSegment;
 use App\Support\MirrorLink;
@@ -154,6 +155,12 @@ class StreamController extends Controller
         try {
             $resp = Http::withHeaders($this->headers($stream->referer))->connectTimeout(8)->timeout(30)->get($stream->url);
         } catch (\Throwable $e) {
+            // A host that no longer resolves (a dropped domain) fails like this for every viewer,
+            // each one waiting out the resolver. Bench the host and this link so the next request
+            // rotates on at once — see [DeadHosts]. Not counted toward auto-suspend: DNS can blip.
+            if (DeadHosts::isDnsFailure($e) && DeadHosts::noteDnsFailure($stream->url) && $link !== null) {
+                MirrorRotation::markDead($episode, $link);
+            }
             abort(504, 'upstream manifest unavailable');
         }
         // Some players wrap the playlist (animeruka/animemami serves it as JSON-base64 in a .txt) —
@@ -184,7 +191,8 @@ class StreamController extends Controller
             }
             abort(404);   // thrown inside Cache::remember → the junk is never cached
         }
-        $dir = $this->baseUrl($stream->url);
+        DeadHosts::noteAlive($stream->url);
+        $dir =$this->baseUrl($stream->url);
         $lines = preg_split('/\r?\n/', $body);
 
         // The context carries what every child URI has in common, so each line seals only what
