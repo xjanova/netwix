@@ -235,7 +235,26 @@ class StreamController extends Controller
         // stolen manifest is only useful if its segments load, so the rule has to hold on both.
         $this->blockForeignEmbed($request);
 
-        $opened = $this->openHandle($episode, $request);
+        return $this->proxySegment($this->openHandle($episode, $request));
+    }
+
+    /**
+     * /edge/{episode}/segment — normally answered by the segment-edge worker on its Cloudflare route
+     * before it ever reaches us. We only see it when the worker can't run (its free daily request
+     * quota is spent, and the route fails open to the origin): then we proxy it ourselves exactly
+     * like segment(), so running out of quota means the old speed, never a dead player.
+     */
+    public function edgeSegment(Episode $episode, Request $request)
+    {
+        $this->blockForeignEmbed($request);
+        $keys = self::edgeKeys();
+
+        return $this->proxySegment($keys === null ? null : $this->openHandle($episode, $request, $keys));
+    }
+
+    /** @param  array{0:string,1:?string,2:int}|null  $opened */
+    private function proxySegment(?array $opened)
+    {
         abort_if($opened === null, 403);
         [$url, $ref, $exp] = $opened;
 
@@ -484,22 +503,22 @@ class StreamController extends Controller
      *
      * @return array{0:string,1:?string,2:int}|null
      */
-    private function openHandle(Episode $episode, Request $request): ?array
+    private function openHandle(Episode $episode, Request $request, ?array $keys = null): ?array
     {
         $c = (string) $request->query('c', '');
         $p = (string) $request->query('p', '');
         if ($c === '' || $p === '') {
-            return $this->openLegacyHandle((string) $request->query('u', ''));
+            return $keys === null ? $this->openLegacyHandle((string) $request->query('u', '')) : null;
         }
 
-        $ctx = self::sivOpen('c|'.$episode->id, $c);
+        $ctx = self::sivOpen('c|'.$episode->id, $c, $keys);
         $parts = $ctx === null ? [] : explode('|', $ctx, 3);
         if (count($parts) !== 3 || (int) $parts[0] < now()->getTimestamp()) {
             return null;
         }
         [$exp, $base, $referer] = $parts;
 
-        $rest = self::sivOpen('p|'.$episode->id.'|'.$c, $p);
+        $rest = self::sivOpen('p|'.$episode->id.'|'.$c, $p, $keys);
         $url = match ($rest === null ? '' : $rest[0]) {
             'r' => $base.substr($rest, 1),
             'a' => substr($rest, 1),
@@ -587,7 +606,7 @@ class StreamController extends Controller
         return rtrim(strtr(base64_encode($iv.$cipher), '+/', '-_'), '=');
     }
 
-    private static function sivOpen(string $context, string $handle): ?string
+    private static function sivOpen(string $context, string $handle, ?array $keys = null): ?string
     {
         if ($handle === '' || strspn($handle, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_') !== strlen($handle)) {
             return null;
@@ -596,7 +615,7 @@ class StreamController extends Controller
         if ($bin === false || strlen($bin) < 17) {
             return null;
         }
-        [$enc, $mac] = self::sealKeys();
+        [$enc, $mac] = $keys ?? self::sealKeys();
         $iv = substr($bin, 0, 16);
         $plaintext = openssl_decrypt(substr($bin, 16), 'aes-256-ctr', $enc, OPENSSL_RAW_DATA, $iv);
         if ($plaintext === false) {

@@ -154,7 +154,10 @@ return [
         'url' => env('SEGMENT_EDGE_URL', ''),
         'enc' => env('SEGMENT_EDGE_ENC', ''),   // base64, 32 bytes — same value as the worker's SEAL_ENC
         'mac' => env('SEGMENT_EDGE_MAC', ''),   // base64, 32 bytes — same value as the worker's SEAL_MAC
-        'hosts' => env('SEGMENT_EDGE_HOSTS', '24playerhd.com,108player.com,thairedone.com'),
+        // Playlist or segment hosts whose segments go through the worker. 24hdx/anime108 throttle our
+        // IP; wowdrama (getplay-cdn) and goseries4k (torbo007) don't, but their 4 s segments took 3-9 s
+        // through our proxy against well under a second from the worker (measured 2026-11-03).
+        'hosts' => env('SEGMENT_EDGE_HOSTS', '24playerhd.com,108player.com,thairedone.com,getplay-cdn.com,torbo007.com'),
     ],
 
 ];

@@ -3,6 +3,12 @@ main = "src/index.js"
 compatibility_date = "2026-10-01"
 workers_dev = true
 
+# Same origin as the player: no CORS round trip, nothing a network that blocks *.workers.dev can
+# break. The route must fail OPEN (dashboard: Workers Routes → Request limit failure mode) so a
+# spent quota falls through to the origin's /edge/{episode}/segment instead of erroring. Check
+# request_limit_fail_open after every `wrangler deploy` (GET zones/{zone}/workers/routes).
+routes = [{ pattern = "netwix.online/edge/*", zone_name = "netwix.online" }]
+
 # Secrets (wrangler secret put): SEAL_ENC, SEAL_MAC — base64 of two random 32-byte keys.
 # The same two values go into the site's .env as SEGMENT_EDGE_ENC / SEGMENT_EDGE_MAC, with
-# SEGMENT_EDGE_URL set to this worker's URL (see config/services.php 'segment_edge').
+# SEGMENT_EDGE_URL=https://netwix.online/edge (see config/services.php 'segment_edge').

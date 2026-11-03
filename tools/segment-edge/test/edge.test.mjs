@@ -44,6 +44,15 @@ test('refuses an expired, tampered, misplaced or non-https handle', async () => 
   assert.equal(await openHandle(env, '7', other.c, h.p, now), null);
 });
 
+test('answers on the netwix.online/edge route and refuses other paths or a foreign referer', async () => {
+  const { default: worker } = await import('../src/index.js');
+  const call = (path, headers = {}) => worker.fetch(new Request('https://netwix.online' + path, { headers }), env, { waitUntil() {} });
+  assert.equal((await call('/edge/7/segment?c=x&p=y')).status, 403);   // reached the handle check
+  assert.equal((await call('/edge/7/other')).status, 404);
+  const h = handle(7, 'rseg-1.ts', Math.floor(Date.now() / 1000) + 600);
+  assert.equal((await call(`/edge/7/segment?c=${h.c}&p=${h.p}`, { Referer: 'https://evil.test/' })).status, 403);
+});
+
 test('strips a fake-image wrapper down to the TS sync run', () => {
   const ts = new Uint8Array(188 * 5);
   for (let i = 0; i < 5; i++) ts[i * 188] = 0x47;
