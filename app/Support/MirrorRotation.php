@@ -156,6 +156,19 @@ class MirrorRotation
                 $stream = null;
             }
 
+            // Resolved, but onto a host whose DNS is gone ([DeadHosts]) — rotate on without making the
+            // viewer wait out the resolver. A dropped domain (dark for hours) is a definitive failure;
+            // a fresh bench could still be a blip, so it only counts as transient.
+            if ($stream !== null && DeadHosts::isBenched($stream->url)) {
+                if (DeadHosts::isLongDead($stream->url)) {
+                    self::recordFailure($link);
+                } else {
+                    $transient = true;
+                }
+
+                continue;
+            }
+
             if ($stream !== null) {
                 self::recordOk($episode, $link);
 

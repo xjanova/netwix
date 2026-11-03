@@ -64,6 +64,15 @@ class FindBackupsCommand extends Command
                     $copy = null;
                     $this->warn("  {$content->title}: catalogue search error — ".mb_substr($e->getMessage(), 0, 120));
                 }
+                if ($copy && $copy['kind'] === 'duplicate') {
+                    $found++;
+                    $this->info("  ✓ {$content->title} → ซ้ำกับเรื่อง #{$copy['duplicate_of']} ที่ออนไลน์อยู่แล้ว (ย้ายคนดูไปเรื่องนั้น)");
+                    Log::info('backup-finder: retired a duplicate of a live title', [
+                        'content_id' => $content->id, 'title' => $content->title, 'duplicate_of' => $copy['duplicate_of'],
+                    ]);
+
+                    continue;
+                }
                 if ($copy) {
                     $found++;
                     $this->info("  ✓ {$content->title} → ลิ้งค์ทดแทนจาก {$copy['site']}");

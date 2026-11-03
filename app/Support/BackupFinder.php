@@ -113,6 +113,9 @@ class BackupFinder
         }
 
         $url = $stream->url;
+        if (DeadHosts::isBenched($url)) {
+            return false;   // its domain no longer resolves — don't wait out the resolver again
+        }
         $body = $this->fetchPlaylist($url, $stream->referer);
         if ($body === null) {
             return false;
@@ -169,7 +172,11 @@ class BackupFinder
         try {
             $body = Http::withHeaders($this->headers($referer))
                 ->connectTimeout(8)->timeout(20)->get($url)->body();
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            if (DeadHosts::isDnsFailure($e)) {
+                DeadHosts::noteDnsFailure($url);
+            }
+
             return null;
         }
 

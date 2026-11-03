@@ -9,6 +9,7 @@ use App\Models\SourceTitle;
 use App\Services\Import\RemoteStream;
 use App\Services\Import\SourceRegistry;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -30,12 +31,19 @@ class ReplacementFinder
 
     private const MIN_SCORE = 55;
 
+    /** How long a copy that failed its play check is skipped by the bot (and flagged to the admin). */
+    private const FAILED_TTL_DAYS = 3;
+
     public function __construct(private SourceRegistry $registry, private BackupFinder $verifier) {}
 
     /**
      * Candidate copies of $content across every synced site, best first.
      *
-     * @return list<array{id:int,source:string,site:string,key:string,title:string,year:?int,poster:?string,episodes:?int,score:int,same_site:bool,mirrored:bool,preview:string}>
+     * `covers` is false when the site's copy has fewer episodes than we list (null = unknown / a
+     * movie); `failed` marks a copy whose play check failed lately; `imported_as` is our own entry
+     * for that very copy, when a re-upload was imported as a title of its own.
+     *
+     * @return list<array{id:int,source:string,site:string,key:string,title:string,year:?int,poster:?string,episodes:?int,score:int,same_site:bool,mirrored:bool,covers:?bool,failed:bool,imported_as:?array{id:int,title:string,published:bool,episodes:int},preview:string}>
      */
     public function candidates(Content $content, int $limit = 15): array
     {
@@ -62,13 +70,15 @@ class ReplacementFinder
             ->limit(300)
             ->get();
 
+        $rows = $rows->filter(fn (SourceTitle $st) => self::score($want, Content::dedupeKey($st->displayTitle()), $content->year, $st->year) >= self::MIN_SCORE);
+        $span = self::episodeSpan($content);
+        $imported = $this->importedAs($content, $rows);
+
         $out = [];
         foreach ($rows as $st) {
             $score = self::score($want, Content::dedupeKey($st->displayTitle()), $content->year, $st->year);
-            if ($score < self::MIN_SCORE) {
-                continue;
-            }
             $source = $this->registry->get($st->source);
+            $own = $imported[$st->source."\0".$st->source_key] ?? null;
             $out[] = [
                 'id' => $st->id,
                 'source' => $st->source,
@@ -81,11 +91,21 @@ class ReplacementFinder
                 'score' => $score,
                 'same_site' => $st->source === $content->source,
                 'mirrored' => ($mirrored[$st->source] ?? null) === $st->source_key,
+                'covers' => $span === null || ! $st->episodes_count ? null : (int) $st->episodes_count >= $span,
+                'failed' => self::failedRecently($content, $st->source, $st->source_key),
+                'imported_as' => $own ? [
+                    'id' => $own->id,
+                    'title' => (string) $own->title,
+                    'published' => (bool) $own->is_published,
+                    'episodes' => (int) $own->episodes_count,
+                ] : null,
                 'preview' => route('admin.preview.source', $st),
             ];
         }
 
-        usort($out, fn ($a, $b) => [$b['score'], $b['episodes'] ?? 0] <=> [$a['score'], $a['episodes'] ?? 0]);
+        // Best title first; among equals, a copy that hasn't just failed and that has every episode.
+        $rank = fn (array $c) => [$c['score'], $c['failed'] ? 0 : 1, $c['covers'] === false ? 0 : 1, $c['episodes'] ?? 0];
+        usort($out, fn ($a, $b) => $rank($b) <=> $rank($a));
 
         return array_slice($out, 0, $limit);
     }
@@ -110,13 +130,43 @@ class ReplacementFinder
             $stream = null;
         }
         if ($stream === null) {
-            return ['ok' => false, 'kind' => null, 'message' => 'ขอลิงก์ตอนที่ '.$ref.' จาก '.$source->displayName().' ไม่ได้'];
+            return $this->failed($content, $sourceId, $key, null, 'ขอลิงก์ตอนที่ '.$ref.' จาก '.$source->displayName().' ไม่ได้');
         }
         if ($stream->kind === RemoteStream::KIND_HLS && ! $this->verifier->plays($stream)) {
-            return ['ok' => false, 'kind' => $stream->kind, 'message' => 'ได้ลิงก์มาแต่วิดีโอเล่นไม่ได้ (playlist หรือไฟล์วิดีโอเสีย)'];
+            return $this->failed($content, $sourceId, $key, $stream->kind, 'ได้ลิงก์มาแต่วิดีโอเล่นไม่ได้ (playlist หรือไฟล์วิดีโอเสีย)');
         }
 
+        // A copy that plays episode 1 can still stop half-way: ask for our last episode too. Only a
+        // clean "no such episode" fails it — a throw is the site being slow, not proof.
+        $span = self::episodeSpan($content);
+        if ($span !== null && $span > (int) $ref) {
+            try {
+                $last = $source->resolveByRef($key, (string) $span);
+            } catch (\Throwable) {
+                $last = false;
+            }
+            if ($last === null) {
+                return $this->failed($content, $sourceId, $key, $stream->kind,
+                    'ตอนที่ '.$ref.' เล่นได้ แต่ขอตอนที่ '.$span.' ไม่ได้ (เว็บนี้อาจมีไม่ครบทุกตอน)');
+            }
+        }
+
+        Cache::forget(self::failedKey($content, $sourceId, $key));
+
         return ['ok' => true, 'kind' => $stream->kind, 'message' => 'ตอนที่ '.$ref.' เล่นได้'];
+    }
+
+    /**
+     * A verify that failed: remembered for FAILED_TTL_DAYS, so the daily bot stops re-trying the same
+     * dead copy and the admin list shows it was tried.
+     *
+     * @return array{ok:false,kind:?string,message:string}
+     */
+    private function failed(Content $content, string $sourceId, string $key, ?string $kind, string $message): array
+    {
+        Cache::put(self::failedKey($content, $sourceId, $key), time(), now()->addDays(self::FAILED_TTL_DAYS));
+
+        return ['ok' => false, 'kind' => $kind, 'message' => $message];
     }
 
     /**
@@ -131,10 +181,19 @@ class ReplacementFinder
                 ['source_key' => $key, 'is_manual' => true],
             );
             $mirror->forceFill(['fail_streak' => 0])->save();
-            Episode::where('content_id', $content->id)->update(['active_mirror_id' => $mirror->id]);
+
+            // Episodes past the end of the site's copy keep starting at their own link — pointing them
+            // at a mirror that doesn't have them would only cost a failed hop (and a fail_streak) each.
+            $episodes = Episode::where('content_id', $content->id);
+            $count = (int) SourceTitle::where('source', $sourceId)->where('source_key', $key)->value('episodes_count');
+            if ($content->type !== 'movie' && $count > 0) {
+                $episodes->where('number', '<=', $count);
+            }
+            $episodes->update(['active_mirror_id' => $mirror->id]);
 
             return $mirror;
         });
+        Cache::forget(self::failedKey($content, $sourceId, $key));
 
         foreach (Episode::where('content_id', $content->id)->pluck('id') as $id) {
             Cache::forget("ep_raw:{$id}");
@@ -149,24 +208,69 @@ class ReplacementFinder
     }
 
     /**
-     * The bot's version: try the confident matches only (same title, compatible year), attach the first
-     * that verifies. A wrong guess would republish the wrong film, so anything weaker is left for the
-     * admin to judge in the suspended list.
+     * The bot's version: confident matches only (same title, compatible year). A wrong guess would
+     * republish the wrong film, so anything weaker is left for the admin to judge in the suspended list.
      *
-     * @return array{source:string,key:string,site:string}|null
+     *  - When that copy is ALREADY live on our site as its own entry (a re-upload the importer took for
+     *    a new title), publishing this one too would only list the title twice: it is retired instead,
+     *    and its watch/title URLs send viewers to the live entry ([self::retire]).
+     *  - Otherwise the first copy that verifies is attached — skipping copies that failed lately and
+     *    copies the site lists with fewer episodes than ours.
+     *
+     * @return array{kind:string,source:string,key:string,site:string,duplicate_of?:int}|null
      */
     public function rescue(Content $content, int $tries = 4): ?array
     {
-        $strong = array_filter($this->candidates($content, 10), fn ($c) => $c['score'] >= self::STRONG);
-        foreach (array_slice(array_values($strong), 0, $tries) as $c) {
+        $strong = array_values(array_filter($this->candidates($content, 10), fn ($c) => $c['score'] >= self::STRONG));
+
+        foreach ($strong as $c) {
+            $own = $c['imported_as'];
+            if ($own && $own['published'] && $own['episodes'] > 0) {
+                $live = Content::withoutGlobalScopes()->find($own['id']);
+                if ($live) {
+                    $this->retire($content, $live);
+
+                    return ['kind' => 'duplicate', 'source' => $c['source'], 'key' => $c['key'], 'site' => $c['site'], 'duplicate_of' => $live->id];
+                }
+            }
+        }
+
+        if (! $content->episodes()->exists()) {
+            return null;   // nothing for a link to play — an empty entry must not come back on the site
+        }
+
+        $tried = 0;
+        foreach ($strong as $c) {
+            if ($c['failed'] || $c['covers'] === false) {
+                continue;
+            }
+            if (++$tried > $tries) {
+                break;
+            }
             if ($this->verify($content, $c['source'], $c['key'])['ok']) {
                 $this->attach($content, $c['source'], $c['key']);
 
-                return ['source' => $c['source'], 'key' => $c['key'], 'site' => $c['site']];
+                return ['kind' => 'mirror', 'source' => $c['source'], 'key' => $c['key'], 'site' => $c['site']];
             }
         }
 
         return null;
+    }
+
+    /**
+     * Take $dead off the site for good in favour of $live, the same title already published under
+     * another entry. Nothing is deleted (its comments, likes and history stay); its pages redirect to
+     * $live ([Content::duplicateTarget]) and it leaves the suspended list.
+     */
+    public function retire(Content $dead, Content $live): void
+    {
+        $dead->forceFill([
+            'is_published' => false,
+            'suspended_at' => null,
+            'suspend_reason' => 'duplicate:'.$live->id,
+            'review_flagged_at' => null,
+        ])->save();
+        Cache::forget('admin:suspended_count');
     }
 
     /**
@@ -192,6 +296,51 @@ class ReplacementFinder
         }
 
         return max(0, $score);
+    }
+
+    /** Our highest episode number for a series, or null for a movie / an entry with none. */
+    private static function episodeSpan(Content $content): ?int
+    {
+        if ($content->type === 'movie') {
+            return null;
+        }
+        $max = $content->episodes()->max('number');
+
+        return $max ? (int) $max : null;
+    }
+
+    /**
+     * Our own entries for these catalogue rows, keyed "source\0key" — how a re-upload that the importer
+     * took for a new title is recognised.
+     *
+     * @param  Collection<int,SourceTitle>  $rows
+     * @return array<string,Content>
+     */
+    private function importedAs(Content $content, Collection $rows): array
+    {
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        return Content::withoutGlobalScopes()
+            ->whereIn('source', $rows->pluck('source')->unique()->all())
+            ->whereIn('source_key', $rows->pluck('source_key')->unique()->all())
+            ->where('id', '!=', $content->id)
+            ->where('type', $content->type)
+            ->withCount('episodes')
+            ->get(['id', 'title', 'type', 'source', 'source_key', 'is_published'])
+            ->keyBy(fn (Content $c) => $c->source."\0".$c->source_key)
+            ->all();
+    }
+
+    private static function failedRecently(Content $content, string $sourceId, string $key): bool
+    {
+        return Cache::has(self::failedKey($content, $sourceId, $key));
+    }
+
+    private static function failedKey(Content $content, string $sourceId, string $key): string
+    {
+        return "replace:failed:{$content->id}:".sha1($sourceId."\0".$key);
     }
 
     /**

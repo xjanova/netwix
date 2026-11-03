@@ -17,6 +17,12 @@ class WatchController extends Controller
 {
     public function show(Request $request, Content $content, ?Episode $episode = null): View|RedirectResponse
     {
+        // Retired duplicate → the live entry, on the same episode number when it has one.
+        if ($live = $content->duplicateTarget()) {
+            $same = $episode ? $live->episodes()->where('number', $episode->number)->first() : null;
+
+            return redirect()->route('watch', array_filter([$live, $same]), 301);
+        }
         abort_unless($content->is_published, 404);
 
         // Adult (18+/20+) titles need Pro. Kids profiles never get here — the maturity global scope
