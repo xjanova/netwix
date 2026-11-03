@@ -27,6 +27,7 @@ class InteractionController extends Controller
 
         return response()->json([
             'liked' => count($result['attached']) > 0,
+            'count' => $content->likedBy()->count(),
         ]);
     }
 

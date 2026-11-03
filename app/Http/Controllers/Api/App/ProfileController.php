@@ -45,7 +45,7 @@ class ProfileController extends Controller
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:40'],
-            'avatar_color' => ['nullable', 'string', 'max:32'],
+            'avatar_color' => ['nullable', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
             'is_kids' => ['sometimes', 'boolean'],
         ]);
 
@@ -85,7 +85,7 @@ class ProfileController extends Controller
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:40'],
-            'avatar_color' => ['nullable', 'string', 'max:32'],
+            'avatar_color' => ['nullable', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
             'is_kids' => ['sometimes', 'boolean'],
         ]);
 
