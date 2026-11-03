@@ -6,6 +6,7 @@ use App\Models\Content;
 use App\Models\Setting;
 use App\Support\BackupFinder;
 use App\Support\PlaybackHealth;
+use App\Support\ReplacementFinder;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -25,7 +26,7 @@ class FindBackupsCommand extends Command
 
     protected $description = 'Find backup streams for un-playable titles and auto-republish (admin-toggleable via backup_finder_enabled).';
 
-    public function handle(BackupFinder $finder): int
+    public function handle(BackupFinder $finder, ReplacementFinder $replacements): int
     {
         $only = $this->option('content');
 
@@ -55,6 +56,24 @@ class FindBackupsCommand extends Command
                 continue;
             }
             if (! $backup) {
+                // Not on a Halim pool site — try every other site's synced catalogue (anime sources,
+                // wowdrama, a fresh upload on its own site, ...). attach() republishes on success.
+                try {
+                    $copy = $replacements->rescue($content);
+                } catch (Throwable $e) {
+                    $copy = null;
+                    $this->warn("  {$content->title}: catalogue search error — ".mb_substr($e->getMessage(), 0, 120));
+                }
+                if ($copy) {
+                    $found++;
+                    $this->info("  ✓ {$content->title} → ลิ้งค์ทดแทนจาก {$copy['site']}");
+                    Log::info('backup-finder: attached catalogue replacement + republished', [
+                        'content_id' => $content->id, 'title' => $content->title,
+                        'source' => $copy['source'], 'key' => $copy['key'],
+                    ]);
+
+                    continue;
+                }
                 $this->line("  · {$content->title}: no backup found");
 
                 continue;

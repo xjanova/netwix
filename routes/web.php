@@ -371,6 +371,8 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     // Auto-suspended (un-playable) titles for review — re-publish or delete.
     Route::get('suspended', [Admin\SuspendedController::class, 'index'])->name('suspended.index');
     Route::post('suspended/{content}/republish', [Admin\SuspendedController::class, 'republish'])->name('suspended.republish');
+    Route::get('suspended/{content}/candidates', [Admin\SuspendedController::class, 'candidates'])->name('suspended.candidates');
+    Route::post('suspended/{content}/attach', [Admin\SuspendedController::class, 'attach'])->name('suspended.attach');
 
     // Titles running on a backup stream (netwix:find-backups) + the daily-finder on/off toggle.
     Route::get('backups', [Admin\BackupController::class, 'index'])->name('backups.index');
