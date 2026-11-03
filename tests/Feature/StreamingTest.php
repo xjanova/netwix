@@ -406,6 +406,48 @@ class StreamingTest extends TestCase
             ->assertStatus(200)->assertHeader('Content-Type', 'video/mp2t');
     }
 
+    private function enableSegmentEdge(string $hosts = 'cdn-other.test'): void
+    {
+        config(['services.segment_edge' => [
+            'url' => 'https://edge.test/', 'hosts' => $hosts,
+            'enc' => base64_encode(str_repeat('e', 32)), 'mac' => base64_encode(str_repeat('m', 32)),
+        ]]);
+    }
+
+    /**
+     * 24hdx / anime108 segment CDNs cap a datacenter IP at a few KB/s, so their segments go to the
+     * Cloudflare edge worker instead of our /segment route — sealed under the worker's own keys, which
+     * our origin route must not accept (and vice versa: the worker's secret can't forge an origin handle).
+     */
+    public function test_a_throttling_cdns_segments_go_through_the_edge_worker(): void
+    {
+        $this->enableSegmentEdge();
+        $prefix = 'https://www.cdn-other.test/hls/abc/';
+        $episode = $this->hlsEpisode(array_map(fn ($i) => $prefix."seg-{$i}.html", range(1, 3)));
+
+        $lines = $this->uris($this->freshManifest($episode));
+
+        $this->assertCount(3, $lines);
+        foreach ($lines as $line) {
+            $this->assertStringStartsWith("https://edge.test/{$episode->id}/segment?c=", $line);
+            $this->assertStringNotContainsString('cdn-other', $line, 'the upstream stays sealed');
+        }
+        $this->get(route('stream.segment', $episode, false).'?'.http_build_query($this->query($lines[0])))
+            ->assertStatus(403);
+    }
+
+    public function test_other_cdns_and_an_unconfigured_edge_keep_the_origin_proxy(): void
+    {
+        $this->enableSegmentEdge('somewhere-else.test');
+        $episode = $this->hlsEpisode(['https://cdn.test/api/stream/abc/seg-1.ts']);
+        $this->assertStringStartsWith('segment?c=', $this->uris($this->freshManifest($episode))[0]);
+
+        // Matched host, but no keys: off, never a half-configured edge URL the worker can't open.
+        $this->enableSegmentEdge('cdn.test');
+        config(['services.segment_edge.mac' => '']);
+        $this->assertStringStartsWith('segment?c=', $this->uris($this->freshManifest($episode))[0]);
+    }
+
     /** Nothing about a handle can be edited, moved to another episode, or mixed with another playlist's. */
     public function test_a_forged_or_misplaced_handle_is_refused(): void
     {

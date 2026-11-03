@@ -1,0 +1,8 @@
+name = "netwix-segment-edge"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+# Secrets (wrangler secret put): SEAL_ENC, SEAL_MAC — base64 of two random 32-byte keys.
+# The same two values go into the site's .env as SEGMENT_EDGE_ENC / SEGMENT_EDGE_MAC, with
+# SEGMENT_EDGE_URL set to this worker's URL (see config/services.php 'segment_edge').
