@@ -148,4 +148,13 @@ return [
         'app_secret' => env('FB_APP_SECRET', ''),
     ],
 
+    // Cloudflare worker (tools/segment-edge) that fetches HLS segments for CDNs that throttle
+    // datacenter IPs. Empty url = off: every segment goes through our own /segment route as before.
+    'segment_edge' => [
+        'url' => env('SEGMENT_EDGE_URL', ''),
+        'enc' => env('SEGMENT_EDGE_ENC', ''),   // base64, 32 bytes — same value as the worker's SEAL_ENC
+        'mac' => env('SEGMENT_EDGE_MAC', ''),   // base64, 32 bytes — same value as the worker's SEAL_MAC
+        'hosts' => env('SEGMENT_EDGE_HOSTS', '24playerhd.com,108player.com,thairedone.com'),
+    ],
+
 ];

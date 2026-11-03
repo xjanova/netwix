@@ -204,10 +204,16 @@ class StreamController extends Controller
         // is never rewritten as a master rather than proxying in a circle.
         $isMaster = str_contains($body, '#EXT-X-STREAM-INF') && ! $nested;
 
+        // Segments of a CDN that throttles datacenter IPs are fetched by the Cloudflare edge worker
+        // instead of by us (see edgeFor). Sealed under the worker's own keys: it opens these handles
+        // and nothing else.
+        $edge = $isMaster ? null : self::edgeFor($stream->url, $base);
+        $keys = $edge !== null ? self::edgeKeys() : null;
+
         // One sealed context per playlist — expiry, shared prefix and Referer — the same on every line,
         // so the repeated part of each line is identical and compresses to almost nothing.
-        $ctx = self::sivSeal('c|'.$episode->id, self::bucketExpiry().'|'.$base.'|'.(string) $stream->referer);
-        $child = fn (string $uri) => $this->childUrl($episode, $ctx, $base, $this->absolute($uri, $dir), $isMaster);
+        $ctx = self::sivSeal('c|'.$episode->id, self::bucketExpiry().'|'.$base.'|'.(string) $stream->referer, $keys);
+        $child = fn (string $uri) => $this->childUrl($episode, $ctx, $base, $this->absolute($uri, $dir), $isMaster, $edge, $keys);
 
         return collect($lines)->map(function (string $line) use ($child) {
             $trim = trim($line);
@@ -395,14 +401,59 @@ class StreamController extends Controller
      * remainder `p`, bound to that context. When the upstream URL lives under the playlist's base — the
      * usual case — only the tail after the base is sealed, which is what keeps `p` short.
      */
-    private function childUrl(Episode $episode, string $ctx, string $base, string $abs, bool $playlist): string
+    private function childUrl(Episode $episode, string $ctx, string $base, string $abs, bool $playlist, ?string $edge = null, ?array $keys = null): string
     {
         $rest = str_starts_with($abs, $base) ? 'r'.substr($abs, strlen($base)) : 'a'.$abs;
-        $query = ['c' => $ctx, 'p' => self::sivSeal('p|'.$episode->id.'|'.$ctx, $rest)];
+        $query = ['c' => $ctx, 'p' => self::sivSeal('p|'.$episode->id.'|'.$ctx, $rest, $keys)];
 
-        return $playlist
-            ? 'index.m3u8?'.http_build_query($query + ['d' => 1])   // d: a nested playlist never nests again
-            : 'segment?'.http_build_query($query);
+        if ($playlist) {
+            return 'index.m3u8?'.http_build_query($query + ['d' => 1]);   // d: a nested playlist never nests again
+        }
+
+        return ($edge !== null ? $edge.'/'.$episode->id.'/' : '').'segment?'.http_build_query($query);
+    }
+
+    /**
+     * The segment-edge worker's base URL when this playlist's segments should go through it, else null.
+     *
+     * 24hdx and anime108 serve segments from CDNs that cap a datacenter IP at a few KB/s (measured
+     * 2026-11-03: 2-10 KB/s from our origin and from the relay box, 0.5-3.5 MB/s from a home line). A
+     * 10 s segment is ~600 KB, so through us it never finished inside SEGMENT_BUDGET: 502, hls.js
+     * retry, stutter. Matched on the playlist host as well as the segment host, because the segment
+     * hosts rotate (wave26092026.online, site26092026.online, ...) while the player hosts don't.
+     */
+    private static function edgeFor(string $playlistUrl, string $segmentBase): ?string
+    {
+        $edge = rtrim((string) config('services.segment_edge.url'), '/');
+        if ($edge === '' || self::edgeKeys() === null) {
+            return null;
+        }
+        $suffixes = array_filter(array_map('trim', explode(',', (string) config('services.segment_edge.hosts'))));
+        foreach ([$playlistUrl, $segmentBase] as $url) {
+            $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+            foreach ($suffixes as $suffix) {
+                $suffix = strtolower(ltrim($suffix, '.'));
+                if ($host === $suffix || str_ends_with($host, '.'.$suffix)) {
+                    return $edge;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The worker's own key pair — random, NOT derived from APP_KEY, so the secret living on Cloudflare
+     * can open edge handles and can never forge one our own /segment or manifest route accepts.
+     *
+     * @return array{0:string,1:string}|null [encryption key, MAC key]
+     */
+    private static function edgeKeys(): ?array
+    {
+        $enc = base64_decode((string) config('services.segment_edge.enc'), true);
+        $mac = base64_decode((string) config('services.segment_edge.mac'), true);
+
+        return is_string($enc) && is_string($mac) && strlen($enc) === 32 && strlen($mac) === 32 ? [$enc, $mac] : null;
     }
 
     /**
@@ -527,9 +578,9 @@ class StreamController extends Controller
      * a handle presented under another context (episode, playlist), fails. Keys are derived from
      * APP_KEY and kept apart from each other and from every other use of it.
      */
-    private static function sivSeal(string $context, string $plaintext): string
+    private static function sivSeal(string $context, string $plaintext, ?array $keys = null): string
     {
-        [$enc, $mac] = self::sealKeys();
+        [$enc, $mac] = $keys ?? self::sealKeys();
         $iv = substr(hash_hmac('sha256', $context."\0".$plaintext, $mac, true), 0, 16);
         $cipher = (string) openssl_encrypt($plaintext, 'aes-256-ctr', $enc, OPENSSL_RAW_DATA, $iv);
 
