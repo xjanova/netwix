@@ -288,6 +288,10 @@ Route::withoutMiddleware([
     // right place for that limit — a per-route ceiling, not a heuristic that has to guess intent.
     Route::get('/stream/{episode}/segment', [StreamController::class, 'segment'])
         ->middleware('throttle:600,1')->name('stream.segment');
+    // Served by the segment-edge Cloudflare worker on its netwix.online/edge/* route; reaches us only
+    // when that route fails open (worker quota spent).
+    Route::get('/edge/{episode}/segment', [StreamController::class, 'edgeSegment'])
+        ->middleware('throttle:600,1')->name('stream.edge-segment');
 });
 Route::get('/stream/{episode}/video.mp4', [StreamController::class, 'mp4'])
     ->middleware('throttle:240,1')->name('stream.mp4');

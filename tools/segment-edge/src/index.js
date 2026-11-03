@@ -11,7 +11,11 @@
  * (SEAL_ENC / SEAL_MAC, derived from APP_KEY with their own labels), so this worker can open a
  * handle and nothing else: it can't forge a handle the origin accepts.
  *
- *   GET /{episodeId}/segment?c=<sealed exp|base|referer>&p=<sealed rest>
+ *   GET /edge/{episodeId}/segment?c=<sealed exp|base|referer>&p=<sealed rest>
+ *
+ * It runs on the netwix.online/edge/* route (wrangler.toml), which fails open: once the free daily
+ * request quota is spent, the request goes on to our origin, whose /edge/{episode}/segment route
+ * opens the same handle and proxies the segment itself (StreamController::edgeSegment).
  */
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
@@ -32,7 +36,7 @@ export default {
       return text(405, 'method not allowed');
     }
     const url = new URL(request.url);
-    const m = url.pathname.match(/^\/(\d+)\/segment$/);
+    const m = url.pathname.match(/^(?:\/edge)?\/(\d+)\/segment$/);
     if (!m) return text(404, 'not found');
 
     // Same rule as the origin: a foreign page embedding our player must not get the segments.

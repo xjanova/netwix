@@ -436,6 +436,29 @@ class StreamingTest extends TestCase
             ->assertStatus(403);
     }
 
+    /**
+     * The worker's netwix.online/edge/* route fails open once its free quota is spent, so the origin
+     * must answer an edge handle itself — and only an edge handle.
+     */
+    public function test_the_origin_serves_an_edge_segment_when_the_worker_route_fails_open(): void
+    {
+        $this->enableSegmentEdge('cdn.test');
+        config(['services.segment_edge.url' => 'https://netwix.online/edge']);
+        $episode = $this->hlsEpisode(['https://cdn.test/api/stream/abc/seg-1.ts']);
+
+        $line = $this->uris($this->freshManifest($episode))[0];
+        $this->assertStringStartsWith("https://netwix.online/edge/{$episode->id}/segment?c=", $line);
+
+        $edge = route('stream.edge-segment', $episode, false);
+        $this->get($this->follow('/', $line))->assertStatus(200)->assertHeader('Content-Type', 'video/mp2t');
+        $this->get($edge.'?'.http_build_query($this->query($line)), ['Referer' => 'https://evil.test/'])->assertStatus(403);
+
+        // An origin handle is not an edge handle.
+        config(['services.segment_edge.url' => '']);
+        $origin = $this->query($this->uris($this->freshManifest($episode))[0]);
+        $this->get($edge.'?'.http_build_query($origin))->assertStatus(403);
+    }
+
     public function test_other_cdns_and_an_unconfigured_edge_keep_the_origin_proxy(): void
     {
         $this->enableSegmentEdge('somewhere-else.test');
